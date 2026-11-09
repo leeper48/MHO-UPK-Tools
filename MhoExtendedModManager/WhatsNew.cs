@@ -46,10 +46,23 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.386 (Kurt, 2026-11-05): Borrow Power released; faster 3D views (pants on a tiger).</summary>
     /// <summary>0.60.388 (Kurt, 2026-11-06): costume moves onto team-ups are easy to find; the Move window's Name in Game.</summary>
+    static Notice SpecMakers() => new(
+        "0.60.443-spec-makers", "0.60.443",
+        "[!]New on the Model tab's Materials tab" + nl +
+        "  • Right-click a row for Generate Spec Map (the shine made from the color map: Soft, Strong, Dark Is Shiny, Detail or Flat) and Generate Spec Color Map (from the color map, half tint, white, or one color you pick)." + nl +
+        "  • Tag Colors works on a costume's own textures too (no source picked): its packed spec texture is made from your tags, and untagged parts keep what they have." + nl +
+        "  • Copy Setup From a Costume also lists the materials of a costume's props, such as Captain America's shield." + nl +
+        "  • Viewing a spec map shows its colors without its alpha (that's reflectivity, not transparency), with buttons for each channel: Shine, Power, Skin Mask, Reflectivity." + nl +
+        "  • Edit in Image Editor works on maps the app made too, such as a spec map from your tags." + nl + nl +
+        "[!]Also fixed" + nl +
+        "  • Saving a mod with dodge ghosts dropped later changes to that package (a copied material, a Model build, a borrowed look). If one went missing, make it again and save." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-materials");
+
     static Notice NoAnimBorrow() => new(
         "0.60.435-noanim-borrow", "0.60.435",
         "[!]New: borrow a look for powers with no animation" + nl +

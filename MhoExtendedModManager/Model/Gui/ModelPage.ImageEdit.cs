@@ -18,6 +18,9 @@ sealed partial class ModelPage
         public required string Material, Kind, File;
         /// <summary>A texture of the package itself (no source picked): each save replaces it in the package.</summary>
         public PackageMap? Pkg;
+        /// <summary>The copy opened was a map the app made (an MHO spec map from color tags, converted to Angela's layout):
+        /// its save is in Angela's layout, so the material's layout choice is cleared.</summary>
+        public bool Made;
         public string Hash = "";
         public readonly System.Windows.Forms.Timer Delay = new() { Interval = 800 };
     }
@@ -40,11 +43,30 @@ sealed partial class ModelPage
         return Describe(sel.Kind, tex, e).Path is string f && File.Exists(f) ? f : null;
     }
 
+    /// <summary>A map the app makes for the row when it has no file (Kurt, 2026-11-08: edit the spec map made from color tags):
+    /// a generated normal or spec map, an MHO spec map from tags, a glow map from tags or a spec channel.</summary>
+    static bool MadeMap(string kind, Textures tex) => kind switch
+    {
+        "Normal" or "Spec" => tex.Diffuse != null || kind == "Spec" && tex.UsesMhoSpec,
+        "MHO Spec" => tex.SpecMhoAngela != null || tex.ColorTags is { Count: > 0 } && tex.Diffuse != null,
+        "Glow" => tex.GlowFile != null,
+        _ => false,
+    };
+
     void EditMapExternally()
     {
         if (SelectedPackageMap() is { } pm) { EditPackageMap(pm); return; }
-        if (SelectedMap() is not { } sel || OverridesPath() is not string ovPath) return;
-        if (SelectedMapFile() is not string source) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Replace File puts one in)."); return; }
+        if (SelectedMap() is not { } sel0 || OverridesPath() is not string ovPath) return;
+        var tex = shownMaterials.FirstOrDefault(m => m.Material == sel0.Material).Tex;
+        // the Spec row of a material that uses its MHO spec map: that map is the one edited
+        var sel = sel0.Kind == "Spec" && tex?.UsesMhoSpec == true ? (sel0.Material, Kind: "MHO Spec") : sel0;
+        bool made = false;
+        string? source = sel == sel0 ? SelectedMapFile() : null;
+        if (source == null && sel.Kind == "MHO Spec" && tex?.SpecMho is string own && File.Exists(own)) source = own;
+        if (source == null && tex != null && MadeMap(sel.Kind, tex))
+            try { source = MapImage(sel.Kind, tex, sel.Material, MapsCache); made = source != null; }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
+        if (source == null) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Replace File puts one in)."); return; }
         string? exe = ImageEditor.Find();
         if (exe == null)
         {
@@ -62,7 +84,8 @@ sealed partial class ModelPage
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.ExternalException)
         { Log($"Image editor: {Path.GetFileName(file)} couldn't be written ({ex.Message}); is it still open in the editor? Save or close it there first."); return; }
-        Watch(file, sel.Material, sel.Kind);
+        Watch(file, sel.Material, sel.Kind, made: made);
+        if (made) Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map is one the app made; your first save there becomes the material's own file (Back to Automatic goes back to the made one).");
         if (ImageEditor.Open(exe, file) is string failed) { Log($"Image editor: {ImageEditor.Describe(exe)} didn't start: {failed}"); return; }
         Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map is open in {ImageEditor.Describe(exe)} ({file}). Each save there comes back here; keep the name and PNG format{(ImageEditor.Describe(exe).StartsWith("GIMP") ? " (in GIMP: Ctrl+E exports over it; Ctrl+S only saves an .xcf)" : "")}.");
         status.Text = $"Editing in {ImageEditor.Describe(exe)}: Save There to Update"; status.ForeColor = Ui.Enabled;
@@ -83,13 +106,13 @@ sealed partial class ModelPage
         status.Text = $"Editing in {ImageEditor.Describe(exe)}: Save There to Update"; status.ForeColor = Ui.Enabled;
     }
 
-    void Watch(string file, string material, string kind, PackageMap? pkg = null)
+    void Watch(string file, string material, string kind, PackageMap? pkg = null, bool made = false)
     {
         if (imageWatches.Remove(file, out var old)) { old.Watcher.Dispose(); old.Delay.Dispose(); }
         var w = new ImageWatch
         {
             Watcher = new FileSystemWatcher(Path.GetDirectoryName(file)!, "*.*") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size },
-            Material = material, Kind = kind, File = file, Hash = HashOf(file) ?? "", Pkg = pkg,
+            Material = material, Kind = kind, File = file, Hash = HashOf(file) ?? "", Pkg = pkg, Made = made,
         };
         w.Delay.Tick += (_, _) => { w.Delay.Stop(); TakeEdit(w); };
         void On(string? name) { if (name != null && name.Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase)) Later(() => { w.Delay.Stop(); w.Delay.Start(); }); }
@@ -125,9 +148,10 @@ sealed partial class ModelPage
         File.WriteAllBytes(Path.Combine(dir, name), bytes);
         string rel = Path.Combine(Path.GetFileName(dir), name);
         string kind = w.Kind;
+        bool madeAngela = w.Made;
         ChangeOverrides((_, e) =>
         {
-            switch (kind) { case "Color": e.Color = rel; break; case "Normal": e.Normal = rel; e.FlipGreen = false; break; case "Spec": e.Spec = rel; break; case "MHO Spec": e.SpecMho = rel; break; case "Spec Color": e.SpecColor = rel; break; case "Glow": e.Glow = rel; e.GlowOff = false; break; default: e.Alpha = rel; break; }
+            switch (kind) { case "Color": e.Color = rel; break; case "Normal": e.Normal = rel; e.FlipGreen = false; break; case "Spec": e.Spec = rel; break; case "MHO Spec": e.SpecMho = rel; if (madeAngela) e.SpecLayout = null; break; case "Spec Color": e.SpecColor = rel; break; case "Glow": e.Glow = rel; e.GlowOff = false; break; default: e.Alpha = rel; break; }
         }, w.Material, $"{w.Material}'s {kind.ToLowerInvariant()} map from your image editor (saved {DateTime.Now:HH:mm:ss}) is in now.");
         status.Text = $"Image Editor: {w.Material} {kind} Updated"; status.ForeColor = Ui.Enabled;
     }

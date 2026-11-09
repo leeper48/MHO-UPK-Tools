@@ -10,6 +10,10 @@ namespace MhoExtendedModManager.Gui;
 sealed class ImageViewerForm : Form
 {
     readonly Image image;
+    /// <summary>What's drawn: the image, or one view of a packed map's channels (RGB without alpha, one channel as gray).</summary>
+    Image shown;
+    readonly List<(Button Button, int Mode)> channelButtons = [];
+    FlowLayoutPanel? viewsBar;   // (not in Tag: Ui.Lit keeps its style there)
     readonly Canvas canvas;
     readonly Label info = new() { AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left };
     float zoom = 1;
@@ -29,9 +33,14 @@ sealed class ImageViewerForm : Form
 
     /// <param name="editIn">The image editor's name: an "Edit in …" button that closes the viewer and asks the caller to open the
     /// picture there (<see cref="EditRequested"/>); null for none.</param>
-    public ImageViewerForm(Image source, string title, string exportName = "image", string? editIn = null)
+    /// <param name="channels">A packed map's channel names (R, G, B, A; Kurt, 2026-11-08: a spec map's skin mask didn't show,
+    /// its reflectivity alpha being 0 there drew it see-through): buttons to show RGB (alpha ignored, the start), RGBA, or
+    /// one channel as gray. Null: the picture as it is.</param>
+    public ImageViewerForm(Image source, string title, string exportName = "image", string? editIn = null, string[]? channels = null)
     {
-        image = new Bitmap(source);
+        // (raw pixels: a GDI+ copy drops the color under alpha 0, which on a packed spec map is real data: skin, cloth)
+        image = source is Bitmap sb ? RawCopy(sb) : new Bitmap(source);
+        shown = image;
         this.exportName = exportName;
         Text = title;
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -55,7 +64,22 @@ sealed class ImageViewerForm : Form
             Ui.FlatButton("Close", Close, tip: "Close the viewer (Esc)."),
         ]);
         bar.Controls.Add(buttons, 1, 0);
+        if (channels is { Length: 4 })
+        {
+            var views = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top, Padding = new Padding(10, 6, 10, 0) };
+            void Add(string label, int mode, string tip)
+            {
+                var b = Ui.FlatButton(label, () => ShowChannel(mode), tip: tip);
+                channelButtons.Add((b, mode)); views.Controls.Add(b);
+            }
+            Add("RGB", -1, "The map's red, green and blue as colors, its alpha left out (it's a channel of the map here, not transparency).");
+            Add("RGBA", -2, "The map as an image editor shows it: its alpha (" + channels[3] + ") as see-through over a checkerboard.");
+            for (int c = 0; c < 4; c++)
+                if (channels[c] is { Length: > 0 } n && n != "—") Add($"{"RGBA"[c]}: {Ui.TitleCase(n)}", c, $"The {"RGBA"[c]} channel ({n}) alone, as gray: white = most, black = none.");
+            viewsBar = views;
+        }
         Controls.Add(canvas); Controls.Add(bar);
+        if (viewsBar != null) Controls.Add(viewsBar);   // (after the canvas: a docked Fill must come first)
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
         Ui.FitToScreen(this, 1000, 780);
@@ -89,6 +113,37 @@ sealed class ImageViewerForm : Form
             e.Handled = true;
         };
         Shown += (_, _) => Layout2();
+        if (channels is { Length: 4 }) ShowChannel(-1);
+    }
+
+    /// <summary>Tests: the channel buttons.</summary>
+    internal IEnumerable<Button> ChannelButtonsForTest => channelButtons.Select(x => x.Button);
+
+    /// <summary>-2 the image as it is, -1 RGB opaque, 0-3 one channel (R G B A) as gray.</summary>
+    void ShowChannel(int mode)
+    {
+        if (!ReferenceEquals(shown, image)) shown.Dispose();
+        if (mode == -2) shown = image;
+        else
+        {
+            var bmp = RawCopy((Bitmap)image);
+            var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            var data = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadWrite, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var px = new int[bmp.Width * bmp.Height];
+            System.Runtime.InteropServices.Marshal.Copy(data.Scan0, px, 0, px.Length);
+            int shift = mode switch { 0 => 16, 1 => 8, 2 => 0, _ => 24 };
+            for (int i = 0; i < px.Length; i++)
+            {
+                if (mode == -1) { px[i] |= unchecked((int)0xFF000000); continue; }
+                int v = (int)(((uint)px[i] >> shift) & 0xFF);
+                px[i] = unchecked((int)0xFF000000) | (v << 16) | (v << 8) | v;
+            }
+            System.Runtime.InteropServices.Marshal.Copy(px, 0, data.Scan0, px.Length);
+            bmp.UnlockBits(data);
+            shown = bmp;
+        }
+        foreach (var (b, m) in channelButtons) Ui.Lit(b, m == mode);
+        canvas.Invalidate();
     }
 
     /// <summary>Fit: the whole picture, centred (never enlarged past 8×).</summary>
@@ -170,7 +225,7 @@ sealed class ImageViewerForm : Form
         // Sharp pixels once enlarged (to judge a 40×40 icon); smooth when shrunk.
         g.InterpolationMode = zoom >= 2 ? System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor : System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
         g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
-        g.DrawImage(image, r);
+        g.DrawImage(shown, r);
     }
 
     /// <summary>The picture as a PNG, pixel for pixel (Kurt: compare the 3D creator's PNG with the .DDS made from it).</summary>
@@ -182,7 +237,27 @@ sealed class ImageViewerForm : Form
         catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or IOException or UnauthorizedAccessException) { Dialog.Show(this, $"{Path.GetFileName(d.FileName)} can't be saved: {ex.Message}", "Export Picture", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) image.Dispose(); base.Dispose(disposing); }
+    /// <summary>A 32-bit ARGB copy pixel for pixel (LockBits, not drawn: drawing premultiplies and loses RGB under alpha 0).</summary>
+    static Bitmap RawCopy(Bitmap src)
+    {
+        var rect = new Rectangle(0, 0, src.Width, src.Height);
+        var copy = new Bitmap(src.Width, src.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var from = src.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var to = copy.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        try
+        {
+            var row = new byte[src.Width * 4];
+            for (int y = 0; y < src.Height; y++)
+            {
+                System.Runtime.InteropServices.Marshal.Copy(from.Scan0 + y * from.Stride, row, 0, row.Length);
+                System.Runtime.InteropServices.Marshal.Copy(row, 0, to.Scan0 + y * to.Stride, row.Length);
+            }
+        }
+        finally { src.UnlockBits(from); copy.UnlockBits(to); }
+        return copy;
+    }
+
+    protected override void Dispose(bool disposing) { if (disposing) { if (!ReferenceEquals(shown, image)) shown.Dispose(); image.Dispose(); } base.Dispose(disposing); }
 
     /// <summary>Makes a picture box open its picture in the viewer on a click (hand cursor, tooltip).</summary>
     public static void Attach(PictureBox box, Func<(Image? Image, string Title, string ExportName)> what)

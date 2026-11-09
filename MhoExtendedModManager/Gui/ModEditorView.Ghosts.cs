@@ -289,22 +289,43 @@ sealed partial class ModEditorView
         return kept;
     }
 
+    /// <summary>
+    /// The package the ghosts are built onto: the package as it is now (Kurt, 2026-11-08: a material copied on the Model tab
+    /// was lost at Save, because the ghosts were rebuilt from the copy kept when they were first made, Model\ghost_base, and
+    /// dropped every change since: Model builds, borrowed looks). A build replaces the ghost meshes in place (…_mod), so a
+    /// package that has ghosts already takes them again. The kept copy before a recolor (color_base) when there is one, since
+    /// the colors go on top at Save; <paramref name="preview"/>: the borrowed looks' preview build first. The kept copy from
+    /// before the ghosts is still made (Game's Ghosts puts it back).
+    /// </summary>
+    string GhostStart(string file, bool preview)
+    {
+        string kept = GhostBase(file);
+        if (preview && borrowFiles.TryGetValue(file, out var bf) && File.Exists(bf)) return bf;
+        if (DraftPath(file) is not string now || !File.Exists(now)) return kept;
+        // the mod's saved copy, recolored: the copy before the recolor (as PowerColorBuild.OwnStart has it; a package built
+        // since, not yet saved, is the start itself)
+        string colorBase = Path.Combine(WorkFolder, "color_base", file);
+        bool savedCopy = editing != null && Path.GetFullPath(now).StartsWith(Path.GetFullPath(editing.Folder) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return savedCopy && File.Exists(colorBase) ? colorBase : now;
+    }
+
     /// <summary>Builds the ghosts of <paramref name="file"/> as chosen (off the UI thread). Returns the built file.</summary>
-    string BuildGhosts(string file, List<string> log)
+    string BuildGhosts(string file, List<string> log, bool preview = false)
     {
         if (game == null) throw new InvalidDataException("the game folder isn't set");
         var mine = draft.DodgeGhosts.Where(x => x.Package.Equals(file, StringComparison.OrdinalIgnoreCase)).ToList();
         var first = mine[0];
         var pkgs = draft.Packages.ToList();
         string? mpath = pkgs.FirstOrDefault(x => x.File.Equals(first.ModelPackage, StringComparison.OrdinalIgnoreCase)).Source;
-        if (first.ModelPackage.Equals(file, StringComparison.OrdinalIgnoreCase)) mpath = GhostBase(file);
+        string start = GhostStart(file, preview);
+        if (first.ModelPackage.Equals(file, StringComparison.OrdinalIgnoreCase)) mpath = start;
         if (mpath == null || !File.Exists(mpath)) throw new InvalidDataException($"{first.ModelPackage} (the ghosts' model) isn't in the mod any more");
         var model = ModMeshes.List([(first.ModelPackage, mpath)]).FirstOrDefault(m => m.Name.Equals(first.ModelMesh, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidDataException($"{first.ModelMesh} isn't in {first.ModelPackage} any more");
         var slots = DodgeGhosts.Analyze(file, game.Cooked);
         var poses = mine.ToDictionary(x => x.Ghost, x => (x.Anim, x.Frame), StringComparer.OrdinalIgnoreCase);
         var leans = mine.Where(x => x.Lean.Length > 0).ToDictionary(x => x.Ghost, x => x.Lean, StringComparer.OrdinalIgnoreCase);
-        byte[] bytes = DodgeGhosts.Build(GhostBase(file), file, model, pkgs, game.Cooked, slots, poses, log, keepEffectSize: mine.Any(x => x.KeepEffectSize), leans: leans, leanDegrees: mine[0].LeanDegrees);
+        byte[] bytes = DodgeGhosts.Build(start, file, model, pkgs, game.Cooked, slots, poses, log, keepEffectSize: mine.Any(x => x.KeepEffectSize), leans: leans, leanDegrees: mine[0].LeanDegrees);
         string dir = Path.Combine(WorkFolder, "ghost_build", Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(dir);
         string outFile = Path.Combine(dir, file);
@@ -320,7 +341,7 @@ sealed partial class ModEditorView
         int req = ++ghostBuildRequest;
         ghostsNote.Text = "Making the ghosts…";
         var log = new List<string>();
-        Task.Run(() => BuildGhosts(file, log)).ContinueWith(t =>
+        Task.Run(() => BuildGhosts(file, log, preview: true)).ContinueWith(t =>
         {
             if (IsDisposed || req != ghostBuildRequest) return;
             if (t.Status != TaskStatus.RanToCompletion) { ghostsNote.Text = "The ghosts couldn't be made: " + t.Exception?.GetBaseException().Message; return; }
@@ -420,7 +441,8 @@ sealed partial class ModEditorView
         if (before.Count == 0 && wanted.Count == 0) return null;
         foreach (string f in wanted)
         {
-            string built = ghostBuilt.TryGetValue(f, out var b) && b.Key == GhostKey(f) && File.Exists(b.Path) ? b.Path : BuildGhosts(f, log);
+            // (built again, not the preview's build: the package may have changed since, a Model build or the borrowed looks just made)
+            string built = BuildGhosts(f, log);
             int k = draft.Packages.FindIndex(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
             if (k >= 0) draft.Packages[k] = (f, built); else draft.Packages.Add((f, built));
             string colorBase = Path.Combine(WorkFolder, "color_base", f);

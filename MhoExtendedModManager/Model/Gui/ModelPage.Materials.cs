@@ -60,7 +60,7 @@ sealed partial class ModelPage
         matGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; matGrid.MultiSelect = false;
         matGrid.ShowCellToolTips = true;
         Ui.StyleGrid(matGrid);
-        Ui.Tip(matGrid, "Each material's maps and where they come from. Double-click a row to see its map large (made ones too: generated, converted, from your tags); right-click a row to view, edit in your image editor, use a file or go back to automatic. Ctrl+click the model in the preview to pick its material.");
+        Ui.Tip(matGrid, "Each material's maps and where they come from. Double-click a row to see its map large (made ones too: generated, converted, from your tags); right-click a row to view, edit in your image editor, use a file, generate a normal, spec or spec color map, or go back to automatic. Ctrl+click the model in the preview to pick its material.");
         matGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) _ = ViewMap(e.RowIndex); };   // (Kurt, 2026-10-04: was Use a File, now Replace File)
         // right-click (Kurt, 2026-10-06): the row selected, then its menu: view large, edit, a file, back to automatic
         matGrid.CellMouseDown += (_, e) =>
@@ -73,6 +73,8 @@ sealed partial class ModelPage
             m.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your image editor; each save there comes back here." });
             m.Items.Add(new ToolStripMenuItem("Replace File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
             if (GenerateNormalItem() is { } gen) m.Items.Add(gen);
+            m.Items.AddRange([.. SpecMenuItems()]);   // (Kurt, 2026-11-08: the spec and spec color makers here too)
+            if (SpecColorMenuItem() is { } scol) m.Items.Add(scol);
             if (SelectedMap() is { Kind: "Color" } || SelectedPackageMap() is { Kind: "Color" })
                 m.Items.Add(new ToolStripMenuItem("Adjust Colors", null, (_, _) => AdjustColors()) { Enabled = matAdjust.Enabled, ToolTipText = "Hue, saturation, brightness and levels for this color map." });
             m.Items.Add(new ToolStripMenuItem("Back to Automatic", null, (_, _) => MapBackToAutomatic()) { Enabled = matAuto.Enabled, ToolTipText = "Forgets your file for this map." });
@@ -85,7 +87,7 @@ sealed partial class ModelPage
         matFlip = Ui.FlatButton("OpenGL Normals", FlipGreen, "The selected normal map was made the OpenGL way (Blender, Unity, Maya, Substance's OpenGL preset: green up): its green is flipped to MHO's DirectX way (lit when on). Bumps that look dented instead of raised need it. Only for a normal map of the model's own or your file: one generated from the color map is already DirectX.");
         matRecipe = Ui.FlatButton("Next Recipe", NextSpecRecipe, "A spec row with no map of its own gets one made from the color map; this steps through the ways it's made: Soft, Strong, Dark Is Shiny, Detail, Flat. Preview Shows → Spec Map (above) shows it.");
         matAdjust = Ui.FlatButton("Adjust Colors", AdjustColors, "Adjusts the selected material's color map: hue, saturation and brightness, and levels (input black and white, gamma, output black and white), with the map before and after side by side. The file isn't changed: the preview, Build and Export FBX use an adjusted copy, and the values are kept with the material (lit while it's adjusted). Undo (Ctrl+Z) takes a change back; Back to Automatic on the Color row clears it.");
-        matTags = Ui.FlatButton("Tag Colors", TagColors, "Tell it what each color group of the selected material is made of (Metal, Skin, Leather, Cloth): an MHO spec map is made from your tags, with Angela's armor material. Colors alone can't tell gold paint from gold metal.");
+        matTags = Ui.FlatButton("Tag Colors", TagColors, "Tell it what each color group of the selected material is made of (Metal, Skin, Leather, Cloth): an MHO spec map is made from your tags, with Angela's armor material. Colors alone can't tell gold paint from gold metal. With no source picked (a costume package's own textures), the package's packed spec texture is made from your tags, in its own layout; untagged parts keep what they have.");
         matChannels = Ui.FlatButton("From Channels", FromChannels, "Makes the selected material's MHO spec map from separate gray images, one per channel (Shine R, Power G, Skin Mask B, Reflectivity A), or an RGB image plus a gray Reflectivity one. Image editors show a PNG's alpha as transparency and can change the colors under it when saving: editing the channels apart avoids that.");
         matLayout = Ui.FlatButton("Layout ▾", ShowLayoutMenu, "Which of the game's packed layouts the selected MHO spec map is in. Material types pack different things into R, G, B and A: " +
             string.Join("; ", SpecLayouts.All.Select(l => $"{l.Label}: R {l.Channels[0]}, G {l.Channels[1]}, B {l.Channels[2]}, A {l.Channels[3]}")) +
@@ -292,7 +294,7 @@ sealed partial class ModelPage
             return ($"From your color tags: {gtags.Count(t => ColorTags.Name(t.Tag) == "glow")} group(s) tagged Glow", tagGlow);
         if (kind == "Glow" && file == null && tex.GlowFile is string derived)
             return ($"From the MHO spec map's {tex.SpecLayoutUsed.Channels[tex.SpecLayoutUsed.GlowChannel]} channel ({"RGBA"[tex.SpecLayoutUsed.GlowChannel]}) × the color map", derived);
-        if (kind == "Spec" && tex.UsesMhoSpec) return ("Not used: the MHO Spec map is", null);
+        if (kind == "Spec" && tex.UsesMhoSpec) return ("The MHO Spec map is used instead (double-click to see it)", null);
         if (kind == "MHO Spec" && mine == null && tex.SpecMho == null && tex.ColorTags is { Count: > 0 } ct)
             return ($"Made from your color tags: {string.Join(", ", ct.GroupBy(x => ColorTags.Name(x.Tag)).Select(g => $"{g.Count()} {ColorTags.Label(g.Key).ToLowerInvariant()}"))}", null);
         string flip = kind == "Normal" && tex.NormalFlipGreen ? " · OpenGL (green flipped)" : "";
@@ -321,7 +323,7 @@ sealed partial class ModelPage
         var sel = SelectedMap();
         bool any = sel != null && OverridesPath() != null;
         matUse.Enabled = any;
-        if (matEdit != null) matEdit.Enabled = any && SelectedMapFile() != null;
+        if (matEdit != null) matEdit.Enabled = any && (SelectedMapFile() != null || sel is { } se && shownMaterials.FirstOrDefault(m => m.Material == se.Material).Tex is { } mt && (MadeMap(se.Kind, mt) || se.Kind == "MHO Spec" && mt.SpecMho != null));
         if (SelectedPackageMap() != null) { matUse.Enabled = true; if (matEdit != null) matEdit.Enabled = true; }
         var e = sel is { } s && OverridesFile() is string p && MaterialOverrides.Load(p).Materials.TryGetValue(s.Material, out var x) ? x : null;
         matAuto.Enabled = any && e != null && (sel!.Value.Kind switch { "Color" => e.Color != null || e.Adjust is { IsNone: false }, "Normal" => e.Normal != null || e.FlipGreen, "Spec" => e.Spec != null || e.SpecRecipe != null, "MHO Spec" => e.SpecMho != null, "Spec Color" => e.SpecColor != null, "Glow" => e.Glow != null || e.GlowOff, _ => e.Alpha != null });
@@ -354,6 +356,7 @@ sealed partial class ModelPage
         matFlip.Enabled = any && sel!.Value.Kind == "Normal" && shownMaterials.FirstOrDefault(m => m.Material == sel.Value.Material).Tex?.Normal != null;
         Ui.Lit(matFlip, e?.FlipGreen == true && sel?.Kind == "Normal");
         if (SelectedPackageMap() is { Kind: "Color" }) { matAdjust.Enabled = true; Ui.Lit(matAdjust, false); }   // a package texture: applied to it
+        if (SelectedPackageMap() is { } tpm) matTags.Enabled = PackageSpecPair(tpm) is ({ }, { });
     }
 
     /// <summary>Test: the Materials tab's rows (material | map | from).</summary>
@@ -480,6 +483,7 @@ sealed partial class ModelPage
 
     void TagColors()
     {
+        if (SelectedPackageMap() != null) { PackageTagColors(); return; }   // (a package's own textures: into its packed spec texture)
         if (SelectedMap() is not { } sel || shownMaterials.FirstOrDefault(m => m.Material == sel.Material).Tex is not { Diffuse: string } tex) return;
         using var f = new ColorTagForm(sel.Material, tex.TagsColor!, tex.ColorTags ?? []);   // (tags are picked on the map before Adjust Colors)
         if (f.ShowDialog(this) != DialogResult.OK) return;
@@ -542,7 +546,8 @@ sealed partial class ModelPage
             if (!made || IsDisposed) return;
             bool editPkg;
             using (var pimg = ImagePixels.Open(png))
-            using (var pv = new ImageViewerForm(pimg, $"{pm.Material} · {pm.Kind} ({pm.Texture}, {pimg.Width} × {pimg.Height})", FbxExport.SafeName(pm.Texture), editIn))
+            using (var pv = new ImageViewerForm(pimg, $"{pm.Material} · {pm.Kind} ({pm.Texture}, {pimg.Width} × {pimg.Height})", FbxExport.SafeName(pm.Texture), editIn,
+                pm.Kind == "Spec (Packed)" ? (SpecLayouts.All.OrderByDescending(l => l.Parameter.Length).FirstOrDefault(l => (pm.Param.Length > 0 ? pm.Param : pm.Texture).Contains(l.Parameter, StringComparison.OrdinalIgnoreCase)) ?? SpecLayouts.All[0]).Channels : null))
             { pv.ShowDialog(this); editPkg = pv.EditRequested; }
             try { File.Delete(png); } catch (IOException) { }
             if (editPkg) EditMapExternally();
@@ -552,6 +557,9 @@ sealed partial class ModelPage
         var (mat, kind) = t;
         var tex = shownMaterials.FirstOrDefault(m => m.Material == mat).Tex;
         if (tex == null) return;
+        // the Spec row of a material whose MHO spec map is used instead (Kurt, 2026-11-08: tags made one and double-clicking
+        // Spec showed nothing): that map, the one the build uses
+        if (kind == "Spec" && tex.UsesMhoSpec) kind = "MHO Spec";
         string? file;
         try { file = await Task.Run(() => MapImage(kind, tex, mat, MapsCache)); }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {mat}'s {kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
@@ -559,7 +567,8 @@ sealed partial class ModelPage
         if (file == null) { Log($"Materials: {mat} has no {kind.ToLowerInvariant()} map ({matGrid.Rows[row].Cells["from"].Value})."); return; }
         bool editIt;
         using (var img = ImagePixels.Open(file))
-        using (var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}", editIn))
+        using (var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}", editIn,
+            kind == "MHO Spec" ? SpecLayouts.All[0].Channels : null))
         { v.ShowDialog(this); editIt = v.EditRequested; }
         if (editIt) EditMapExternally();
     }

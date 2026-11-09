@@ -1,6 +1,31 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.443
+- Model tab → Materials: Edit in Image Editor (and the large view's Edit button) works on maps the app made too: an MHO spec map from your color tags, a generated normal or spec map, a glow map. Your first save in the editor becomes the material's own file; Back to Automatic goes back to the made one.
+
+0.60.442
+- Fix: the spec map viewer's channel buttons crashed on a click (0.60.441).
+- Fix: the viewer lost a map's colors where its alpha is 0 (on a spec map: skin and cloth, whose reflectivity is 0), so the skin mask showed black; and the channel buttons were hidden under the picture.
+
+0.60.441
+- Model tab → Materials: viewing a spec map (MHO Spec, Spec (Packed)) shows its colors without its alpha first, which is a channel of the map (reflectivity), not transparency; parts with none (skin, cloth) used to show as see-through. Buttons show RGB, RGBA, or one channel by name as gray (R: Shine, G: Power, B: Skin Mask, A: Reflectivity …).
+
+0.60.440
+- Model tab → Materials: double-clicking the Spec row of a material that uses an MHO spec map (one made from your color tags, say) shows that map instead of nothing.
+
+0.60.439
+- Model tab → Materials: Tag Colors works on a costume package's own textures (no source picked): the package's packed spec texture is made from your tags in its own layout; untagged parts keep what they have. The tags are kept with the mod.
+
+0.60.438
+- Model tab → Materials: right-click a row for Generate Spec Map (the shine made from the color map: Soft, Strong, Dark Is Shiny, Detail, Flat) and Generate Spec Color Map (from the color map, half tint, white, or one color), and Tag Colors / From Channels when the row allows them. They also work on a package's own textures: the packed spec texture's shine channel is replaced and its other channels kept.
+
+0.60.437
+- Fix: Save dropped changes made to a package with dodge ghosts since its ghosts were first made (a material copied on the Model tab, Model builds, borrowed looks): the ghosts were rebuilt from the copy kept back then. They are now built onto the package as it is.
+
+0.60.436
+- Model tab → Materials → Copy Setup From a Costume: the list also has the materials of the costume's props (the other models in its package, marked Prop), such as Captain America's shield.
+
 0.60.435
 - Borrow Power: a power with no animation of its own that is still cast (Invisible Woman's Seeker Orbs, Psylocke's Katana Typhoon) can borrow a look, and plays the other power's animation. Passive powers and talents can't. Confirmed in game: Seeker Orbs with Jean Grey's Telekinetic Throw.
 - Fix: borrowing one of Jean Grey's powers took the animation from her Phoenix set (the flying version) instead of her normal one.

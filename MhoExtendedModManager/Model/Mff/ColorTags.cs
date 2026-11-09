@@ -200,7 +200,10 @@ static class ColorTags
     }
 
     /// <summary>The packed map (BGRA bytes: B = skin mask, G = power, R = shine, A = reflectivity) for a color map and its tags.</summary>
-    public static byte[] MakePacked(int w, int h, byte[] bgra, IReadOnlyList<(string Color, string Tag)> tags)
+    public static byte[] MakePacked(int w, int h, byte[] bgra, IReadOnlyList<(string Color, string Tag)> tags) => MakePacked(w, h, bgra, tags, out _);
+
+    /// <param name="texelTags">Each texel's tag name ("" untagged, null: no group).</param>
+    public static byte[] MakePacked(int w, int h, byte[] bgra, IReadOnlyList<(string Color, string Tag)> tags, out string?[] texelTags)
     {
         var small = Small(w, h, bgra);
         var groups = Groups(small.W, small.H, small.Bgra, seeds: Seeds(tags));
@@ -218,10 +221,12 @@ static class ColorTags
             lo[g] = vals.Count > 0 ? vals[vals.Count / 20] : 0; hi[g] = vals.Count > 0 ? vals[vals.Count * 19 / 20] : 255;
         }
         var outp = new byte[w * h * 4];
+        texelTags = new string?[assign.Length];
         for (int i = 0; i < assign.Length; i++)
         {
             int g = assign[i];
             if (g < 0) continue;
+            texelTags[i] = Name(tagOf[g]);
             var v = Values(Name(tagOf[g]));
             float t = hi[g] > lo[g] ? Math.Clamp((lum[i] - lo[g]) / (hi[g] - lo[g]), 0, 1) : 0.5f;
             outp[4 * i + 2] = (byte)Math.Clamp(v.R * (0.7f + 0.6f * t), 0, 255);

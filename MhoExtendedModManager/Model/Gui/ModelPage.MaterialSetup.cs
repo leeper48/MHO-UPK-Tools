@@ -28,7 +28,7 @@ sealed partial class ModelPage
     {
         var item = new ToolStripMenuItem("Copy Setup From a Costume", null, (_, _) => BeginInvoke(() => PickCopySource(material)))
         {
-            ToolTipText = "Gives the costume's material another costume's material setup (its shader, switches and values: spec, rim, glow strength, colors) and keeps its own maps. Pick the costume from the list (as the Source drop-down is set: Default Game or Current Modded Game)."
+            ToolTipText = "Gives the costume's material another costume's material setup (its shader, switches and values: spec, rim, glow strength, colors) and keeps its own maps. Pick the costume from the list (as the Source drop-down is set: Default Game or Current Modded Game), then one of its materials: its body's, or a prop's of that package (Captain America's shield)."
                 + (HasSource ? " It changes the target package as it is; building a model onto it later replaces its materials." : ""),
         };
         if (inFile != null) { item.Enabled = false; item.ToolTipText = $"{material} is in {inFile}, the hero's base package: only a material of this package can be changed here."; }
@@ -69,18 +69,33 @@ sealed partial class ModelPage
         {
             var (file, title, _) = sources[pick];
             string spath, smesh;
-            List<MaterialSetupCopy.SlotInfo> theirs;
+            // every model of the costume's package: its body first, then its props (Kurt, 2026-11-08: Captain America's shield
+            // material, on the shield model beside his body), each material once
+            var theirs = new List<MaterialSetupCopy.SlotInfo>();
+            var labels = new List<string>();
             try
             {
                 spath = GameSource.PathFor(file);
-                smesh = ModMeshes.CostumeMesh(spath) ?? ModMeshes.List([(file, spath)], anyPackage: true).FirstOrDefault()?.Name ?? throw new InvalidDataException($"{file} has no model");
-                theirs = MaterialSetupCopy.Slots(File.ReadAllBytes(spath), file, smesh).Where(s => s.Instance).GroupBy(s => s.Material, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
+                var models = ModMeshes.List([(file, spath)], anyPackage: true).Select(m => m.Name).ToList();
+                smesh = ModMeshes.CostumeMesh(spath) ?? models.FirstOrDefault() ?? throw new InvalidDataException($"{file} has no model");
+                byte[] sbytes = File.ReadAllBytes(spath);
+                foreach (string mesh in models.Where(m => !m.Equals(smesh, StringComparison.OrdinalIgnoreCase)).Prepend(smesh))
+                {
+                    List<MaterialSetupCopy.SlotInfo> slots;
+                    try { slots = MaterialSetupCopy.Slots(sbytes, file, mesh); }
+                    catch (InvalidDataException) { continue; }
+                    foreach (var sl in slots.Where(x => x.Instance && !theirs.Any(y => y.Material.Equals(x.Material, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        theirs.Add(sl);
+                        labels.Add(mesh.Equals(smesh, StringComparison.OrdinalIgnoreCase) ? $"{title}: {sl.Material.Split('.').Last()}" : $"{title} · Prop {mesh}: {sl.Material.Split('.').Last()}");
+                    }
+                }
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException) { Log($"Copy Material Setup: {ex.Message}"); return; }
-            if (theirs.Count == 0) { Log($"Copy Material Setup: {title}'s model has no material instance of its own to copy."); return; }
+            if (theirs.Count == 0) { Log($"Copy Material Setup: {title}'s models have no material instance of their own to copy."); return; }
             string who = $"{title} ({Path.GetFileNameWithoutExtension(file)})";
             if (theirs.Count == 1) { _ = CopyMaterialSetup(t.Key, tpath, tmesh, to, spath, who, theirs[0]); return; }
-            BeginInvoke(() => DropList.Show(matGame, matGame.RectangleToScreen(matGame.ClientRectangle), [.. theirs.Select(s => $"{title}: {s.Material.Split('.').Last()}")], -1,
+            BeginInvoke(() => DropList.Show(matGame, matGame.RectangleToScreen(matGame.ClientRectangle), labels, -1,
                 m => _ = CopyMaterialSetup(t.Key, tpath, tmesh, to, spath, who, theirs[m]), thumb: MaterialThumbs(spath, theirs)));
         }, thumb: i => SourceThumb(sources[i].File));
     }

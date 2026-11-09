@@ -588,12 +588,16 @@ static partial class Program
             Application.EnableVisualStyles();
             Directory.CreateDirectory(args[2]);
             using var img = Image.FromFile(args[1]);
-            using var v = new Gui.ImageViewerForm(img, Path.GetFileName(args[1])) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000) };
+            // (a name with "spec": a packed spec map, its channel buttons clicked in turn and shot)
+            bool packed = Path.GetFileName(args[1]).Contains("spec", StringComparison.OrdinalIgnoreCase);
+            using var v = new Gui.ImageViewerForm(img, Path.GetFileName(args[1]), channels: packed ? Model.SpecLayouts.All[0].Channels : null) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000) };
             v.Shown += (_, _) => v.BeginInvoke(async () =>
             {
                 await Task.Delay(300);
                 void Shot(string n) { using var b = new Bitmap(v.Width, v.Height); v.DrawToBitmap(b, new Rectangle(0, 0, v.Width, v.Height)); b.Save(Path.Combine(args[2], n)); }
                 Shot("viewer_fit.png");
+                if (packed)
+                    foreach (var (btn, i) in v.ChannelButtonsForTest.Select((x, i) => (x, i))) { btn.PerformClick(); await Task.Delay(150); Shot($"viewer_channel{i}.png"); Console.WriteLine("clicked " + btn.Text); }
                 v.TestZoom(8); await Task.Delay(200); Shot("viewer_8x.png");
                 v.Close();
             });
