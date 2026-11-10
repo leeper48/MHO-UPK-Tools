@@ -159,42 +159,95 @@ sealed partial class ModelPage
     /// with its skeleton, physics, idle, run and fidgets, at its own size, in the target pet's package (its class, GUID, item).</summary>
     async Task<bool> BuildWholePet(CharacterList.Item pkg, string srcFile)
     {
-        using var busy = Busy.Begin($"Model: {srcFile} as the whole pet in {pkg.Key}");
+        string whole = IsPet(srcFile) ? "whole pet" : "whole character";
+        using var busy = Busy.Begin($"Model: {srcFile} as the {whole} in {pkg.Key}");
         building = true; UpdateStatus();
         log.Clear();
         bool ok = false;
         try
         {
             string src = MhoExtendedModManager.Model.GameSource.Modded?.Invoke(srcFile) ?? BasePackage.Resolve(srcFile);
-            string start = StartPackage(pkg.Key);
-            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{Path.GetFileNameWithoutExtension(srcFile)} on {Path.GetFileNameWithoutExtension(pkg.Key)}"));
-            Log($"Building {srcFile} as the whole pet on {pkg.Key} (from {StartLabel(pkg.Key)}) → {outDir}");
+            // a pet with no model of its own (Great Ultron: Silver Ultron's): built into the package that has it (ModelHome)
+            string home = !IsWholeSummon(pkg.Key) && ModelHome(pkg.Key) is string mh ? mh : pkg.Key;
+            string start = home.Equals(pkg.Key, StringComparison.OrdinalIgnoreCase) ? StartPackage(pkg.Key)
+                : host.Packages.FirstOrDefault(h => h.File.Equals(home, StringComparison.OrdinalIgnoreCase)).Path ?? BasePackage.Resolve(home);
+            if (!home.Equals(pkg.Key, StringComparison.OrdinalIgnoreCase)) Log($"{pkg.Key} has no model of its own: it shows {home}'s, so the build goes into {home} (every pet showing it changes too).");
+            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"{Path.GetFileNameWithoutExtension(srcFile)} on {Path.GetFileNameWithoutExtension(home)}"));
+            Log($"Building {srcFile} as the {whole} on {pkg.Key} (from {StartLabel(pkg.Key)}) → {outDir}");
             string cooked = Settings.Current.CookedFolder ?? throw new InvalidOperationException("the game folder isn't set");
+            bool keepLook = summonLook.Checked; float summonSize = sizeSlider.Value;
+            // the summon classes that extend this package from packages of their own (Magik's Big Fat Demon over the enemy's):
+            // their own settings win over this build's, so they're built too (WholeChild) and go into the mod
+            var children = IsWholeSummon(pkg.Key) && Summons.TryGetValue(pkg.Key, out var rows)
+                ? rows.Where(r => r.Kind == "summon").Select(r => r.Name).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Select(c => (Class: c, File: MaterialVariations.FileOfClass(cooked, c))).Where(x => x.File != null && !x.File.Equals(pkg.Key, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => (x.Class, File: x.File!, Path: host.Packages.FirstOrDefault(h => h.File.Equals(x.File, StringComparison.OrdinalIgnoreCase)).Path ?? BasePackage.Resolve(x.File!))).ToList()
+                : [];
+            var childBuilt = new List<(string File, string Path)>();
+            string? print = Fingerprint();   // (what the build was made with: leaving the tab doesn't ask to build it again)
             string? built0 = await Task.Run(() =>
             {
                 var lines = new List<string>();
+                if (IsWholeSummon(pkg.Key))
+                {
+                    // a summon as the whole character (SummonLook.BuildWhole): Size in Game and Keep the Summon's Glow apply
+                    try
+                    {
+                        byte[] sb = SummonLook.BuildWhole(start, pkg.Key, src, srcFile, CostumeAnims.FilesFor(null, cooked), lines, cooked, keepLook: keepLook, size: summonSize);
+                        Directory.CreateDirectory(outDir);
+                        string sfile = Path.Combine(outDir, pkg.Key);
+                        Protected.CheckWrite(sfile);
+                        File.WriteAllBytes(sfile, sb);
+                        var sp = MhoPackageModifier.Package.Open(src);
+                        int sdef = ModMeshes.CharacterDefault(sp);
+                        float scale = (sdef >= 0 ? PetMove.ScaleOf(src, sp.ClassOf(sp.Exports[sdef]).ToLowerInvariant()) : 1) * summonSize;
+                        foreach (var ch in children)
+                        {
+                            if (SummonLook.WholeChild(ch.Path, ch.File, ch.Class, scale, keepLook, cooked, lines) is not { } cb) continue;
+                            string cfile = Path.Combine(outDir, ch.File);
+                            Protected.CheckWrite(cfile);
+                            File.WriteAllBytes(cfile, cb);
+                            childBuilt.Add((ch.File, cfile));
+                            lines.Add($"{ch.File}: the summon class over this one ({ch.Class}), built with it");
+                        }
+                        return sfile;
+                    }
+                    finally { BeginInvoke(() => { foreach (string l in lines) Log(l); }); }
+                }
                 string cls = PetMove.Characters(MhoPackageModifier.Package.Open(src)).FirstOrDefault(c => c.Class.StartsWith("marvelvanitypet_", StringComparison.OrdinalIgnoreCase)).Class;
                 float size = cls == null ? 1f : PetMove.ScaleOf(src, cls);
                 try
                 {
                     var res = PetMove.Build(src, cls, start, CostumeAnims.FilesFor(null, cooked), cooked, size, lines);
                     Directory.CreateDirectory(outDir);
-                    string file = Path.Combine(outDir, pkg.Key);
+                    string file = Path.Combine(outDir, home);
                     Protected.CheckWrite(file);
                     File.WriteAllBytes(file, res.Package);
                     return file;
                 }
                 finally { BeginInvoke(() => { foreach (string l in lines) Log(l); }); }
             });
-            if (built0 != null)
+            if (built0 != null && !home.Equals(pkg.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                // (into the model's own package: the pet picked stays as it is, and shows it)
+                host.AddPackage(home, built0);
+                if (print != null) builtPrint[pkg.Key] = print;
+                built[pkg.Key] = built0;
+                SaveState();
+                ok = true;
+                Log($"Done: {home} is in the mod now with {srcFile}'s {whole}; {pkg.Key} shows it (Save Changes keeps it; Apply Changes puts it into the game).");
+            }
+            else if (built0 != null)
             {
                 host.SetPackage(pkg.Key, built0);
                 RememberBuild(pkg.Key, built0);
                 built[pkg.Key] = built0;
+                if (print != null) builtPrint[pkg.Key] = print;
+                foreach (var (cf, cp) in childBuilt) { host.AddPackage(cf, cp); Log($"Also built: {cf} (its own size and look settings would win over {pkg.Key}'s)."); }
                 takenOff.Remove(pkg.Key);
                 SaveState();
                 ok = true;
-                Log($"Done: {pkg.Key} is in the mod now, with {srcFile}'s whole pet (Save Changes keeps it; Apply Changes puts it into the game).");
+                Log($"Done: {pkg.Key} is in the mod now, with {srcFile}'s {whole} (Save Changes keeps it; Apply Changes puts it into the game).");
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or MhoPackageModifier.PackageFormatException or FileNotFoundException) { Log("ERROR: " + ex.Message); }
@@ -409,6 +462,9 @@ sealed partial class ModelPage
         var sb = new System.Text.StringBuilder();
         sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked).Append('|').Append(feetCustom?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "auto").Append('|').Append(keepSourceSize.Checked).Append('|').Append(leanSlider.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)).Append(jointFit.Checked ? "|joints" : "").Append(PaintText() is string paintText ? "|paint" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(paintText)))[..10] : "");
         if (PropFitForTarget() is { IsNone: false } pfp) sb.Append("|propfit").Append(pfp);   // (only then: builds from before keep their print)
+        // a whole pet / whole character (Kurt, 2026-11-10: after building Ant-Man whole into Dark Pact's demon, leaving the tab asked
+        // to build again: the whole build kept no print), and for a summon whether it keeps its effects
+        if (PetPair(pkg.Key) is string wp && petWhole.TryGetValue(wp, out bool wwhole) && wwhole) sb.Append("|whole").Append(IsWholeSummon(pkg.Key) && summonLook.Checked ? "|keepfx" : "");
         if (HasSource)
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))

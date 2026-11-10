@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.462
+- What's New and the manual: summons as a whole character (walkthrough and screenshot).
+- Model tab: the log says "whole character" (not "whole pet") when the source isn't a pet.
+
+0.60.461
+- Model tab: a whole character onto a pet with no model of its own (Great and Gold Ultron show Silver Ultron's) is built into the pet whose model it shows, and the question says so first: every pet showing that model changes too.
+- Model tab: an added prop picked again after reopening its mod showed no preview ("has no mesh named …"), so its Prop Fit couldn't be changed. Fixed.
+- Model tab: a character onto a summon asks Whole Character or Fit (as for pets). Whole Character: the summon takes the character's model, skeleton and animations; Size in Game sets its size; Keep the Summon's Effects keeps or drops the summon's own flames and glows (its material made for its own model is always left out). A summon class that extends the built package from a package of its own (Magik's Big Fat Demon over the enemy's) is built with it, as its own size and look would win.
+- Summons as another character, whole (command line: --summon-whole, --summon-child): a summon keeps what it does but takes another character's model, skeleton and animations (Magik's lesser demons as raptors, her spitter demons as Venom). Its attacks take the character's matching ones (a bite a bite, a pounce a leap or lunge).
+
 0.60.460
 - What's New: Borrow Effects and animation trail colors.
 - Borrow Effects keeps working after Make Unique gives the borrowed effects a path of their own at Save (the renamed copy is found, not copied again).

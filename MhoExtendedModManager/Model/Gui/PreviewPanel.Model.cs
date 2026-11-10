@@ -227,7 +227,11 @@ sealed partial class PreviewPanel
         string file = Path.GetFileName(packagePath);
         string? cooked = Settings.Current.CookedFolder ?? Settings.Current.StockFolder;
         var pkgMeshes = ModMeshes.List([(file, packagePath)], anyPackage: true);
+        // (a model the list leaves out as an added prop's old copy is still the one asked for: Monarch, 2026-11-10, an added
+        // prop picked again after reopening its mod: in the selector's work copy the attachment naming its model is itself an
+        // added object, so the leftover check took the model for unused, and the preview found no mesh by that name)
         var mr = pkgMeshes.FirstOrDefault(x => x.Name.Equals(sk.Name, StringComparison.OrdinalIgnoreCase))
+            ?? MhoSkeleton.List(packagePath).Where(m => m.Name.Equals(sk.Name, StringComparison.OrdinalIgnoreCase)).Select(m => new MeshRef(file, packagePath, m.Name, m.Export)).FirstOrDefault()
             ?? throw new InvalidDataException($"{file} has no mesh named {sk.Name}");
         var stock = ModMeshes.Load(mr, cooked, out _) ?? throw new InvalidDataException($"{sk.Name} couldn't be read");
         var bones = stock.Bones.ToList();

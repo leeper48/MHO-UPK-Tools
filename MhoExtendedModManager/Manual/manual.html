@@ -168,6 +168,7 @@ function mhoNext(dir) {
 <li><a href="#w-model">Put Your Own Model on a Costume</a></li>
 <li><a href="#w-size">Make a Character Bigger or Smaller</a></li>
 <li><a href="#w-npc">Put a Model on an NPC, Enemy, Team-Up or Pet</a></li>
+<li><a href="#w-summon">Turn a Summon into Another Character</a></li>
 <li><a href="#w-rigs">Give a Model a Moving Coat, Dress, Tail or Wings</a></li>
 <li><a href="#w-prop">Swap a Costume's Weapon or Shield</a></li>
 <li><a href="#w-own">Recolor or Hide a Character's Own Effects</a></li>
@@ -557,6 +558,19 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <figure><img src="img/editor-model-character.jpg" alt="Captain America Classic's package holds Cap and his shield: the model selector (◀ ▶ under the preview) picks which one a build replaces (here Cap; the shield is marked Prop)."><figcaption>Captain America Classic's package holds Cap and his shield: the model selector (◀ ▶ under the preview) picks which one a build replaces (here Cap; the shield is marked Prop).</figcaption></figure>
 <figure><img src="img/model-pets.jpg" alt="The Pets tab: Cosmo as the whole pet onto Baby Groot, shown with his own model and animations."><figcaption>The Pets tab: Cosmo as the whole pet onto Baby Groot, shown with his own model and animations.</figcaption></figure>
 <figure><img src="img/editor-model-npc.jpg" alt="The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider."><figcaption>The Model tab with an enemy as the target (Clone Cyclops from Enemies and Bosses) and the Size in Game slider.</figcaption></figure>
+</div>
+
+<div class="walk">
+<h3 id="w-summon">Turn a Summon into Another Character (Its Own Skeleton and Moves)</h3>
+<ol class="steps">
+<li>Open the hero's mod in the Editor and go to <b>Model</b>. Under <b>Source</b>, pick a character from <b>Default Game</b> (a hero, team-up, NPC or enemy, a pet), or from <b>Current Modded Game</b> to take a character as your enabled mods have it.</li>
+<li>Under <b>Target</b>, open <b>From the Game</b>, click <b>Summons</b> and pick the summon (Magik's Lesser Demons, her Big Fat Demon …). The question that comes up asks <b>Whole Character</b> or <b>Fit</b>: pick Whole Character.</li>
+<li>Set <b>Size in Game</b> (100 % is the character's own size). <b>Keep the Summon's Effects</b> keeps the summon's own flames and glows around the character; untick it to take them off.</li>
+<li><b>Build into Mod</b>, Save Changes, Apply Changes. Use the power that summons it in game.</li>
+</ol>
+<figure><img src="img/model-whole-summon.jpg" alt="The Model tab: Ant-Man (Civil War Movie) as the source, Magik's Big Fat Demon summon (Dark Pact) as the target, Size in Game at 100 % and Keep the Summon's Effects ticked."><figcaption>Ant-Man as Magik's Big Fat Demon: the summon takes his model, skeleton and animations.</figcaption></figure>
+<p>The summon keeps what it does in the game; it looks and moves as the character. Its animations are the character's: its spawn, idle, run and death, and for each of the summon's attacks one of the character's that matches (a bite its bite, a pounce its leap or lunge, melee for melee). The summon's own random colors and the material made for its own model are left out, so the character shows its own textures. To give it other effects or colors, use its <b>Own Effects</b> entry on the Powers tab (<a href="#w-ownborrow">Borrow Effects</a>, the color sliders).</p>
+<p>Some summons are a class that extends another character's package, which holds the model (Magik's Big Fat Demon over the Big Fat Demon enemy). The build goes into that package and into the summon's own (its size and look settings), so the enemy shows the character too. The same goes for pets with no model of their own: Great and Gold Ultron show Silver Ultron's, so a whole character onto them is built into Silver Ultron (the question says so first).</p>
 </div>
 
 <div class="walk">

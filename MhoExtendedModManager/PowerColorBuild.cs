@@ -150,7 +150,9 @@ static class PowerColorBuild
             string parent = imp.ObjectName;
             // (a hero's costume extends the hero: Ghost Rider ModernVU → marvelplayer_ghostrider, whose package keeps his flames)
             if (!(parent.StartsWith("marvelagent_", StringComparison.OrdinalIgnoreCase) || parent.StartsWith("marvelnpc_", StringComparison.OrdinalIgnoreCase)
-                || parent.StartsWith("marvelplayer_", StringComparison.OrdinalIgnoreCase))) return null;
+                || parent.StartsWith("marvelplayer_", StringComparison.OrdinalIgnoreCase)
+                // (a pet that's a variant of another, Great and Gold Ultron over Silver Ultron, Monarch 2026-11-10; a team-up's)
+                || parent.StartsWith("marvelvanitypet_", StringComparison.OrdinalIgnoreCase) || parent.StartsWith("marvelteamup_", StringComparison.OrdinalIgnoreCase))) return null;
             string want = $"UC__{parent}_SF.upk";
             return Directory.EnumerateFiles(cooked, want).Select(Path.GetFileName).FirstOrDefault(f => f!.Equals(want, StringComparison.OrdinalIgnoreCase));
         }

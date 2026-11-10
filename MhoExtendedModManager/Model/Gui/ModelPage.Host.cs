@@ -197,8 +197,43 @@ sealed partial class ModelPage
     /// pet, else null. (A user, 2026-11-09: Jessica Jones onto Great Ultron took Ultron's skeleton and moves with no choice;
     /// Whole Character was only on the command line.)</summary>
     string? PetPair(string target) =>
-        chosenKey?.StartsWith(GameSrc) == true && SplitGameKey(chosenKey) is var (src, mesh) && mesh == null && IsPet(target)
+        chosenKey?.StartsWith(GameSrc) == true && SplitGameKey(chosenKey) is var (src, mesh) && mesh == null && (IsPet(target) || IsWholeSummon(target))
             && !src.Equals(target, StringComparison.OrdinalIgnoreCase) ? $"{src}|{target}" : null;
+
+    /// <summary>A summon that's a character (Magik's demons, Squirrel Girl's squirrels: an agent package in the summons list), which
+    /// can take a whole character (a user, 2026-11-09: "replace a Magik demon with a dinosaur"; Kurt, 2026-11-10: in the Model tab).</summary>
+    static bool IsWholeSummon(string file) => IsSummon(Path.GetFileName(file)) && Path.GetFileName(file).StartsWith("UC__MarvelAgent_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The package a pet's model really is in, when the pet's own package has no model component (Monarch, 2026-11-10: Great
+    /// and Gold Ultron are variants of Silver Ultron, whose package holds the model, its component and animations): the nearest
+    /// one up its class chain that has one; null when its own package has it (or none is found).
+    /// </summary>
+    string? ModelHome(string file)
+    {
+        string? cooked = Settings.Current.CookedFolder;
+        if (cooked == null) return null;
+        string? PathOf(string f) => host.Packages.FirstOrDefault(h => h.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Path ?? StockFiles.For(cooked, f);
+        string? path = PathOf(file);
+        for (int guard = 0; guard < 5 && path != null && File.Exists(path); guard++)
+        {
+            try
+            {
+                var p = MhoPackageModifier.Package.Open(path);
+                int def = ModMeshes.CharacterDefault(p);
+                if (def >= 0 && Array.Exists(p.Exports, e => p.PathOf(e).Equals($"marvelgamecontent.default__{p.ClassOf(p.Exports[def])}.initialskeletalmesh", StringComparison.OrdinalIgnoreCase)))
+                    return Path.GetFileName(path).Equals(file, StringComparison.OrdinalIgnoreCase) ? null : Path.GetFileName(path);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { return null; }
+            if (PowerColorBuild.ParentPackage(path, cooked) is not string parent) return null;
+            path = PathOf(parent);
+        }
+        return null;
+    }
+
+    /// <summary>Keep the Summon's Effects shows only while a summon target takes the whole character.</summary>
+    void UpdateSummonLook() =>
+        summonLook.Visible = ChosenPackage is CharacterList.Item pkg && IsWholeSummon(pkg.Key) && PetPair(pkg.Key) is string pair && petWhole.TryGetValue(pair, out bool w) && w;
 
     /// <summary>Whole Pet or Fit for a pet target (null = cancelled, or not a pet pair: <paramref name="adding"/> adds the
     /// package to the mod too, so its buttons say so). Asked once per pair unless adding.</summary>
@@ -208,18 +243,37 @@ sealed partial class ModelPage
         // asked each time a pet target is picked (Kurt: "It could vary"); not again for the list's own reselect after adding
         if (skipPetAsk && petWhole.TryGetValue(pair, out bool had)) return had;
         string src = SplitGameKey(chosenKey!).File, srcName = DescribePackage(src).Title;
+        if (IsWholeSummon(target))
+        {
+            int sp = Dialog.Choose(this,
+                $"{srcName} onto {targetTitle}: How?\n\n" +
+                $"• Whole Character: {srcName} as it is, with its own skeleton and animations, in {targetTitle}'s package. The summon's spawn, idle, run and attacks take {srcName}'s (a bite its bite, a pounce its leap or lunge). {targetTitle} stays the summon in the game (what it does, its power).\n\n" +
+                $"• Fit: the usual fit onto {targetTitle}'s skeleton; {targetTitle}'s own animations move it." +
+                (adding ? $"\n\nEither way {target} is added to this mod (the game's own package until it's built)." : ""),
+                "Character onto Summon", adding ? "Add as Whole Character" : "Whole Character", adding ? "Add and Fit" : "Fit", "Cancel");
+            if (sp is < 0 or 2) return null;
+            petWhole[pair] = sp == 0;
+            SaveState();
+            Log($"{srcName} onto {targetTitle}: {(sp == 0 ? "the whole character, with its own skeleton and animations" : "fitted to the target's skeleton")} (Build uses this).");
+            UpdateSummonLook();
+            BeginInvoke(RefreshPreview);
+            return sp == 0;
+        }
         bool pet = IsPet(src), odd = OddPet(src) || OddPet(target);
         string whole = pet ? "Whole Pet" : "Whole Character";
         int pick = Dialog.Choose(this,
             $"{srcName} onto {targetTitle}: How?\n\n" +
             (pet ? $"• Whole Pet (recommended): {srcName} as it is, with its own skeleton, idle, run and fidgets and its own size, in {targetTitle}'s package."
                  : $"• Whole Character: {srcName} as it is, with its own skeleton and its own idle, run and fidgets (a pet plays only those), at its full size, in {targetTitle}'s package.")
-            + $" {targetTitle} stays the pet in the game (its item, name and summon).\n\n" +
+            + $" {targetTitle} stays the pet in the game (its item, name and summon)."
+            + (ModelHome(target) is string home ? $" Note: {targetTitle} has no model of its own; it shows {DescribePackage(home).Title}'s ({home}), so the whole {(pet ? "pet" : "character")} is built into that package, and every pet that shows it changes too." : "")
+            + "\n\n" +
             $"• Fit: the usual fit onto {targetTitle}'s skeleton; {targetTitle}'s own animations move it" + (odd ? $" (their skeletons differ, so it bends into {targetTitle}'s poses)." : ".") +
             (adding ? $"\n\nEither way {target} is added to this mod (the game's own package until it's built)." : ""),
             pet ? "Pet onto Pet" : "Character onto Pet", adding ? $"Add as {whole}" : whole, adding ? "Add and Fit" : "Fit", "Cancel");
         if (pick is < 0 or 2) return null;
         petWhole[pair] = pick == 0;
+        SaveState();
         Log($"{srcName} onto {targetTitle}: {(pick == 0 ? (pet ? "the whole pet" : "the whole character") + ", with its own skeleton and animations" : "fitted to the target's skeleton")} (Build uses this).");
         BeginInvoke(RefreshPreview);   // (the preview shows what that choice builds)
         return pick == 0;
@@ -712,6 +766,11 @@ sealed partial class ModelPage
         public Dictionary<string, int>? TargetMaterials { get; set; }
         /// <summary>The settings each built package was built with (unbuilt changes are told apart from built ones).</summary>
         public Dictionary<string, string> BuiltPrints { get; set; } = new();
+        /// <summary>Whole Pet / Whole Character (true) or Fit (false) per "source|target" (Kurt, 2026-11-10: after a restart the
+        /// summon's Keep the Summon's Effects box was gone: the choice was kept only for the session).</summary>
+        public Dictionary<string, bool>? WholeChoices { get; set; }
+        /// <summary>Keep the Summon's Effects (null: ticked).</summary>
+        public bool? SummonEffects { get; set; }
         /// <summary>Packages the tab added from the game (removing such a target takes it out of the mod).</summary>
         public List<string> Added { get; set; } = new();
         /// <summary>Package → the model picked in it (Model ▾), when not the automatic one.</summary>
@@ -731,6 +790,7 @@ sealed partial class ModelPage
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
             FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, PiecesOff = piecesOff.Any(kv => kv.Value.Count > 0) ? piecesOff.Where(kv => kv.Value.Count > 0).ToDictionary(kv => kv.Key, kv => kv.Value.Order(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
+            WholeChoices = petWhole.Count > 0 ? new Dictionary<string, bool>(petWhole, StringComparer.OrdinalIgnoreCase) : null, SummonEffects = summonLook.Checked ? null : false,
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
         try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, MhoExtendedModManager.JsonOpts.Indented)); }
@@ -896,6 +956,9 @@ sealed partial class ModelPage
         MaterialForTarget();
         SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
         buildOnSave.Checked = st.BuildOnBlenderSave;
+        petWhole.Clear();
+        if (st.WholeChoices != null) foreach (var kv in st.WholeChoices) petWhole[kv.Key] = kv.Value;
+        summonLook.Checked = st.SummonEffects != false;
         sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; leanCustom = st.LeanVersion >= 2 ? st.LeanCustom : st.Lean; restoringLean = true; leanSlider.Value = leanCustom ?? leanAuto; restoringLean = false; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
         restoring2 = false;
         AssumeBuilt();

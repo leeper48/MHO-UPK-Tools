@@ -152,11 +152,36 @@ static class CrossMove
         if (comp < 0) throw new InvalidDataException($"no {compPath} in the target");
         byte[] d = pkg.ReadExportBytes(pkg.Exports[comp]).ToArray();
         var tags = TagWalker.Walk(pkg, d, 16) ?? throw new InvalidDataException("the mesh component's properties don't read");
-        var skel = tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) ?? throw new InvalidDataException("the mesh component has no SkeletalMesh property");
-        int oldMesh = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(skel.ValueAt));
-        BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(skel.ValueAt), copy.RootRef);
+        var skel = tags.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4);
         var addNames = new List<string>();
         int noneAt = tags.Count > 0 ? tags[^1].End : 16;   // where the component's None tag starts (new tags go before it)
+        int oldMesh = 0;
+        if (skel != null)
+        {
+            oldMesh = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(skel.ValueAt));
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(skel.ValueAt), copy.RootRef);
+        }
+        else
+        {
+            // a component that inherits its model (a summon whose class extends another one's: Magik's spitter demons; 2026-11-10):
+            // a SkeletalMesh ObjectProperty goes in before its None
+            int NameIdxM(string n)
+            {
+                int i = Array.FindIndex(pkg.Names, x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) return i;
+                int j = addNames.FindIndex(x => x.Equals(n, StringComparison.OrdinalIgnoreCase));
+                if (j < 0) { addNames.Add(n); j = addNames.Count - 1; }
+                return pkg.Names.Length + j;
+            }
+            var mtag = new byte[28];
+            BinaryPrimitives.WriteInt32LittleEndian(mtag.AsSpan(0), NameIdxM("SkeletalMesh"));
+            BinaryPrimitives.WriteInt32LittleEndian(mtag.AsSpan(8), NameIdxM("ObjectProperty"));
+            BinaryPrimitives.WriteInt32LittleEndian(mtag.AsSpan(16), 4);
+            BinaryPrimitives.WriteInt32LittleEndian(mtag.AsSpan(24), copy.RootRef);
+            d = [.. d.AsSpan(0, noneAt), .. mtag, .. d.AsSpan(noneAt)];
+            noneAt += mtag.Length;
+            log.Add("component: it inherited its model; SkeletalMesh added");
+        }
         if (tags.FirstOrDefault(t => t.Name.Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } phys)
         {
             BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(phys.ValueAt), physRef);

@@ -46,7 +46,19 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
+    static Notice WholeSummons() => new(
+        "0.60.462-whole-summons", "0.60.462",
+        "[!]New on the Model tab: summons as another character" + nl +
+        "  • Pick a character as the source and a summon as the target (Magik's demons, Squirrel Girl's squirrels …): Whole Character gives the summon that character's own model, skeleton and animations. Its attacks take the character's matching ones (a bite its bite, a pounce a leap)." + nl +
+        "  • Size in Game sets its size; Keep the Summon's Effects keeps or drops the summon's own flames and glows." + nl + nl +
+        "[!]Also" + nl +
+        "  • A whole character onto Great or Gold Ultron is built into Silver Ultron, whose model they show (the question says so)." + nl +
+        "  • An added prop picked again after reopening its mod shows in the preview, so its Prop Fit can be changed again." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-summon");
 
     /// <summary>0.60.460 (Kurt, 2026-11-10): Borrow Effects (another character's always-on effects), animation trails recolored.</summary>
     static Notice BorrowEffects() => new(

@@ -35,6 +35,9 @@ sealed partial class ModelPage : UserControl
     readonly CheckBox smooth = new() { Text = "Smooth (Subdivide)", AutoSize = true };
     readonly CheckBox matchSteps = new() { Text = "Match Steps to Size", AutoSize = true, Checked = true };
     readonly CheckBox keepSourceSize = new() { Text = "Keep the Source's Size", AutoSize = true };
+    // a summon as a whole character (Kurt, 2026-11-10: Venom as Magik's spitter demons kept the demons' blue glow): the summon's own
+    // glow, effects and material on the character, or not
+    readonly CheckBox summonLook = new() { Text = "Keep the Summon's Effects", AutoSize = true, Checked = true, Visible = false };
     readonly CheckBox jointFit = new() { Text = "Game Joint Blend", AutoSize = true };
     // Feet (Kurt, 2026-10-22: a slider, not a checkbox; Hulk on Black Widow still poked through): the model moved up or down,
     // starting at the automatic amount (ImportBuild.FeetOffset); double-click goes back to it. A value moved off it is kept.
@@ -300,7 +303,8 @@ sealed partial class ModelPage : UserControl
         var checks = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0) };
         keepSourceSize.Margin = new Padding(2, 4, 0, 0);
         jointFit.Margin = new Padding(2, 4, 0, 0);
-        checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize); checks.Controls.Add(jointFit);
+        checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize); checks.Controls.Add(jointFit); checks.Controls.Add(summonLook);
+        summonLook.Margin = new Padding(2, 4, 0, 0);
         sizeBox.RowCount = 4;
         leanSlider.Height = sizeSlider.Height; leanSlider.Dock = DockStyle.Fill; leanSlider.Margin = new Padding(0, 2, 0, 0);
         leanSlider.Home = () => leanAuto;
@@ -381,6 +385,8 @@ sealed partial class ModelPage : UserControl
         feetSlider.ValueChanged += () => { if (!restoringFeet) preview.FeetShift = feetSlider.Value; };
         Ui.Tip(keepSourceSize, "An MFF model is fitted to the target's height by default (Hulk on Black Widow comes out her height). With this on it keeps its own size against the other MFF characters (Hulk stays Hulk-sized on any hero); Size and Feet then start from there.");
         keepSourceSize.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
+        Ui.TipTitled(summonLook, "Keep the Summon's Effects", "For a summon taking a whole character (Magik's demons as Venom): ticked, the character keeps the summon's own always-on effects (the blue demons' flames and glowing eyes). Unticked, they're taken off. The summon's own material is always left out (it's made for the summon's model). To give it other effects or colors, use its Own Effects entry on the Powers tab (Borrow Effects, the color sliders). Build into Mod applies it.");
+        summonLook.CheckedChanged += (_, _) => SaveState();
         Ui.TipTitled(jointFit, "Game Joint Blend", "Shares the skin around the hips, knees, shoulders and elbows between the limb and the body the way the target's own game model does, over a wide band, instead of the MFF model's narrow handover. It stops the seat creasing and the shoulders and thighs bulging when the hero moves. The pelvis also turns where the game's does. Test feature: compare it in the preview (Look ▾ → Weights shows the result), then in game. The preview shows it after a moment; Build writes it. (MFF models only.)");
         jointFit.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
         Ui.TipTitled(leanSlider, "Lean", "Tips the model forward (+) or back (−), in degrees: half at the ankles (the legs stay straight), half at the hips; the soles stay flat. It starts at the automatic amount (Auto): the head over the feet as the hero's own model stands. Double-click: back to automatic. The preview shows it after a moment; Build writes it.");
@@ -1331,6 +1337,7 @@ sealed partial class ModelPage : UserControl
         int id = ++previewId;
         PreviewPanel.ModsNow = [.. host.Packages];   // (the mod's packages: its borrowed powers' animations and power packages)
         UpdatePropFitUi();
+        UpdateSummonLook();
         PreviewPanel.PropAdjustNow = PropFitForTarget();   // (a prop target: the Prop Fit sliders)
         PreviewPanel.HeldNow = ChosenPackage is CharacterList.Item hp ? (ModCopy(hp.Key), WorkedModels(hp.Key)) : null;   // (the body and its prop together)
         PreviewPanel.AddedFitNow = AddedTarget is { } at ? PowerBorrow.FitMatrix(at.Fit, at.Class) : null;   // (an added prop: shown with its fit)
@@ -1381,7 +1388,7 @@ sealed partial class ModelPage : UserControl
                 var tp = await Task.Run(() => PreviewPanel.PrepareTarget(srcPath));
                 if (id != previewId || IsDisposed) return;
                 preview.Show(tp);
-                Log($"Preview: {DescribePackage(srcFile).Title} as the whole pet (its own model and animations; Build puts it into {pkg.Title}'s package). " + tp.Note);
+                Log($"Preview: {DescribePackage(srcFile).Title} as the whole {(IsPet(srcFile) ? "pet" : "character")} (its own model and animations; Build puts it into {pkg.Title}'s package). " + tp.Note);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
             {

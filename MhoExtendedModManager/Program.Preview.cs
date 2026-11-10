@@ -3521,6 +3521,56 @@ static partial class Program
                 Console.WriteLine($"written {rest[3]} ({dout.Length:N0} bytes)");
                 return 0;
             }
+            case "--summon-whole":
+            {
+                // A summon as another character, whole (SummonLook.BuildWhole): --summon-whole <summon package> <character package>
+                // --build <folder> [--no-look] [--size <s>] [--create --name <mod name>]. Both the game's clean copies; never writes the game.
+                string? wgr = settings.ResolvedGameRoot(data);
+                int wb = rest.IndexOf("--build");
+                if (rest.Count < 3 || wgr == null || wb < 0 || wb + 1 >= rest.Count) { Console.WriteLine("--summon-whole <summon package> <character package> --build <folder> [--create --name <n>]"); return 1; }
+                string wcook = Settings.Cooked(wgr);
+                string WPkg(string n) => StockFiles.For(wcook, n.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? n : n + ".upk");
+                string wt = WPkg(rest[1]), ws = WPkg(rest[2]);
+                if (!File.Exists(wt) || !File.Exists(ws)) { Console.WriteLine("summon or character package not found"); return 1; }
+                string wdir = Path.GetFullPath(rest[wb + 1]);
+                if (wdir.StartsWith(Path.GetFullPath(wgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                var wlog = new List<string>();
+                byte[] wout;
+                int wsz = rest.IndexOf("--size");
+                float wsize = wsz >= 0 && wsz + 1 < rest.Count && float.TryParse(rest[wsz + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float wv) ? wv : 1;
+                try { wout = SummonLook.BuildWhole(wt, Path.GetFileName(wt), ws, Path.GetFileName(ws), CostumeAnims.FilesFor(null, wcook), wlog, wcook, keepLook: !rest.Contains("--no-look"), size: wsize); }
+                catch (InvalidDataException ex) { foreach (var l in wlog) Console.WriteLine("  " + l); Console.WriteLine("FAILED: " + ex.Message); return 1; }
+                foreach (var l in wlog) Console.WriteLine("  " + l);
+                Directory.CreateDirectory(wdir);
+                string wfile = Path.Combine(wdir, Path.GetFileName(wt));
+                File.WriteAllBytes(wfile, wout);
+                Console.WriteLine($"built and verified: {wfile} ({wout.Length:N0} bytes)");
+                if (rest.Contains("--create"))
+                {
+                    int wn = rest.IndexOf("--name");
+                    string name = wn >= 0 && wn + 1 < rest.Count ? rest[wn + 1] : $"{Path.GetFileNameWithoutExtension(wt)} as {Path.GetFileNameWithoutExtension(ws)}";
+                    var d = new ModDraft { Name = name, Author = settings.AuthorName?.Trim() ?? "", Packages = [(Path.GetFileName(wt), wfile)], Notes = $"Test: the summon {Path.GetFileName(wt)} as {Path.GetFileName(ws)}, whole (its own skeleton and animations)." };
+                    string? made = ModWriter.Save(lib, d, lib.Mods.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)), out string? perr);
+                    Console.WriteLine(made != null ? $"mod folder '{made}'" : "not created: " + perr);
+                }
+                return 0;
+            }
+            case "--summon-child":
+            {
+                // Writes only <out.upk>: a summon class over a whole-character build (SummonLook.WholeChild): its size, no material
+                // override, no random materials. --summon-child <package name> <class> <scale> <out.upk> [--no-look]
+                string? cgr2 = settings.ResolvedGameRoot(data);
+                if (rest.Count < 5 || cgr2 == null) { Console.WriteLine("--summon-child <package name> <class> <scale> <out.upk> [--no-look]"); return 1; }
+                string cck = Settings.Cooked(cgr2);
+                string cpath = StockFiles.For(cck, rest[1].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? rest[1] : rest[1] + ".upk");
+                var clog = new List<string>();
+                byte[]? cbytes = SummonLook.WholeChild(cpath, Path.GetFileName(cpath), rest[2], float.Parse(rest[3], System.Globalization.CultureInfo.InvariantCulture), !rest.Contains("--no-look"), cck, clog);
+                foreach (var l in clog) Console.WriteLine("  " + l);
+                if (cbytes == null) { Console.WriteLine("nothing to change"); return 0; }
+                File.WriteAllBytes(rest[4], cbytes);
+                Console.WriteLine($"written {rest[4]} ({cbytes.Length:N0} bytes)");
+                return 0;
+            }
             case "--summon-look":
             {
                 // Writes only <out.upk>: a summon's package with another summon's look (SummonLook.Build).
