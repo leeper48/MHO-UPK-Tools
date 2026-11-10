@@ -118,6 +118,7 @@ static partial class Program
         cfg.SelfiePad = "";
         byte[] first = File.ReadAllBytes(FreeCamBuddy.Live(game));
         cfg.ZoomStepsCloser = 4; cfg.TiltDown = 60; cfg.ModePad = ""; cfg.SnapPad = "";
+        cfg.BehindKeepZoom = false; cfg.DefaultGameZoom = false; cfg.BehindLockTilt = true; cfg.WallsFade = true;   // both set zooms, Lock Tilt and walls fade built (0.60.451)
         Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false), "apply again with other settings (rebuilt from the kept Freecam package)"); Dump();
         byte[] second = File.ReadAllBytes(FreeCamBuddy.Live(game));
         Check(!second.AsSpan().SequenceEqual(first) && FreeCamBuddy.Detect(game).Ours, "the package changed and is still recognized as ours");
@@ -153,7 +154,11 @@ static partial class Program
             Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false) && HudLabels.IsOurs(game), "labels: names hidden again"); Dump();
             cfg.HideNames = false;
         }
+        string gameIni = Path.Combine(input, "MarvelGame.ini");
+        File.WriteAllText(gameIni, "[Engine.HUD]\r\nConsoleMessageCount=4\r\nConsoleFontSize=1105500700\r\nMessageFontOffset=911879322\r\nbShowHUD=true\r\n");
         Check(FreeCamBuddy.Remove(game, dryRun: false, log, checkGameRunning: false), "remove"); Dump();
+        Check(File.ReadAllText(gameIni) == "[Engine.HUD]\r\nConsoleMessageCount=4\r\nConsoleFontSize=5\r\nMessageFontOffset=0\r\nbShowHUD=true\r\n",
+            "Remove clears Remember Camera's saved camera in MarvelGame.ini (the game crashed on it without FreeCam Options), rest kept");
         if (hud != null) Check(File.ReadAllBytes(HudLabels.Live(game)).AsSpan().SequenceEqual(hud), "labels: Remove puts MarvelHUD_SF.upk back byte for byte");
         Check(File.ReadAllBytes(FreeCamBuddy.Live(game)).AsSpan().SequenceEqual(freecam), "MarvelGame.upk is Freecam's again, byte for byte");
         Check(new[] { "MarvelInput.ini", "MarvelInputUserSettings.ini" }.Select((f, i) => File.ReadAllBytes(Path.Combine(input, f)).AsSpan().SequenceEqual(iniBefore[i])).All(x => x), "both input files are as before, byte for byte");

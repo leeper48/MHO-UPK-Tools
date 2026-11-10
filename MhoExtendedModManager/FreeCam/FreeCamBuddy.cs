@@ -167,6 +167,7 @@ static class FreeCamBuddy
         }
         state.WrittenSha = builtSha;
         SaveState(state);
+        if (!cfg.RememberCamera) ResetRemembered(log);
         if (!HudLabels.Apply(gameRoot, cfg, dryRun: false, log)) return false;
         return BindingsApply(cfg, dryRun: false, log);
     }
@@ -195,6 +196,7 @@ static class FreeCamBuddy
             }
         }
         else log.Add("MarvelGame.upk: nothing of FreeCam Options's to take out.");
+        if (!dryRun) ResetRemembered(log);
         if (!HudLabels.Remove(gameRoot, dryRun, log)) return false;
         return BindingsRemove(dryRun, log);
     }
@@ -261,6 +263,50 @@ static class FreeCamBuddy
 
     public static string InputFolder => Environment.GetEnvironmentVariable("MHO_FREECAM_INPUT_DIR") is { Length: > 0 } t ? t
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "My Games", "Marvel Heroes", "MarvelGame", "Config");
+
+    /// <summary>
+    /// Remember Camera keeps the camera in Engine.HUD's ConsoleFontSize / MessageFontOffset (MarvelGame.ini, written by the
+    /// game's SaveConfig). Tidying: whenever the live MarvelGame.upk isn't FreeCam Options (or Remember Camera is off), a stored
+    /// camera (ConsoleFontSize ≥ FreeCamPatch.Marker) goes back to 5 / 0 (UE3's defaults). Not while the game runs (it writes the
+    /// file on exit). (First added as the fix for a start-screen crash, 2026-11-09; that crash turned out to be
+    /// RemoveControllerBindsWithName, see FreeCamPatch.Build. The stored numbers were never shown to crash the game.)
+    /// </summary>
+    public static void ResetRemembered(List<string>? log)
+    {
+        string path = Path.Combine(InputFolder, "MarvelGame.ini");
+        try
+        {
+            if (!System.IO.File.Exists(path) || System.Diagnostics.Process.GetProcessesByName("MarvelHeroesOmega").Length > 0) return;
+            string text = System.IO.File.ReadAllText(path, Encoding.Latin1);
+            string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+            var lines = text.Split(nl).ToList();
+            string section = ""; bool stored = false;
+            int fontAt = -1, offsetAt = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                string l = lines[i].Trim();
+                if (l.StartsWith('[')) { section = l; continue; }
+                if (!section.Equals("[Engine.HUD]", StringComparison.OrdinalIgnoreCase)) continue;
+                if (l.StartsWith("ConsoleFontSize=", StringComparison.OrdinalIgnoreCase)) { fontAt = i; stored = long.TryParse(l[16..], out long v) && v >= FreeCamPatch.Marker; }
+                else if (l.StartsWith("MessageFontOffset=", StringComparison.OrdinalIgnoreCase)) offsetAt = i;
+            }
+            if (!stored) return;
+            lines[fontAt] = "ConsoleFontSize=5";
+            if (offsetAt >= 0) lines[offsetAt] = "MessageFontOffset=0";
+            string tmp = path + ".mho.tmp";
+            System.IO.File.WriteAllText(tmp, string.Join(nl, lines), Encoding.Latin1);
+            System.IO.File.Move(tmp, path, overwrite: true);
+            log?.Add("MarvelGame.ini: Remember Camera's saved camera cleared (the game's own console font settings back to 5 / 0).");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log?.Add($"MarvelGame.ini: couldn't clear Remember Camera's saved camera ({ex.Message})."); }
+    }
+
+    /// <summary>ResetRemembered when the live MarvelGame.upk isn't FreeCam Options (Freecam reinstalled, a mod's copy applied).</summary>
+    public static void ResetRememberedIfGone(string gameRoot, List<string>? log)
+    {
+        try { if (Detect(gameRoot).Kind != Kind.Buddy) ResetRemembered(log); }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+    }
 
     static bool Ours(string line) => OurCommands.Concat(Retired).Any(c => line.Contains($"Command=\"{c}\"", StringComparison.OrdinalIgnoreCase) || line.Contains($"Command=\"{c} |", StringComparison.OrdinalIgnoreCase));
 

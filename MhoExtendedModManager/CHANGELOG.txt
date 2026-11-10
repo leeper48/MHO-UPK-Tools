@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.453
+- FreeCam Options: Locked Behind Mode has Keep Current In-Game Zoom and a Zoom slider, as on Snap Behind: untick it to have Locked Behind start at the zoom shown.
+- FreeCam Options: Default MHO's Game's Zoom is now Keep Current In-Game Zoom, and works as on Snap Behind: the zoom is left exactly as it is (before, the extra wheel steps were taken off).
+- FreeCam Options: Permanent Wall Fade (Disables F11 Toggle) (Options): with Freecam 1.2, interior walls fade as in the base game instead of always visible; F11 no longer switches them.
+- FreeCam Options: Lock Tilt on Locked Behind Mode keeps the camera at its Start Tilt (the stick and mouse camera don't tilt it).
+- FreeCam Options: fixed a game crash on the start screen (about every third launch) with a gamepad action on Back: while starting, the game removes that button's bindings and reported ours to a part of the game that isn't there yet. FreeCam Options's gamepad lines are now left alone (they also no longer disappear from Back during a session).
+- FreeCam Options: Remember Camera's saved camera (kept in two of the game's own HUD settings) goes back to the game's values whenever FreeCam Options isn't in the game (Remove, the Mods tab's Apply, and at start).
+- FreeCam Options: Keep Current Zoom is called Keep Current In-Game Zoom on every card.
+
 0.60.450
 - Turning a mod on or off no longer makes the mod list jump: it keeps its scroll position.
 

@@ -99,10 +99,17 @@ sealed class FreeCamSettings
     public bool DefaultGameTilt { get; set; } = true;
     public int DefaultTilt { get; set; } = 45;
     public int DefaultHeight { get; set; } = 0;
+    /// <summary>Default MHO keeps the zoom it's switched on at (Keep Current In-Game Zoom, as on Snap Behind; until 0.60.450 "Game's
+    /// Zoom", which also took the extra wheel steps off), or starts at DefaultZoomX.</summary>
     public bool DefaultGameZoom { get; set; } = true;
     /// <summary>Default MHO's set zoom, a factor of the game's closest distance like Snap Behind's (0.5 = twice as far). The
     /// game's own step nearest that distance is used (its angle and height), extra wheel steps only past its farthest step.</summary>
     public double DefaultZoomX { get; set; } = 1.0;
+    /// <summary>Locked Behind's zoom when it's switched on (Kurt, 2026-11-09): kept, or set as Snap Behind's is.</summary>
+    public bool BehindKeepZoom { get; set; } = true;
+    /// <summary>Locked Behind holds its Start Tilt (the stick and mouse camera don't tilt it; Kurt, 2026-11-09).</summary>
+    public bool BehindLockTilt { get; set; } = false;
+    public double BehindZoomX { get; set; } = 0.5;
     public int SelfieTilt { get; set; } = 5;
     public int SelfieHeight { get; set; } = -50;
     public bool SelfieKeepZoom { get; set; } = false;
@@ -122,6 +129,10 @@ sealed class FreeCamSettings
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public int? SelfieZoom { get; set; }
 
+    /// <summary>Permanent Wall Fade: interior walls fade (the game's own way) instead of Freecam 1.2's always visible, and F11
+    /// no longer switches them. Off by default so F11 keeps working (Kurt, 2026-11-09). Freecam 1.0 / 1.1 have no override,
+    /// so their walls fade anyway.</summary>
+    public bool WallsFade { get; set; }
     /// <summary>Overhead labels hidden (MarvelHUD_SF.upk, HudLabels): names, titles under them, guild names.</summary>
     public bool HideNames { get; set; }
     public bool HideTitles { get; set; }
@@ -176,8 +187,9 @@ sealed class FreeCamSettings
         LongPressMs = Math.Clamp(LongPressMs, 200, 3000);
         DefaultTilt = Math.Clamp(DefaultTilt, 5, 89); DefaultHeight = Math.Clamp(DefaultHeight, -250, 250);
         DefaultZoomX = Math.Clamp(DefaultZoomX, ZoomMin, ZoomMax);
+        BehindZoomX = Math.Clamp(BehindZoomX, ZoomMin, ZoomMax);
     }
 
     /// <summary>The parts that go into MarvelGame.upk (a change there needs a rebuild; key changes only rewrite the .ini).</summary>
-    public string PackageKey() => $"{InvertByDefault}|{ZoomStepsCloser}|{ZoomStepsFarther}|{ZoomStepPercent}|{TiltDown}|{TiltUp}|{OrbitSpeed}|{ShoulderOffset}|{FollowSpeed}|{BehindTilt}|{LongPressMs}|{RememberCamera}|{DefaultGameTilt}|{DefaultTilt}|{DefaultHeight}|{DefaultGameZoom}|{DefaultZoomX}";
+    public string PackageKey() => $"{InvertByDefault}|{ZoomStepsCloser}|{ZoomStepsFarther}|{ZoomStepPercent}|{TiltDown}|{TiltUp}|{OrbitSpeed}|{ShoulderOffset}|{FollowSpeed}|{BehindTilt}|{LongPressMs}|{RememberCamera}|{DefaultGameTilt}|{DefaultTilt}|{DefaultHeight}|{DefaultGameZoom}|{DefaultZoomX}|{BehindKeepZoom}|{BehindZoomX}|{BehindLockTilt}|{WallsFade}";
 }

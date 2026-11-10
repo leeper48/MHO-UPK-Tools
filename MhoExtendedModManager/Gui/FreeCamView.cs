@@ -82,19 +82,22 @@ sealed class FreeCamView : UserControl
             Slider(s, "Tilt Up Limit", 0, 60, 1, () => cfg.TiltUp, v => cfg.TiltUp = v, v => $"{v:0}°", 22, "How far the camera can look up from below the hero."),
             Slider(s, "Orbit Speed", 25, 300, 5, () => cfg.OrbitSpeed, v => cfg.OrbitSpeed = v, v => $"{v:0} %", 100, "How fast the right stick / mouse camera turns the view (100 % = Freecam's speed).")),
             "Limits and speed for Free Orbit and Locked Behind: how far the camera may tilt down and up, and how fast the right stick or mouse camera turns it."), 1, 1);
-        grid.Controls.Add(Card("LOCKED BEHIND MODE", Stack(s,
+        grid.Controls.Add(Card("LOCKED BEHIND MODE", Stack(s, [
             Slider(s, "Shoulder Offset", -150, 150, 5, () => cfg.ShoulderOffset, v => cfg.ShoulderOffset = v, v => v == 0 ? "Centered" : v > 0 ? $"{v:0} Right" : $"{-v:0} Left", 0, "Moves the view sideways so the camera looks over the hero's shoulder (right is positive)."),
             Slider(s, "Follow Speed", 5, 200, 5, () => cfg.FollowSpeed, v => cfg.FollowSpeed = v, v => $"{v / 10:0.0}", 50, "How quickly the camera swings behind the hero when they turn."),
-            Slider(s, "Start Tilt", -20, 60, 1, () => cfg.BehindTilt, v => cfg.BehindTilt = v, v => $"{v:0}°", 10, "How far the camera looks down when Locked Behind is switched on (the stick still tilts it).")),
-            "Locked Behind follows the way the hero faces. Movement stays camera-relative (as in Freecam), so strafing turns the hero and the camera together."), 2, 1);
+            Slider(s, "Start Tilt", -20, 60, 1, () => cfg.BehindTilt, v => cfg.BehindTilt = v, v => $"{v:0}°", 10, "How far the camera looks down when Locked Behind is switched on (the stick still tilts it unless Lock Tilt is ticked)."),
+            Check("Lock Tilt", "Ticked: Locked Behind stays at its Start Tilt; the stick and mouse camera don't tilt it. Unticked: they tilt it as in Free Orbit.", () => cfg.BehindLockTilt, v => cfg.BehindLockTilt = v),
+            .. ZoomRows(s, "Locked Behind", () => cfg.BehindKeepZoom, v => cfg.BehindKeepZoom = v, () => cfg.BehindZoomX, v => cfg.BehindZoomX = v, Defaults.BehindZoomX,
+                "The zoom Locked Behind starts at, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)")]),
+            "Locked Behind follows the way the hero faces. Movement stays camera-relative (as in Freecam), so strafing turns the hero and the camera together. Lock Tilt holds the camera at the Start Tilt. Keep Current In-Game Zoom leaves the zoom when you switch to it; unticked, it starts at the zoom shown (1 × is the game's closest view)."), 2, 1);
         grid.Controls.Add(Card("SNAP BEHIND", ShortcutBody(s, "Snap Behind", () => cfg.SnapTilt, v => cfg.SnapTilt = v, () => cfg.SnapHeight, v => cfg.SnapHeight = v,
             () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX),
-            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view)."), 0, 2);
+            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view)."), 0, 2);
         grid.Controls.Add(Card("SELFIE", ShortcutBody(s, "Selfie", () => cfg.SelfieTilt, v => cfg.SelfieTilt = v, () => cfg.SelfieHeight, v => cfg.SelfieHeight = v,
             () => cfg.SelfieKeepZoom, v => cfg.SelfieKeepZoom = v, () => cfg.SelfieZoomX, v => cfg.SelfieZoomX = v, Defaults.SelfieTilt, Defaults.SelfieHeight, Defaults.SelfieZoomX),
-            "Selfie puts the camera in front of your hero, facing them, at this tilt and height, and switches to Free Orbit. Keep Current Zoom leaves the zoom; unticked, it sets the zoom shown."), 1, 2);
+            "Selfie puts the camera in front of your hero, facing them, at this tilt and height, and switches to Free Orbit. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown."), 1, 2);
         grid.Controls.Add(Card("DEFAULT MHO MODE", DefaultBody(s),
-            "The game's own camera direction. Game's Tilt, a Height of Normal and Game's Zoom (the defaults) make it the base game's camera. Untick Game's Tilt to set how far it looks down, move Height to raise or lower it (RB + stick doesn't in this mode), or untick Game's Zoom to start at the zoom shown (as on Snap Behind: 1 × is the game's closest view). The game's own zoom step nearest that distance is used, so its angle and height apply."), 3, 1);
+            "The game's own camera direction. Game's Tilt, a Height of Normal and Keep Current In-Game Zoom (the defaults) make it the base game's camera. Untick Game's Tilt to set how far it looks down, move Height to raise or lower it (RB + stick doesn't in this mode), Keep Current In-Game Zoom leaves the zoom when you switch to it; untick it to start at the zoom shown (as on Snap Behind: 1 × is the game's closest view). The game's own zoom step nearest that distance is used, so its angle and height apply."), 3, 1);
 
         // ---- view distance (Kurt, 2026-11-08): the server's own chat command, the only client-side way to see farther
         const string aoiCommand = "!aoi volume 5000";
@@ -162,6 +165,7 @@ sealed class FreeCamView : UserControl
     const string OptionsInfo =
         "Invert Y flips up / down for the right stick and the mouse camera, every session.\n\n" +
         "Remember Camera on Launch: the game starts, and changes zones, with the camera mode, zoom and angle you last had (the game's script saves them in its settings file when they change and the camera is at rest).\n\n" +
+        "Permanent Wall Fade (Disables F11 Toggle): Freecam 1.2 keeps interior walls visible; ticked, they fade as in the base game, and F11 no longer switches them.\n\n" +
         "Overhead Labels: only the text goes, health bars and markers stay. Written into the game's MarvelHUD_SF.upk on Apply to Game; untick and Apply, or Remove, to put the game's labels back.";
 
     /// <summary>Invert Y, Remember Camera on Launch, the long-press time and the overhead labels.</summary>
@@ -175,11 +179,12 @@ sealed class FreeCamView : UserControl
         Ui.Tip(remember, "The game starts (and changes zones) with the camera mode, zoom and angle you last had.");
         remember.CheckedChanged += (_, _) => { cfg.RememberCamera = remember.Checked; Changed(); };
         refreshers.Add(() => remember.Checked = cfg.RememberCamera);
+        var walls = Check("Permanent Wall Fade (Disables F11 Toggle)", "Ticked: interior walls fade when the camera comes close (the game's own way), and F11 no longer switches them. Unticked: Freecam 1.2's default, always visible.", () => cfg.WallsFade, v => cfg.WallsFade = v);
         var longPress = Slider(s, "Long Press Time", 200, 3000, 50, () => cfg.LongPressMs, v => cfg.LongPressMs = v, v => $"{v:0} ms", Defaults.LongPressMs,
             "How long a gamepad button is held for a long press (and for the hold of Short Then Long).");
         longPress.Margin = new Padding(0, 8, 0, 2);
         var labelsHead = new Label { Text = "OVERHEAD LABELS", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 12, 0, 2) };
-        return Stack(s, invert, remember, longPress, labelsHead,
+        return Stack(s, invert, remember, walls, longPress, labelsHead,
             Check("Hide Names", "No names over characters (enemies, vendors, allies; other players' and your own too, as they use the same label).", () => cfg.HideNames, v => cfg.HideNames = v),
             Check("Hide Titles", "No title line under the names (\"Vendor\", \"Crafter\" …).", () => cfg.HideTitles, v => cfg.HideTitles = v),
             Check("Hide Guild Names", "No guild name under player names.", () => cfg.HideGuilds, v => cfg.HideGuilds = v),
@@ -281,19 +286,25 @@ sealed class FreeCamView : UserControl
     {
         var tilt = Slider(s, "Tilt", -20, 60, 1, getTilt, setTilt, v => $"{v:0}°", tiltHome, $"How far the camera looks down after {name} (negative: from below).");
         var height = Slider(s, "Height", -250, 250, 5, getHeight, setHeight, v => v == 0 ? "Normal" : v > 0 ? $"+{v:0}" : $"{v:0}", heightHome, $"The camera's height after {name}: Freecam's raise / lower (RB + stick), set to this.");
-        var keep = new CheckBox { Text = "Keep Current Zoom", AutoSize = true, Checked = getKeep(), Margin = new Padding(0, 6, 0, 2) };
+        return Stack(s, [tilt, height, .. ZoomRows(s, name, getKeep, setKeep, getZoom, setZoom, zoomHome,
+            "The zoom it sets, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)")]);
+    }
+
+    /// <summary>Keep Current In-Game Zoom and the Zoom slider it turns off (Snap Behind, Selfie, Locked Behind, Default MHO).</summary>
+    Control[] ZoomRows(float s, string name, Func<bool> getKeep, Action<bool> setKeep, Func<double> getZoom, Action<double> setZoom, double zoomHome, string zoomTip)
+    {
+        var keep = new CheckBox { Text = "Keep Current In-Game Zoom", AutoSize = true, Checked = getKeep(), Margin = new Padding(0, 6, 0, 2) };
         Ui.Tip(keep, $"Ticked: {name} leaves the zoom as it is. Unticked: it sets the zoom below every time.");
         var zoom = new LightSlider { Label = "Zoom", Min = (float)FreeCamSettings.ZoomMin, Max = (float)FreeCamSettings.ZoomMax, Step = 0.05f, Mark = (float)zoomHome, Home = () => (float)zoomHome,
             Format = v => $"{v:0.00} ×", Width = (int)(360 * s), Height = (int)(30 * s), Margin = new Padding(0, 2, 0, 2) };
         zoom.Value = (float)getZoom();
         zoom.ValueChanged += () => { setZoom(Math.Round(zoom.Value * 20) / 20); Changed(); };
-        refreshers.Add(() => zoom.Value = (float)getZoom());
-        Ui.Tip(zoom, "The zoom it sets, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)");
+        Ui.Tip(zoom, zoomTip);
         void Enable() => zoom.Enabled = !keep.Checked;
         keep.CheckedChanged += (_, _) => { setKeep(keep.Checked); Enable(); Changed(); };
-        refreshers.Add(() => { keep.Checked = getKeep(); Enable(); });
+        refreshers.Add(() => { keep.Checked = getKeep(); zoom.Value = (float)getZoom(); Enable(); });
         Enable();
-        return Stack(s, tilt, height, keep, zoom);
+        return [keep, zoom];
     }
 
     // ------------------------------------------------------------------ default MHO card
@@ -310,18 +321,8 @@ sealed class FreeCamView : UserControl
         EnableTilt();
         var height = Slider(s, "Height", -250, 250, 5, () => cfg.DefaultHeight, v => cfg.DefaultHeight = v, v => v == 0 ? "Normal" : v > 0 ? $"+{v:0}" : $"{v:0}", Defaults.DefaultHeight,
             "The camera's height in Default MHO (Normal = the game's own): Freecam's raise / lower (RB + stick doesn't change it in this mode).");
-        var keep = new CheckBox { Text = "Game's Zoom", AutoSize = true, Checked = cfg.DefaultGameZoom, Margin = new Padding(0, 6, 0, 2) };
-        Ui.Tip(keep, "Ticked: Default MHO keeps the game's zoom step you're on (the extra wheel steps are taken off). Unticked: it starts at the zoom below.");
-        var zoom = new LightSlider { Label = "Zoom", Min = (float)FreeCamSettings.ZoomMin, Max = (float)FreeCamSettings.ZoomMax, Step = 0.05f, Mark = (float)Defaults.DefaultZoomX, Home = () => (float)Defaults.DefaultZoomX,
-            Format = v => $"{v:0.00} ×", Width = (int)(360 * s), Height = (int)(30 * s), Margin = new Padding(0, 2, 0, 2) };
-        zoom.Value = (float)cfg.DefaultZoomX;
-        zoom.ValueChanged += () => { cfg.DefaultZoomX = Math.Round(zoom.Value * 20) / 20; Changed(); };
-        Ui.Tip(zoom, "The zoom Default MHO starts at, as on Snap Behind: right = closer, 1 × is the game's closest view, 0.5 × twice as far. The game's own zoom step nearest that distance is used, with its angle and height.  (Double-click: back to the default.)");
-        void EnableZoom() => zoom.Enabled = !keep.Checked;
-        keep.CheckedChanged += (_, _) => { cfg.DefaultGameZoom = keep.Checked; EnableZoom(); Changed(); };
-        refreshers.Add(() => { keep.Checked = cfg.DefaultGameZoom; zoom.Value = (float)cfg.DefaultZoomX; EnableZoom(); });
-        EnableZoom();
-        return Stack(s, gameTilt, tilt, height, keep, zoom);
+        return Stack(s, [gameTilt, tilt, height, .. ZoomRows(s, "Default MHO", () => cfg.DefaultGameZoom, v => cfg.DefaultGameZoom = v, () => cfg.DefaultZoomX, v => cfg.DefaultZoomX = v, Defaults.DefaultZoomX,
+            "The zoom Default MHO starts at, as on Snap Behind: right = closer, 1 × is the game's closest view, 0.5 × twice as far. The game's own zoom step nearest that distance is used, with its angle and height.  (Double-click: back to the default.)")]);
     }
 
     // ------------------------------------------------------------------ zoom card

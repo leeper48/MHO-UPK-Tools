@@ -47,7 +47,7 @@ static class FreeCamPatch
     /// <summary>Remember Camera's store: two of the HUD's config ints, unused in MHO (its HUD is Flash; Engine's canvas
     /// console messages use them), written by the HUD's SaveConfig into the game's settings.</summary>
     const string Store1 = "Engine.HUD.ConsoleFontSize", Store2 = "Engine.HUD.MessageFontOffset";
-    const int Marker = 1_000_000_000;
+    internal const int Marker = 1_000_000_000;
     const string Vector = "Core.Object.Vector", Rotator = "Core.Object.Rotator";
     const float DegToUnits = 65536f / 360f;
     const int DivF = 0xAC, Loge = 0xC0;
@@ -64,8 +64,8 @@ static class FreeCamPatch
         float zoomStep = MathF.Log(1 + cfg.ZoomStepPercent / 100f);
         // the wheel's extra-step limits, widened to the shortcuts' preset zooms (so the wheel doesn't jump back from one)
         int Steps(double factor) => (int)Math.Ceiling(Math.Abs(cfg.StepsFor(factor)) - 1e-6) * Math.Sign(cfg.StepsFor(factor));
-        int maxOut = new[] { cfg.ZoomStepsFarther, cfg.SnapKeepZoom ? 0 : -Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : -Steps(cfg.SelfieZoomX), cfg.DefaultGameZoom ? 0 : -Steps(cfg.DefaultZoomX) }.Max();
-        int maxIn = new[] { cfg.ZoomStepsCloser, cfg.SnapKeepZoom ? 0 : Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : Steps(cfg.SelfieZoomX) }.Max();
+        int maxOut = new[] { cfg.ZoomStepsFarther, cfg.SnapKeepZoom ? 0 : -Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : -Steps(cfg.SelfieZoomX), cfg.DefaultGameZoom ? 0 : -Steps(cfg.DefaultZoomX), cfg.BehindKeepZoom ? 0 : -Steps(cfg.BehindZoomX) }.Max();
+        int maxIn = new[] { cfg.ZoomStepsCloser, cfg.SnapKeepZoom ? 0 : Steps(cfg.SnapZoomX), cfg.SelfieKeepZoom ? 0 : Steps(cfg.SelfieZoomX), cfg.BehindKeepZoom ? 0 : Steps(cfg.BehindZoomX) }.Max();
 
         Node Cam() => a.DynCast("MarvelPlayerCamera", a.Inst("Engine.PlayerController.PlayerCamera"));
         Node CamVec(string field, string comp, bool write = false) => a.Member(a.Ctx(Cam(), $"MarvelPlayerCamera.{field}"), Vector, comp, write);
@@ -87,6 +87,7 @@ static class FreeCamPatch
                     Asm.Let(CamVec("LastCamLoc", "Y", true), Asm.F(0)),
                     Asm.At(a1, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(1)), b1)),
                     Asm.Let(a.Inst(Pitch), Asm.I(-(int)(cfg.BehindTilt * DegToUnits))),
+                    .. BehindZoom(false),
                     Asm.At(b1, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(2)), after)),   // Default MHO: its height and zoom
                     .. EnterDefault(false),
                 ];
@@ -105,7 +106,7 @@ static class FreeCamPatch
             Node V(string field, string comp) => a.Member(a.Ctx(C(), $"MarvelPlayerCamera.{field}"), Vector, comp, true);
             Node PcVar(string prop) => hud ? a.Ctx(a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner")), prop) : a.Inst(prop);
             var list = new List<Node> { Asm.Let(V("LastCamLoc", "Y"), Asm.F(m)) };
-            if (m == 1) list.Add(Asm.Let(PcVar(Pitch), Asm.I(-(int)(cfg.BehindTilt * DegToUnits))));
+            if (m == 1) { list.Add(Asm.Let(PcVar(Pitch), Asm.I(-(int)(cfg.BehindTilt * DegToUnits)))); list.AddRange(BehindZoom(hud)); }
             if (m == 2) list.AddRange(EnterDefault(hud));
             return list;
         }
@@ -119,8 +120,9 @@ static class FreeCamPatch
             Node C() => hud ? a.DynCast("MarvelPlayerCamera", a.Ctx(a.Inst("Engine.HUD.PlayerOwner"), "Engine.PlayerController.PlayerCamera")) : Cam();
             Node PcVar(string prop) => hud ? a.Ctx(a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner")), prop) : a.Inst(prop);
             var list = new List<Node> { Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "X", true), Asm.F(cfg.DefaultHeight)) };
-            list.Add(Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Y", true), Asm.F(0)));
+            // Keep Current In-Game Zoom (0.60.451, Kurt: as on Snap Behind): the zoom is left as it is, extra wheel steps too
             if (cfg.DefaultGameZoom) return list;
+            list.Add(Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Y", true), Asm.F(0)));
             Node Max() => a.CtxFinal(C(), "MarvelPlayerCamera.getMaxZoomIndex");
             Node Idx() => a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex");
             Node Dist(Node i) => a.Member(Asm.Elem(i, a.Ctx(C(), "MarvelPlayerCamera.gameCamSettings")), "MarvelPlayerCamera.CamSetting", "ZoomDistance", false);
@@ -160,15 +162,27 @@ static class FreeCamPatch
                 Asm.Let(PcVar(Pitch), Asm.I(-(int)(tilt * DegToUnits))),
                 Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "X", true), Asm.F(height)),   // Freecam's height
             };
-            if (!keepZoom)
-            {
-                list.Add(Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Y", true), Asm.F(zoom)));
-                list.Add(Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex"), a.CtxFinal(C(), "MarvelPlayerCamera.getMaxZoomIndex")));
-                list.Add(Asm.LetBool(a.Ctx(C(), "MarvelPlayerCamera.gameCamIndexChanged"), Asm.True()));
-                list.Add(Asm.Let(PcVar("MarvelPlayerController.m_CameraZoomIndex"), a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex")));
-            }
+            if (!keepZoom) list.AddRange(SetZoom(C, PcVar, zoom));
             list.Add(Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.LastCamOffset"), VectConst(0, 0, 0)));
             return list;
+        }
+
+        // The zoom set as Snap Behind sets it: the game's closest step, then <zoom> extra steps (negative = closer).
+        List<Node> SetZoom(Func<Node> C, Func<string, Node> PcVar, float zoom) =>
+        [
+            Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Y", true), Asm.F(zoom)),
+            Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex"), a.CtxFinal(C(), "MarvelPlayerCamera.getMaxZoomIndex")),
+            Asm.LetBool(a.Ctx(C(), "MarvelPlayerCamera.gameCamIndexChanged"), Asm.True()),
+            Asm.Let(PcVar("MarvelPlayerController.m_CameraZoomIndex"), a.Ctx(C(), "MarvelPlayerCamera.currentSettingIndex")),
+        ];
+
+        // Locked Behind switched on (the cycle or its key): Keep Current In-Game Zoom, or the zoom set as Snap Behind's (Kurt, 2026-11-09).
+        List<Node> BehindZoom(bool hud)
+        {
+            if (cfg.BehindKeepZoom) return [];
+            Node C() => hud ? a.DynCast("MarvelPlayerCamera", a.Ctx(a.Inst("Engine.HUD.PlayerOwner"), "Engine.PlayerController.PlayerCamera")) : Cam();
+            Node PcVar(string prop) => hud ? a.Ctx(a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner")), prop) : a.Inst(prop);
+            return SetZoom(C, PcVar, -(float)cfg.StepsFor(cfg.BehindZoomX));
         }
 
         // Gamepad press trackers: one per distinct button (and RT setting), in the order the actions are listed; actions on
@@ -187,7 +201,7 @@ static class FreeCamPatch
             var height1 = code[6]; var height2 = code[7];
             Expect(height1.Tok == Asm.AddEqF && height2.Tok == Asm.AddEqF, "AdjustCameraZoom: Freecam's height statements not where expected");
             var resume = code[first].Label!;
-            var end = new JumpLabel("End"); var behind = new JumpLabel("Behind"); var height = new JumpLabel("Height");
+            var end = new JumpLabel("End"); var behind = new JumpLabel("Behind"); var height = new JumpLabel("Height"); var tiltFree = new JumpLabel("TiltFree");
             height1.Label = null; height2.Label = null;
             var stmts = code.Take(first).ToList();
             var next = resume;
@@ -208,10 +222,15 @@ static class FreeCamPatch
             var g5 = next;
             stmts.AddRange([
                 Asm.At(g5, Asm.IfNot(Asm.Nat(Asm.NotEqF, Mode(), Asm.F(2)), end)),             // isometric: no orbit input
-                Asm.Nat(Asm.AddEqInt, a.Inst(Pitch), Asm.Cast(Asm.FloatToInt,
+                // Lock Tilt (Kurt, 2026-11-09): Locked Behind holds its Start Tilt every frame (stick and mouse camera can't tilt it)
+                .. (cfg.BehindLockTilt ? new[] {
+                    Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(1)), tiltFree),
+                    Asm.Let(a.Inst(Pitch), Asm.I(-(int)(cfg.BehindTilt * DegToUnits))),
+                    Asm.Goto(behind) } : []),
+                Asm.At(tiltFree, Asm.Nat(Asm.AddEqInt, a.Inst(Pitch), Asm.Cast(Asm.FloatToInt,
                     Asm.Nat(Asm.MulF,
                         Asm.Nat(Asm.MulF, Asm.Nat(Asm.MulF, Input("GamepadRawJoyLookUp"), Delta()), Asm.F(-orbit * pitchSign)),
-                        Asm.Nat(Asm.SubF, Asm.F(1), CamVec("LastCamLoc", "X"))))),            // not while RB held (Freecam)
+                        Asm.Nat(Asm.SubF, Asm.F(1), CamVec("LastCamLoc", "X")))))),            // not while RB held (Freecam)
                 Asm.Let(a.Inst(Pitch), Asm.Nat(Asm.Clamp, a.Inst(Pitch), Asm.I(pitchMin), Asm.I(pitchMax))),
                 Asm.IfNot(Asm.Nat(Asm.NotEqF, Mode(), Asm.F(1)), behind),
                 Asm.Nat(Asm.AddEqInt, a.Inst(Yaw), Asm.Cast(Asm.FloatToInt,
@@ -335,6 +354,31 @@ static class FreeCamPatch
             result[idx] = f.Build(code);
             log.Add("UpdateViewTarget: isometric mode, behind offset, extra zoom");
         }
+
+        // ---- RemoveControllerBindsWithName: our gamepad lines left alone (Kurt, 2026-11-09: start-screen crash). The game removes
+        // a controller button's bindings (Back, seen) and reports each one with a command through native OnBindChanged, which
+        // reads a client object (global + 0x5B0) that doesn't exist yet during the splash screen: null read, crash at
+        // MarvelHeroesOmega.exe+0x13C033D, on about every third start with an action on Back. The game's own lines there have
+        // an empty command, so they never reach it. Our lines are skipped (one test per tracker command, jumping to the loop's
+        // next element), so they're neither reported nor deleted (the game also dropped our Back line later in a session).
+        {
+            var (idx, f, code) = Load(pkg, "MarvelInput.RemoveControllerBindsWithName");
+            // [4] = if !(&&(Shift, Control, name match)) goto L1 (next element); [5] = if !(Bindings[I].Command != "") goto L2
+            Expect(code.Count > 6 && code[4].Tok == 0x07 && code[5].Tok == 0x07, "RemoveControllerBindsWithName: not the expected loop");
+            var next = ((OJump)code[4].Ops[0]).Target!;
+            Node CommandExpr()
+            {
+                var copy = Bytecode.Parse(f.Code);
+                var cond = ((OExpr)copy[5].Ops[1]).V;                      // native7B(Bindings[I].Command, "")
+                Expect(cond.Tok == 0x7B && cond.Ops[0] is OParams { V.Count: 2 }, "RemoveControllerBindsWithName: command test not found");
+                return ((OParams)cond.Ops[0]).V[0];
+            }
+            var skips = Trackers.Select(t => $"{t.Exec} | OnRelease {t.Exec}")
+                .Select(cmd => Asm.IfNot(Asm.Nat(0x7B, CommandExpr(), Asm.Str(cmd)), next)).ToList();
+            code.InsertRange(5, skips);
+            result[idx] = f.Build(code);
+            log.Add("RemoveControllerBindsWithName: FreeCam Options's gamepad lines left alone");
+        }
         return result;
     }
 
@@ -454,10 +498,48 @@ static class FreeCamPatch
             }
         }
         var replaced = Build(pkg, cfg, log);
+        if (cfg.WallsFade) WallsFade(pkg, replaced, log);
         byte[] output = FreeCamPackageEdit.ReplaceExports(pkg, replaced);
         var problems = Check(pkg, output, replaced);
         if (problems.Count > 0) throw new InvalidDataException("The built package didn't check out: " + string.Join("; ", problems));
         return output;
+    }
+
+    /// <summary>
+    /// Walls fade at start: Freecam 1.2 adds OverrideOcclusion = true and OverrideOcclusionValue = 2 to Default__OcclusionManager
+    /// (interior walls always visible; F11 = MarvelCheatManager.OcclusionOverrideToggle). Both tags are taken out, so the object
+    /// is Freecam 1.1's (= the game's own) again and F11 still switches. (0.60.451's first version set only OverrideOcclusion to
+    /// false and kept OverrideOcclusionValue: with a gamepad action on Back the game crashed at the start screen on about every
+    /// second launch, Kurt 2026-11-09; 1.1's object never did.) Freecam 1.0 / 1.1: nothing to take out.
+    /// </summary>
+    static void WallsFade(Package pkg, Dictionary<int, byte[]> replaced, List<string> log)
+    {
+        int idx = Array.FindIndex(pkg.Exports, e => e.ObjectName.Equals("Default__OcclusionManager", StringComparison.OrdinalIgnoreCase));
+        if (idx < 0) { log.Add("Walls fade: no OcclusionManager defaults in this MarvelGame.upk; nothing to change."); return; }
+        byte[] d = pkg.ReadExportBytes(pkg.Exports[idx]);
+        var keep = new List<byte>(d.Take(4));
+        int p = 4, removed = 0;
+        string Name(int at) { int n = BitConverter.ToInt32(d, at); return n >= 0 && n < pkg.Names.Length ? pkg.Names[n] : ""; }
+        for (int guard = 0; guard < 64; guard++)
+        {
+            if (p + 8 > d.Length) { log.Add("Walls fade: OcclusionManager defaults didn't read as expected; left as they are."); return; }
+            string name = Name(p);
+            if (name.Equals("None", StringComparison.OrdinalIgnoreCase)) { keep.AddRange(d.Skip(p)); break; }
+            string type = Name(p + 8);
+            int size = BitConverter.ToInt32(d, p + 16);
+            int value = p + 24;
+            if (type.Equals("StructProperty", StringComparison.OrdinalIgnoreCase) || type.Equals("ByteProperty", StringComparison.OrdinalIgnoreCase)) value += 8;
+            int end = type.Equals("BoolProperty", StringComparison.OrdinalIgnoreCase) ? value + 1 : value + size;
+            if (end > d.Length) { log.Add("Walls fade: OcclusionManager defaults didn't read as expected; left as they are."); return; }
+            if (name.Equals("OverrideOcclusion", StringComparison.OrdinalIgnoreCase) || name.Equals("OverrideOcclusionValue", StringComparison.OrdinalIgnoreCase)) removed++;
+            else keep.AddRange(d.Skip(p).Take(end - p));
+            p = end;
+        }
+        if (removed == 0) { log.Add("Walls fade: this Freecam has no wall override (1.0 / 1.1): walls fade anyway."); return; }
+        replaced[idx] = keep.ToArray();
+        log.Add("Walls fade: interior walls fade at start (Freecam 1.2's wall override taken out, as in 1.1).");
+        // F11 is left as Freecam 1.2 has it. A first version also called OcclusionOverrideBackground() before the toggle
+        // (a guess from its name); the game crashed right at start with it (Kurt, 2026-11-09), so it was taken out.
     }
 
     public static List<string> Check(Package original, byte[] output, IReadOnlyDictionary<int, byte[]> replaced)
@@ -467,6 +549,7 @@ static class FreeCamPatch
         foreach (var i in replaced.Keys)
         {
             var e = written.Exports[i];
+            if (e.ObjectName.Equals("Default__OcclusionManager", StringComparison.OrdinalIgnoreCase)) continue;   // not a function (WallsFade)
             var f = ScriptFunction.Read(written.ReadExportBytes(e));
             var code = Bytecode.Parse(f.Code);
             if (Bytecode.MemSize(code) != f.MemSize) problems.Add($"{e.ObjectName}: memory size field wrong");

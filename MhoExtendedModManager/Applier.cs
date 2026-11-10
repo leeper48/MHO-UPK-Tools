@@ -398,6 +398,13 @@ static class Applier
             done++;
         }
         Console.WriteLine($"Applied: {done} file(s) written and verified.");
+        // MarvelGame.upk replaced by something that isn't FreeCam Options: its saved camera would crash the game (FreeCamBuddy.ResetRemembered)
+        if (p.Steps.Any(s => s.File.Equals(FreeCam.FreeCamBuddy.File, StringComparison.OrdinalIgnoreCase)))
+        {
+            var log = new List<string>();
+            FreeCam.FreeCamBuddy.ResetRememberedIfGone(game.Root, log);
+            foreach (var l in log) Console.WriteLine("  " + l);
+        }
         return true;
     }
 }

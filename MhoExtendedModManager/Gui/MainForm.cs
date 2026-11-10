@@ -816,6 +816,8 @@ sealed partial class MainForm : Form
 
     Mod? Selected => list.SelectedItem as Mod;
 
+    bool rememberChecked;
+
     void Reload()
     {
         string? keep = Selected?.FolderName;
@@ -843,6 +845,9 @@ sealed partial class MainForm : Form
         }
         gameLabel.Text = gameRoot != null ? Settings.TrueCase(gameRoot) : "(not set: Settings → Change game folder)";
         if (gameRoot != null && Directory.Exists(Settings.Cooked(gameRoot))) game = new GameState(gameRoot, data);
+        // Once per start: Freecam reinstalled (or MarvelGame.upk replaced) outside this app leaves Remember Camera's saved
+        // camera in MarvelGame.ini, which crashes the game without FreeCam Options's code (FreeCamBuddy.ResetRemembered).
+        if (game != null && !rememberChecked) { rememberChecked = true; string gr = game.Root; Task.Run(() => FreeCam.FreeCamBuddy.ResetRememberedIfGone(gr, null)); }
         StockFiles.Init(game, settings.CleanGameFiles, data == null ? null : Path.Combine(data, "originals"));
         // Stock pictures for mods without one: one catalog per library + game folder (its icon package loads once).
         string catKey = data + "|" + gameRoot;
