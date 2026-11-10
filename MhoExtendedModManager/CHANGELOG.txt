@@ -1,6 +1,10 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.457
+- FreeCam Options: Permanent Wall Fade (Disables F11 Toggle) is on two lines, so the Options card no longer cuts it off.
+- What's New and the manual: Borrow Power's part boxes and Its Triggered Powers' Look Too (walkthrough and screenshot), the new FreeCam Options screenshot.
+
 0.60.456
 - FreeCam Options: the start-screen crash, really fixed this time. 0.60.453's fix had the wrong cause. Freecam's mouse-camera keys (middle mouse button, Tilde, F5, F6, F7 and F10) change key bindings when pressed, and a press while the start movie plays crashed the game: the change was reported to a part of the game that isn't there yet. Those changes are no longer reported (the keys work as before).
 

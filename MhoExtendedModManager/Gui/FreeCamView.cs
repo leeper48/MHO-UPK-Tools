@@ -179,7 +179,10 @@ sealed class FreeCamView : UserControl
         Ui.Tip(remember, "The game starts (and changes zones) with the camera mode, zoom and angle you last had.");
         remember.CheckedChanged += (_, _) => { cfg.RememberCamera = remember.Checked; Changed(); };
         refreshers.Add(() => remember.Checked = cfg.RememberCamera);
-        var walls = Check("Permanent Wall Fade (Disables F11 Toggle)", "Ticked: interior walls fade when the camera comes close (the game's own way), and F11 no longer switches them. Unticked: Freecam 1.2's default, always visible.", () => cfg.WallsFade, v => cfg.WallsFade = v);
+        var walls = Check("Permanent Wall Fade\n(Disables F11 Toggle)", "Ticked: interior walls fade when the camera comes close (the game's own way), and F11 no longer switches them. Unticked: Freecam 1.2's default, always visible.", () => cfg.WallsFade, v => cfg.WallsFade = v);
+        // two lines: on one, the Options column cut it off (manual screenshot, 2026-11-10); a fixed size, as AutoSize draws one line
+        walls.AutoSize = false;
+        walls.Size = new Size((int)(240 * s), (int)(44 * s));
         var longPress = Slider(s, "Long Press Time", 200, 3000, 50, () => cfg.LongPressMs, v => cfg.LongPressMs = v, v => $"{v:0} ms", Defaults.LongPressMs,
             "How long a gamepad button is held for a long press (and for the hold of Short Then Long).");
         longPress.Margin = new Padding(0, 8, 0, 2);
