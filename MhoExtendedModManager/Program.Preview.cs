@@ -2825,6 +2825,80 @@ static partial class Program
                 Console.WriteLine($"{ofx.Effects.Count} effect(s)");
                 return 0;
             }
+            case "--char-recolor":
+            {
+                // Check (writes only <out.upk>): the Powers tab's Character entry recolor of a hero package: the particle
+                // systems it covers (its parts, always-on effects, and what its animations' notifies play), then white → red
+                // over them, and the colors before and after. --char-recolor <package.upk> <out.upk>
+                string? cgr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 3 || cgr == null) { Console.WriteLine("--char-recolor <package.upk> <out.upk>"); return 1; }
+                var cg = new GameState(cgr, data);
+                StockFiles.Init(cg, settings.CleanGameFiles, Path.Combine(data, "originals"));
+                var cfx = Fx.FxPkg.Open(rest[1]);
+                string ccls = Path.GetFileNameWithoutExtension(rest[1])[4..^3].ToLowerInvariant();
+                var csys = PowerRecolor.PartSystems(cfx, ccls);
+                var canim = PowerRecolor.AnimSystems(cfx);
+                foreach (int s in csys) Console.WriteLine($"  {(canim.Contains(s) ? "anim " : "part ")} {cfx.T.PathOf(s + 1)}");
+                Console.WriteLine("  before: " + string.Join(" ", PowerRecolor.Palette([rest[1]], cg.Cooked, characterParts: true).Select(x => $"{ColorMap.Hex(x.Tint)} {x.Share:P0}")));
+                var color = new PowerColor(0) { Maps = [new ColorMap(new System.Numerics.Vector3(1, 1, 1), new System.Numerics.Vector3(1, 0.1f, 0.1f), 0.3f)] };
+                byte[]? cb = PowerRecolor.Build(rest[1], color, cg.Cooked, l => Console.WriteLine("    " + l), characterParts: true);
+                if (cb == null) { Console.WriteLine("nothing changed"); return 1; }
+                File.WriteAllBytes(rest[2], cb);
+                Console.WriteLine("  after:  " + string.Join(" ", PowerRecolor.Palette([rest[2]], cg.Cooked, characterParts: true).Select(x => $"{ColorMap.Hex(x.Tint)} {x.Share:P0}")));
+                return 0;
+            }
+            case "--own-fx-census":
+            {
+                // Read-only: every character package with an effect-only attachment (OwnFxBorrow.Census), for the shipped
+                // Model\StockData\own_effects.txt. --own-fx-census <clean CookedPCConsole> <out.txt>
+                if (rest.Count < 3) { Console.WriteLine("--own-fx-census <clean CookedPCConsole> <out.txt>"); return 1; }
+                var cen = OwnFxBorrow.Census(rest[1]);
+                File.WriteAllLines(rest[2], cen.Select(c => $"{c.File}	{c.Class}	{c.Templates}	{c.Sockets}"));
+                Console.WriteLine($"{cen.Count} effect attachment(s) in {cen.Select(c => c.File).Distinct().Count()} package(s): {rest[2]}");
+                return 0;
+            }
+            case "--own-fx-borrow":
+            {
+                // Another character's own effects on a character package (OwnFxBorrow). --own-fx-borrow <target package name>
+                // <donor package name> [<attachment class>] [--replace] --build <folder> [--create --name <mod name>]. Both are
+                // the game's clean copies; writes to the folder (and with --create a new mod at the top, off), never the game.
+                string? fgr = settings.ResolvedGameRoot(data);
+                int fb = rest.IndexOf("--build");
+                if (rest.Count < 3 || fgr == null || fb < 0 || fb + 1 >= rest.Count) { Console.WriteLine("--own-fx-borrow <target package> <donor package> [class] [--replace] --build <folder> [--create --name <n>]"); return 1; }
+                string fcook = Settings.Cooked(fgr);
+                string Pkg(string n) => StockFiles.For(fcook, n.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? n : n + ".upk");
+                string ftarget = Pkg(rest[1]), fdonor = Pkg(rest[2]);
+                if (!File.Exists(ftarget) || !File.Exists(fdonor)) { Console.WriteLine("target or donor package not found"); return 1; }
+                string? BaseOf(string f) => System.Text.RegularExpressions.Regex.Match(Path.GetFileNameWithoutExtension(f), @"^UC__MarvelPlayer_([A-Za-z0-9]+)_", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } m
+                    && StockFiles.For(fcook, $"UC__MarvelPlayer_{m.Groups[1].Value}_SF.upk") is var bf && File.Exists(bf) && !bf.Equals(f, StringComparison.OrdinalIgnoreCase) ? bf : null;
+                var dfx = OwnFxBorrow.Effects(fdonor, BaseOf(fdonor));
+                foreach (var e in dfx) Console.WriteLine($"  donor: {e.Class}: {e.Templates} effect(s) at {string.Join(", ", e.Sockets.Distinct())}");
+                string? fcls = rest.Count > 3 && !rest[3].StartsWith("--") ? rest[3] : dfx.FirstOrDefault()?.Class;
+                if (fcls == null) { Console.WriteLine("the donor has no own effects"); return 1; }
+                // the class's home: the donor package, else its hero's base package
+                string fhome = Array.Exists(MhoPackageModifier.Package.Open(fdonor).Exports, x => x.ObjectName.Equals(fcls, StringComparison.OrdinalIgnoreCase)) ? fdonor : BaseOf(fdonor) ?? fdonor;
+                var flog = new List<string>();
+                byte[] fout = OwnFxBorrow.Rebuild(File.ReadAllBytes(ftarget), Path.GetFileName(ftarget), BaseOf(ftarget), ModMeshes.AttachmentClasses(ftarget), fhome, fcls, rest.Contains("--replace"), flog);
+                foreach (var l in flog) Console.WriteLine("  " + l);
+                string fdir = Path.GetFullPath(rest[fb + 1]);
+                if (fdir.StartsWith(Path.GetFullPath(fgr), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("not into the game folder"); return 1; }
+                Directory.CreateDirectory(fdir);
+                string ffile = Path.Combine(fdir, Path.GetFileName(ftarget));
+                File.WriteAllBytes(ffile, fout);
+                Console.WriteLine($"built and verified: {ffile} ({fout.Length:N0} bytes)");
+                if (rest.Contains("--create"))
+                {
+                    int fn = rest.IndexOf("--name");
+                    string name = fn >= 0 && fn + 1 < rest.Count ? rest[fn + 1] : $"{Path.GetFileNameWithoutExtension(ftarget)} with {fcls}";
+                    var d = new ModDraft { Name = name, Author = settings.AuthorName?.Trim() ?? "", Packages = [(Path.GetFileName(ftarget), ffile)], Notes = $"Test: {fcls} from {Path.GetFileName(fhome)}{(rest.Contains("--replace") ? ", replacing its own" : "")}."  };
+                    // the borrow recorded as the Editor does (Borrow Effects / Reset Effects work on it)
+                    var src = OwnFxBorrow.Sources().FirstOrDefault(x => x.Class.Equals(fcls, StringComparison.OrdinalIgnoreCase) && x.File.Equals(Path.GetFileName(fhome), StringComparison.OrdinalIgnoreCase));
+                    d.OwnFxBorrows.Add(new OwnFxBorrowEntry { Package = Path.GetFileName(ftarget), Donor = Path.GetFileName(fhome), Class = fcls, Name = src?.Name ?? fcls, Replace = rest.Contains("--replace"), Original = ModMeshes.AttachmentClasses(ftarget) });
+                    string? made = ModWriter.Save(lib, d, lib.Mods.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)), out string? perr);
+                    Console.WriteLine(made != null ? $"mod folder '{made}'" : "not created: " + perr);
+                }
+                return 0;
+            }
             case "--parent-package":
             {
                 // Read-only: the NPC / enemy package a package's class extends (PowerColorBuild.ParentPackage). --parent-package <package.upk> [...]

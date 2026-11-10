@@ -334,6 +334,9 @@ sealed partial class ModEditorView
             string? home = PowerColorBuild.IsHero(pf) ? PowerColorBuild.OwnHome(pf, src) : pf;
             if (home != null && !homes.Contains(home, StringComparer.OrdinalIgnoreCase)) homes.Add(home);
         }
+        // a costume with no always-on effects of its own gets an entry too, to borrow another character's (Kurt, 2026-11-10)
+        foreach (var (pf, _) in draft.Packages.Where(p => p.File.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || p.File.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase)))
+            if (!homes.Contains(pf, StringComparer.OrdinalIgnoreCase)) homes.Add(pf);
         foreach (string file in homes)
         {
             string stem = Path.GetFileNameWithoutExtension(file);
@@ -662,7 +665,7 @@ sealed partial class ModEditorView
             if (e == null) draft.PowerColors.Add(e = new PowerColorEntry { Power = p.Prototype, Name = p.Name, Owner = agentOwner.GetValueOrDefault(p.Prototype) });
             e.Hue = c.Hue; e.Saturation = c.Saturation; e.Brightness = c.Brightness; e.Opacity = c.Opacity;
         }
-        powerCaption.Text = (EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors") + (IsCharacterEntry(p.Prototype) ? " · This Character's Own Parts (Dodge, Hover …)" : "");
+        powerCaption.Text = (EntryOf(p.Prototype) is { } now && !now.Color.IsNone ? "Recolored" : "The Game's Colors") + (IsCharacterEntry(p.Prototype) ? " · This Character's Own Parts (Dodge, Hover, Animation Trails …)" : "");
         powerList.Invalidate();
         powerPreview?.RefreshPowerColor();
         // a hologram on the character's model comes off at Opacity 0 (as Save writes it)
@@ -748,7 +751,7 @@ sealed partial class ModEditorView
         if (EntryOf(p.Prototype) is { } e && !e.Color.IsNone) lines.Add("Recolored");
         if (PowerColorBuild.IsOwn(p.Prototype)) lines.Add("The character's own effects (glows, trails)");
         else if (p.Part != null) lines.Add("One of the character's own effects: shows it in the 3D view (Parts), recolored with the character's Color");
-        else if (IsCharacterEntry(p.Prototype)) lines.Add("The character's own parts (dodge, hover …): switch them off on Parts, recolor their effects on Color");
+        else if (IsCharacterEntry(p.Prototype)) lines.Add("The character's own parts (dodge, hover, its animations' trails …): switch them off on Parts, recolor their effects on Color");
         else if (PowerColorBuild.IsPackage(p.Prototype)) lines.Add("A whole package, added with Add Package");
         else if (p.Animations.Count == 0) lines.Add("No animation of its own: its effects play over the idle");
         return string.Join("\n", lines);

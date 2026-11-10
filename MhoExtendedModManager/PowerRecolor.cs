@@ -771,6 +771,25 @@ static class PowerRecolor
             int r = BitConverter.ToInt32(p.Bytes, sp.ValueAt);
             if (r > 0 && p.T.ClassOf(p.T.Exports[r - 1]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) found.Add(r - 1);
         }
+        found.UnionWith(AnimSystems(p));
+        return found;
+    }
+
+    /// <summary>
+    /// The particle systems the package's own animations play (a user, 2026-11-10: Magik's sword glow,
+    /// vfx_soulswordbasic_animtrail, drawn by AnimNotify_Trails in magik_as and her demon form's set between her sword's
+    /// sockets): every animation notify in the package naming a PSTemplate (trails, particle effects). 0-based exports.
+    /// </summary>
+    public static SortedSet<int> AnimSystems(FxPkg p)
+    {
+        var found = new SortedSet<int>();
+        for (int i = 0; i < p.T.Exports.Count; i++)
+        {
+            if (!p.T.ClassOf(p.T.Exports[i]).StartsWith("AnimNotify", StringComparison.OrdinalIgnoreCase)) continue;
+            if (FxProps.Find(p.Bytes, p.T, p.T.Exports[i])?.Props.FirstOrDefault(x => x.Name.Equals("PSTemplate", StringComparison.OrdinalIgnoreCase)) is not { Size: 4 } ps) continue;
+            int r = BitConverter.ToInt32(p.Bytes, ps.ValueAt);
+            if (r > 0 && p.T.ClassOf(p.T.Exports[r - 1]).Equals("ParticleSystem", StringComparison.OrdinalIgnoreCase)) found.Add(r - 1);
+        }
         return found;
     }
 

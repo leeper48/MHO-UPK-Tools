@@ -56,6 +56,7 @@ sealed class ModDraft
     public List<DecalColorEntry> DecalColors = [];
     public List<DodgeGhostEntry> DodgeGhosts = [];
     public List<PowerBorrowEntry> PowerBorrows = [];
+    public List<OwnFxBorrowEntry> OwnFxBorrows = [];
     public List<AddedPropEntry> AddedProps = [];
     public List<PropBoneEntry> PropBones = [];
     public List<string> PostImages = [];
@@ -125,6 +126,7 @@ sealed class ModDraft
         d.DecalColors = m.Manifest.DecalColors?.ToList() ?? [];
         d.DodgeGhosts = m.Manifest.DodgeGhosts?.Select(g => new DodgeGhostEntry { Package = g.Package, Ghost = g.Ghost, ModelPackage = g.ModelPackage, ModelMesh = g.ModelMesh, Anim = g.Anim, Frame = g.Frame, KeepEffectSize = g.KeepEffectSize, Lean = g.Lean, LeanDegrees = g.LeanDegrees }).ToList() ?? [];
         d.PowerBorrows = m.Manifest.PowerBorrows?.ToList() ?? [];
+        d.OwnFxBorrows = m.Manifest.OwnFxBorrows?.Select(x => x.Copy()).ToList() ?? [];
         d.AddedProps = m.Manifest.AddedProps?.ToList() ?? [];
         d.PropBones = m.Manifest.PropBones?.ToList() ?? [];
         var log = m.Manifest.Changelog ?? [];
@@ -213,6 +215,7 @@ static class ModWriter
             manifest.DecalColors = d.DecalColors.Count > 0 ? d.DecalColors : null;
             manifest.DodgeGhosts = d.DodgeGhosts.Count > 0 ? d.DodgeGhosts : null;
             manifest.PowerBorrows = d.PowerBorrows.Count > 0 ? d.PowerBorrows : null;
+            manifest.OwnFxBorrows = d.OwnFxBorrows.Count > 0 ? d.OwnFxBorrows : null;
             manifest.AddedProps = d.AddedProps.Count > 0 ? d.AddedProps : null;
             manifest.PropBones = d.PropBones.Count > 0 ? d.PropBones : null;
             foreach (var (file, source) in d.Packages) manifest.UpkReplacements.Add(Place(source, file));

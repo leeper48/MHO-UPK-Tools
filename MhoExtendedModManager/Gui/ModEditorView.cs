@@ -315,6 +315,12 @@ sealed partial class ModEditorView : UserControl
             if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
             Dialog.Show(this, "The added props couldn't be put in: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
         }
+        try { ApplyOwnFx(powerLog); }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
+        {
+            if (work != null) try { Directory.Delete(work, true); } catch (IOException) { }
+            Dialog.Show(this, "The borrowed effects couldn't be put in: " + ex.Message, "Can't Save Yet", MessageBoxButtons.OK, MessageBoxIcon.Error); return;
+        }
         try { powerWork = ApplyPowerColors(powerLog, borrowed); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException)
         {

@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.460
+- What's New: Borrow Effects and animation trail colors.
+- Borrow Effects keeps working after Make Unique gives the borrowed effects a path of their own at Save (the renamed copy is found, not copied again).
+
+0.60.459
+- Powers tab: a hero's Character entry also recolors the trails and effects its animations play (Magik's sword glow, vfx_soulswordbasic_animtrail, and her other sword trails; any hero's animation notifies).
+
+0.60.458
+- Powers tab: Borrow Effects. Any costume, hero or team-up can take another character's always-on effects (Ghost Rider's burning head, Firestar's flames, Cable's eye glow, the Sinister clones' glows; heroes, team-ups, NPCs and enemies): every character package of the mod has an Own Effects entry for it, also one with none of its own. Add (on top of its own) or Replace (instead of them); Reset Effects takes them off. The color sliders reach the borrowed effects too.
+
 0.60.457
 - FreeCam Options: Permanent Wall Fade (Disables F11 Toggle) is on two lines, so the Options card no longer cuts it off.
 - What's New and the manual: Borrow Power's part boxes and Its Triggered Powers' Look Too (walkthrough and screenshot), the new FreeCam Options screenshot.

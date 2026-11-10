@@ -154,6 +154,25 @@ static partial class Program
             Gui.Dialog.Snapshot(args[1]);
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--ownfx-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // Layout check: the Powers tab's Borrow Effects window (for a costume with no effects of its own, Ghost Rider picked), to a PNG.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            using var f = new Gui.OwnFxForm("Cyclops Classic", [], new OwnFxBorrowEntry { Donor = "UC__MarvelPlayer_GhostRider_SF.upk", Class = "marvelattachment_ghostrider" })
+            { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(800);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[1]);
+                f.Close();
+            });
+            Application.Run(f);
+            return 0;
+        }
         if ((args.Length == 2 || args.Length == 5 || args.Length == 6) && args[0].Equals("--borrow-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: the Powers tab's Borrow a Power's Look window (Iceman's Chillblain, Human Torch picked), to a PNG.
@@ -699,6 +718,16 @@ static partial class Program
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { await main.TabTiming(args[1], args[2], int.Parse(args[3])); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length is 6 or 7 && args[0].Equals("--own-fx-tab-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --own-fx-tab-test <out.txt> <mod> <its package> <donor package> <donor class> [--replace] (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.OwnFxTabTest(args[1], args[2], args[3], args[4], args[5], args.Length == 7); main.Close(); });
             Application.Run(main);
             return 0;
         }

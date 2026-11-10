@@ -83,6 +83,9 @@ sealed class ModManifest
     /// <summary>Extension: power looks borrowed from other heroes' powers in the editor (the packages they built are ordinary
     /// package replacements). Null when none.</summary>
     public List<PowerBorrowEntry>? PowerBorrows { get; set; }
+    /// <summary>Extension: another character's always-on effects on a character package (Powers tab → Own Effects → Borrow
+    /// Effects; the package carries them), kept so the choice can be changed or taken back. Null when none.</summary>
+    public List<OwnFxBorrowEntry>? OwnFxBorrows { get; set; }
     /// <summary>Extension: props added to a costume from other characters (the packages are ordinary package replacements).
     /// Null when none.</summary>
     public List<AddedPropEntry>? AddedProps { get; set; }

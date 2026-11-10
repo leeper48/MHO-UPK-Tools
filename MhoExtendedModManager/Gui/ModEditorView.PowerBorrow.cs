@@ -10,6 +10,9 @@ sealed partial class ModEditorView
 {
     readonly Label borrowCaption = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(0, 2, 0, 4), MaximumSize = new Size(560, 0) };
     Button? borrowButton, borrowRemove;
+    Label? borrowHead;
+    const string BorrowTip = "Give this power another hero's power look: its animation, effects and projectile, or only what its effects draw while this power keeps its timing. Only the look changes (what the power does stays this one's), on this hero's power packages: every costume of the hero, anyone using this mod; the other hero stays as it is.";
+    const string ResetTip = "Take this power back to the game's own look (the borrowed one comes out of the mod at Save).";
     /// <summary>The borrowed packages built for the preview (file → path), and their folder.</summary>
     Dictionary<string, string> borrowFiles = new(StringComparer.OrdinalIgnoreCase);
     string? borrowWork;
@@ -99,9 +102,9 @@ sealed partial class ModEditorView
     Control BorrowSection()
     {
         var box = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Top, Padding = new Padding(0, 6, 0, 0) };
-        box.Controls.Add(new Label { Text = "BORROW POWER", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 2) });
-        borrowButton = Ui.FlatButton("Borrow Power", PickBorrow, tip: "Give this power another hero's power look: its animation, effects and projectile, or only what its effects draw while this power keeps its timing. Only the look changes (what the power does stays this one's), on this hero's power packages: every costume of the hero, anyone using this mod; the other hero stays as it is.");
-        borrowRemove = Ui.FlatButton("Reset Power", RemoveBorrow, tip: "Take this power back to the game's own look (the borrowed one comes out of the mod at Save).");
+        box.Controls.Add(borrowHead = new Label { Text = "BORROW POWER", AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 2) });
+        borrowButton = Ui.FlatButton("Borrow Power", PickBorrow, tip: BorrowTip);
+        borrowRemove = Ui.FlatButton("Reset Power", RemoveBorrow, tip: ResetTip);
         // (Kurt, 2026-11-05: icon buttons; Game's Look became a reset)
         Icons.Make(borrowButton, "Borrow Power", Icons.Borrow, S);
         Icons.Make(borrowRemove, "Reset Power", Icons.Reset, S);
@@ -344,11 +347,20 @@ sealed partial class ModEditorView
             : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : (e.NoAnimations || e.NoEffects || e.NoProps) ? "its " + string.Join(", ", new[] { e.NoAnimations ? null : "animation", e.NoEffects ? null : "effects", e.NoProps ? null : "props" }.OfType<string>()) + " only" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")}{(e.SummonLook ? ", and its summon's look" : "")}{(e.AreaLook ? ", and its area's look" : "")}{(e.TriggeredLook ? ", and its triggered powers' look" : "")})"
             : can ? (p.Animations.Count == 0 ? "Its own look (no animation: a borrowed look brings the other power's)" : "Its own look")
             : p.Animations.Count == 0 ? "Passive powers and toggles can't borrow a look" : "Only a hero's own powers can borrow a look";
+        // a character's Own Effects entry: the buttons borrow another character's always-on effects instead
+        if (PowerColorBuild.IsOwn(p.Prototype)) ShowOwnFx(p);
+        else
+        {
+            if (borrowHead != null) borrowHead.Text = "BORROW POWER";
+            if (borrowButton != null) Ui.TipTitled(borrowButton, "Borrow Power", BorrowTip);
+            if (borrowRemove != null) Ui.TipTitled(borrowRemove, "Reset Power", ResetTip);
+        }
     }
 
     void PickBorrow()
     {
         if (powerList.SelectedItem is not Fx.PowerList.Power p || game == null) return;
+        if (PowerColorBuild.IsOwn(p.Prototype)) { PickOwnFx(p); return; }
         var g = game;
         powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
         // other mods' costumes with animation lists of their own hide the borrowed animations (Black Bolt under the Havok mods)
@@ -369,6 +381,7 @@ sealed partial class ModEditorView
     void RemoveBorrow()
     {
         if (powerList.SelectedItem is not Fx.PowerList.Power p) return;
+        if (PowerColorBuild.IsOwn(p.Prototype)) { ResetOwnFx(p); return; }
         if (BorrowOf(p.Prototype) is { } old) TakeOffNameAndIcon(old);
         draft.PowerBorrows.RemoveAll(e => e.Power.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase));
         RebuildBorrows();

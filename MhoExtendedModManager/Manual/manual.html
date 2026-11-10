@@ -171,6 +171,7 @@ function mhoNext(dir) {
 <li><a href="#w-rigs">Give a Model a Moving Coat, Dress, Tail or Wings</a></li>
 <li><a href="#w-prop">Swap a Costume's Weapon or Shield</a></li>
 <li><a href="#w-own">Recolor or Hide a Character's Own Effects</a></li>
+<li><a href="#w-ownborrow">Give a Character Another One's Always-On Effects</a></li>
 <li><a href="#w-blender">Edit the Model, an Animation or a Texture in Blender</a></li>
 <li><a href="#w-textures">Edit a Model's Textures in Your Image Editor</a></li>
 <li><a href="#w-adjust">Change a Model's Colors Without an Image Editor</a></li>
@@ -387,7 +388,7 @@ function mhoNext(dir) {
 <h3 id="w-parts">Switch Off a Power's Sound, Effect or a Character's Hover</h3>
 <ol class="steps">
 <li>Make a mod with one of the hero's packages (<b>Packages</b> tab → <b>Add .UPK Files</b>, from the game's CookedPCConsole folder: a costume, or the hero's own <i>UC__MarvelPlayer_&lt;Hero&gt;_SF.upk</i>), and save it once.</li>
-<li>Open it in the Editor and go to <b>Powers</b>. Pick a power, or <b>&lt;Hero&gt;: Character</b> (the <b>Char</b> tile) for the hero's own parts (hover, dodge …). Its <b>Color</b> tab recolors those parts' effects, such as the dodge's ghosts, as for a power.</li>
+<li>Open it in the Editor and go to <b>Powers</b>. Pick a power, or <b>&lt;Hero&gt;: Character</b> (the <b>Char</b> tile) for the hero's own parts (hover, dodge, and the trails its animations draw, such as Magik's sword glow). Its <b>Color</b> tab recolors those parts' effects, such as the dodge's ghosts or the sword trails, as for a power. (The 3D view doesn't draw animation trails; check them in game. A trail's texture stored uncompressed keeps its own pixels, so the color tints it.)</li>
 <li>The <b>Parts</b> tab lists what it shows and plays: <b>Settings</b> (such as <b>Can Transition to Hover</b>), <b>Attachments</b> (props such as Invisible Woman's disc), <b>Effects</b> (▶ shows one in the 3D view over the idle: <b>Dodge Effect</b> shows the dodge's ghosts) and <b>Sounds</b> (▶ plays one). Untick the ones to switch off.</li>
 <li>A power's own effects play alone with ▶, on the character as the power shows it (Unleash the Phoenix: on her Phoenix form, with the wings). Pick the power again for all of them.</li>
 <li>Save Changes, then Apply Changes.</li>
@@ -644,6 +645,20 @@ Next time, <b>Edit in Blender</b> opens that same Blender scene again, with your
 <p><b>Heroes too:</b> a hero whose own package carries always-on effects (Ghost Rider's flaming skull) has <b>&lt;Hero&gt;: Own Effects</b> in a costume mod's Powers list. A costume that takes them from its hero (Ghost Rider's Modern VU) shows the hero's entry; Save adds the hero's package (the game's copy) with its color, and the color reaches every costume of the hero that uses those effects.</p>
 <figure><img src="img/editor-hero-own.jpg" alt="Ghost Rider: Own Effects on the Powers tab, with the color sliders for his flaming skull."><figcaption>Ghost Rider: Own Effects on the Powers tab, with the color sliders for his flaming skull.</figcaption></figure>
 <p>See <a href="#powers">Power colors</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-ownborrow">Give a Character Another One's Always-On Effects (Ghost Rider's Burning Head, Firestar's Flames)</h3>
+<ol class="steps">
+<li>Open the costume's mod in the Editor and go to <b>Powers</b>. Every costume, hero and team-up package in the mod has a <b>&lt;Name&gt;: Own Effects</b> entry at the end of the list, also one with no effects of its own.</li>
+<li>Pick that entry. Under <b>BORROW EFFECTS</b>, click <b>Borrow Effects</b> (the lightning bolt with an arrow).</li>
+<li>Pick the <b>Character</b>: heroes first (Ghost Rider, Human Torch, Cable and his costumes' eye glows, Ms. Marvel Binary, Symbiote Spider-Man), then team-ups (Firestar), then NPCs and enemies (the Sinister clones' glows, Clea, Cloak). The window says how many effects it brings and where on the body.</li>
+<li>Choose <b>Add</b> (on top of the character's own) or <b>Replace</b> (instead of them: Human Torch's flames in place of Ghost Rider's), then <b>Borrow</b>. The 3D view plays the entry with the new effects.</li>
+<li>Recolor them with the sliders if you like: the color reaches the borrowed effects too.</li>
+<li>Save Changes, Apply Changes. <b>Reset Effects</b> (the circular arrow) takes them off again.</li>
+</ol>
+<figure><img src="img/ownfx-window.jpg" alt="The Borrow Effects window for Cyclops Classic: Ghost Rider picked, 2 effects at the head and chest, Add chosen (Replace is off: Cyclops has no effects of his own)."><figcaption>Borrow Effects: Ghost Rider's burning head for Cyclops Classic. Replace is off here, as Cyclops has no always-on effects of his own.</figcaption></figure>
+<p>Only the costume's package changes; the other character stays as it is. The effects sit on the same sockets of the body (head, chest, hands, legs), which every hero model has. A costume that played its hero's attachments (bike, chains, props) keeps them.</p>
 </div>
 
 <div class="walk">

@@ -46,7 +46,18 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+
+    /// <summary>0.60.460 (Kurt, 2026-11-10): Borrow Effects (another character's always-on effects), animation trails recolored.</summary>
+    static Notice BorrowEffects() => new(
+        "0.60.460-borrow-effects", "0.60.460",
+        "[!]New on the Powers tab: Borrow Effects" + nl +
+        "  • Any costume, hero or team-up can take another character's always-on effects: Ghost Rider's burning head, Human Torch's or Firestar's flames, Cable's eye glow, the Sinister clones' glows, and more from heroes, team-ups and enemies." + nl +
+        "  • Pick the costume's Own Effects entry (every costume has one now), click Borrow Effects, choose the character and Add (on top of its own) or Replace (instead of them). Reset Effects takes them off." + nl + nl +
+        "[!]Also new" + nl +
+        "  • A hero's Character entry recolors the trails its animations draw too, such as Magik's sword glow." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-ownborrow");
 
     /// <summary>0.60.457 (Kurt, 2026-11-10): Borrow Power parts and triggered look, Make Unique for power packages, pets Whole Character, FreeCam fixes.</summary>
     static Notice BorrowParts() => new(

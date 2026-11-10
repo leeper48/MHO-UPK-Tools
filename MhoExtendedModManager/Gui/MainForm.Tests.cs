@@ -187,6 +187,7 @@ sealed partial class MainForm
         using (var u = new UpdateForm(new Updater.Release(new Version(9, 9, 9), "extmm-v9.9.9", "", "", Updater.ReleasesPage, "", "", 0))) Check("Update", u);
         using (var fr = new FirstRunForm(settings)) Check("First-run setup", fr);
         using (var sn = new SnapshotsForm(settings, () => (lib, game), (_, _) => { }, () => { })) Check("Snapshots", sn);
+        using (var ox = new OwnFxForm("Test", ["marvelattachment_x"], null)) Check("Borrow Effects", ox);
         File.WriteAllLines(outFile, found.Count == 0 ? ["Every button has a tooltip."] : found);
         return found.Count == 0 ? 0 : 1;
     }
@@ -772,6 +773,51 @@ sealed partial class MainForm
             await Task.Delay(1500);
             string? on = await SavedMesh();
             lines.Add($"{(on == before ? "PASS" : "FAIL")} saved again: {prop}'s mesh back ({on})");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
+    /// <summary>--own-fx-tab-test (scratch libraries only): a mod's costume takes another character's effects (Powers tab →
+    /// its Own Effects → Borrow Effects), saved and read back; then reset, saved, its list as before.</summary>
+    public async Task OwnFxTabTest(string outFile, string modName, string file, string donorFile, string donorClass, bool replace)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            var before = ModMeshes.AttachmentClasses(Path.Combine(m.Folder, file));
+            OpenEditor(m); pages.Select(1);
+            lines.AddRange(await editor!.OwnFxTestAsync(file, donorFile, donorClass, replace));
+            var ed = editor; int edSaves = ed.Saves;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 600 && editor == ed && ed.Saves == edSaves; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var m2 = lib?.Find(modName)!;
+            var saved = ModMeshes.AttachmentClasses(Path.Combine(m2.Folder, file)) ?? [];
+            lines.Add($"{(m2.Manifest.OwnFxBorrows?.Count == 1 ? "PASS" : "FAIL")} saved: the manifest keeps {m2.Manifest.OwnFxBorrows?.Count ?? 0} borrow(s)");
+            lines.Add($"{(saved.Any(x => x.StartsWith(donorClass, StringComparison.OrdinalIgnoreCase)) ? "PASS" : "FAIL")} the saved package lists {donorClass} (or Make Unique's copy of it): {string.Join(", ", saved)}");
+            // saved again with nothing changed: still one copy of the class (Make Unique's rename is found, not copied again)
+            var edb = editor; int edbSaves = edb.Saves;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 600 && editor == edb && edb.Saves == edbSaves; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var mb = lib?.Find(modName)!;
+            var pb = MhoPackageModifier.Package.Open(Path.Combine(mb.Folder, file));
+            int copies = pb.Exports.Count(x => pb.ClassOf(x).Equals("Class", StringComparison.OrdinalIgnoreCase) && x.ObjectName.StartsWith(donorClass, StringComparison.OrdinalIgnoreCase));
+            var savedB = ModMeshes.AttachmentClasses(Path.Combine(mb.Folder, file)) ?? [];
+            lines.Add($"{(copies == 1 && savedB.Count(x => x.StartsWith(donorClass, StringComparison.OrdinalIgnoreCase)) == 1 ? "PASS" : "FAIL")} saved again: {copies} copy of the class, listed: {string.Join(", ", savedB)}");
+            if (Environment.GetEnvironmentVariable("MHO_OWNFX_KEEP") == "1") { File.WriteAllLines(outFile, lines); return; }
+            lines.Add($"{(await editor!.ResetOwnFxForTest(file) ? "PASS" : "FAIL")} reset in the reopened editor");
+            var ed2 = editor; int ed2Saves = ed2.Saves;
+            editor.SaveStayForTest();
+            for (int i = 0; i < 600 && editor == ed2 && ed2.Saves == ed2Saves; i++) await Task.Delay(100);
+            await Task.Delay(1500);
+            var m3 = lib?.Find(modName)!;
+            var after = ModMeshes.AttachmentClasses(Path.Combine(m3.Folder, file));
+            bool same = before == null ? after == null : after != null && before.SequenceEqual(after, StringComparer.OrdinalIgnoreCase);
+            lines.Add($"{(m3.Manifest.OwnFxBorrows == null ? "PASS" : "FAIL")} reset: none in the manifest");
+            lines.Add($"{(same ? "PASS" : "FAIL")} the list as before: {(after == null ? "its hero's" : string.Join(", ", after))} (before: {(before == null ? "its hero's" : string.Join(", ", before))})");
         }
         catch (Exception ex) { lines.Add("FAIL " + ex); }
         File.WriteAllLines(outFile, lines);

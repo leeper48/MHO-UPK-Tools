@@ -85,7 +85,7 @@ sealed partial class ModEditorView
     void CharacterSelected(Fx.PowerList.Power p)
     {
         string baseFile = p.Prototype[CharacterPrefix.Length..];
-        powerCaption.Text = (EntryOf(p.Prototype) is { } ce && !ce.Color.IsNone ? "Recolored" : "The Game's Colors") + " · This Character's Own Parts (Dodge, Hover …)";
+        powerCaption.Text = (EntryOf(p.Prototype) is { } ce && !ce.Color.IsNone ? "Recolored" : "The Game's Colors") + " · This Character's Own Parts (Dodge, Hover, Animation Trails …)";
         powerShared.Text = $"Its parts are in {baseFile}; every costume of the hero uses them. Switching one off puts that package in the mod (the game's copy) on Save.";
         if (addParent != null) addParent.Visible = false;
         LoadPalette(p);
