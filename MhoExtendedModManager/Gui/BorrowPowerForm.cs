@@ -13,6 +13,11 @@ sealed class BorrowPowerForm : Form
     readonly RadioButton whole = new() { Text = "Whole Power: Its Animation, Effects and Projectile", AutoSize = true, Checked = true };
     readonly RadioButton look = new() { Text = "Keep This Power's Timing: Only What Its Effects Draw", AutoSize = true };
     readonly CheckBox fit = new() { Text = "Fit the Animation to This Power's Timing", AutoSize = true, Checked = true };
+    // Whole Power's parts (a user, 2026-11-09: Taskmaster's power brought his shield and sword with no way to leave them out;
+    // Cyclops wanted Storm's Electrocute from his own eye-beam animation): unticked, this power keeps its own of that part
+    readonly CheckBox partAnims = new() { Text = "Animations", AutoSize = true, Checked = true };
+    readonly CheckBox partEffects = new() { Text = "Effects and Sounds", AutoSize = true, Checked = true };
+    readonly CheckBox partProps = new() { Text = "Props (Weapons and Vehicles)", AutoSize = true, Checked = true };
     readonly Label suggestion = new() { AutoSize = true, Tag = "subtle", Margin = new Padding(0, 4, 0, 8), MaximumSize = new Size(560, 0) };
     readonly Label mismatchNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Dictionary<string, PowerBorrow.PowerKind?> kindOf = new(StringComparer.OrdinalIgnoreCase);
@@ -24,6 +29,9 @@ sealed class BorrowPowerForm : Form
     // Its Area's Look Too (Kurt, 2026-11-05): shown when the other power puts down an area with a look (Squirrel Girl's rain)
     readonly CheckBox areaLook = new() { Text = "Its Area's Look Too", AutoSize = true, Checked = true, Visible = false, Margin = new Padding(0, 0, 0, 6) };
     bool? areaWanted;
+    // Its Triggered Powers' Look Too (a user, 2026-11-09): shown when both powers set off powers with a look of their own
+    readonly CheckBox triggeredLook = new() { Text = "Its Triggered Powers' Look Too", AutoSize = true, Checked = true, Visible = false, Margin = new Padding(0, 0, 0, 6), MaximumSize = new Size(560, 0) };
+    bool? triggeredWanted;
     readonly Label costumeNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Label enemyNote = new() { AutoSize = true, ForeColor = Color.FromArgb(240, 185, 70), Margin = new Padding(0, 0, 0, 8), MaximumSize = new Size(560, 0), Visible = false };
     readonly Fx.GameData db;
@@ -77,7 +85,10 @@ sealed class BorrowPowerForm : Form
         t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
         t.Controls.Add(powerBox, 1, 3);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
-        modes.Controls.AddRange([whole, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, summonLook, areaLook, useName, nameBox, useIcon]);
+        var parts = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(22, 0, 0, 2) };
+        parts.Controls.AddRange([partAnims, partEffects, partProps]);
+        foreach (var c in new[] { partAnims, partEffects, partProps }) c.Margin = new Padding(0, 2, 14, 2);
+        modes.Controls.AddRange([whole, parts, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, summonLook, areaLook, triggeredLook, useName, nameBox, useIcon]);
         Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Reset Power takes it off again.");
         Ui.Tip(nameBox, "The new name of this power in game.");
         Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Reset Power takes them off again.");
@@ -110,11 +121,24 @@ sealed class BorrowPowerForm : Form
         Ui.Tip(areaLook, "The other power's look comes partly from an area it puts down (Squirrel Girl's rain of squirrels). Ticked, those effects play at the target as part of this power, from the hit, for the effect's own length (one that loops: " + PowerBorrow.AreaLoopSeconds + " s). It's a look, not a real area: it doesn't follow a moving target.");
         areaLook.CheckedChanged += (_, _) => { if (areaLook.Visible) areaWanted = areaLook.Checked; };
         if (current != null) areaWanted = current.AreaLook;
+        Ui.Tip(triggeredLook, "The other power's look comes partly from powers it sets off (Venom's Symbiotic Spikes: the spikes from the ground). Ticked, the powers this power sets off (Sorcerous Eruption's area) draw those instead: their effects and sounds. What they do in the game stays this power's.");
+        triggeredLook.CheckedChanged += (_, _) => { if (triggeredLook.Visible) triggeredWanted = triggeredLook.Checked; };
+        if (current != null) triggeredWanted = current.TriggeredLook;
         Ui.Tip(powerBox, "The power whose look this power takes. Only powers with an animation of their own are listed; powers built like this one (thrown, beam, or melee and area) come first, the others are dimmed with what they are.");
         Ui.Tip(whole, "The other power's animation, its effects and sounds, and its projectile's look (when both powers fire one). For powers built alike: a projectile from a projectile, a beam from a beam.");
         Ui.Tip(fit, "Plays the borrowed animation faster or slower so it lasts as long as this power's own (the game repeats the power at its own pace; an animation longer than that is cut off).");
         Ui.Tip(look, "This power keeps its own animation, timing and sounds; its beams and effects draw the other power's instead (and the other power's hand effects are added when this one has none). For powers built differently: a channeled beam's look on a quick beam.");
-        whole.CheckedChanged += (_, _) => { fit.Enabled = whole.Checked; costumeNote.Visible = costumeWarning != null && whole.Checked; };
+        Ui.Tip(partAnims, "Ticked: the other power's animation plays. Unticked: this power keeps its own animation (Cyclops firing Storm's Electrocute from his eyes), and this hero keeps his weapons.");
+        Ui.Tip(partEffects, "Ticked: the other power's particles, sounds, beams, camera shakes and projectile look. Unticked: this power keeps its own.");
+        Ui.Tip(partProps, "Ticked: the weapons and vehicles the other power shows or brings (Taskmaster's shield and sword). Unticked: none of them; this power shows its own as before.");
+        void PartsChanged()
+        {
+            fit.Enabled = whole.Checked && partAnims.Checked;
+            // (at least one part: nothing ticked would borrow nothing)
+            foreach (var c in new[] { partAnims, partEffects, partProps }) c.Enabled = whole.Checked && !(c.Checked && new[] { partAnims, partEffects, partProps }.Count(x => x.Checked) == 1);
+        }
+        foreach (var c in new[] { partAnims, partEffects, partProps }) c.CheckedChanged += (_, _) => PartsChanged();
+        whole.CheckedChanged += (_, _) => { PartsChanged(); costumeNote.Visible = costumeWarning != null && whole.Checked; };
         costumeNote.Text = costumeWarning ?? "";
 
         // the heroes: every hero base package in the game
@@ -134,9 +158,11 @@ sealed class BorrowPowerForm : Form
             Suggest();
         };
         string? startHero = current != null ? current.DonorHero ?? PowerBorrow.HeroOf(current.Donor) : null;
+        if (current != null) { partAnims.Checked = !current.NoAnimations; partEffects.Checked = !current.NoEffects; partProps.Checked = !current.NoProps; }
         if (current != null) { whole.Checked = !current.KeepTiming; look.Checked = current.KeepTiming; fit.Checked = current.Fit; vForward.Value = current.RiderForward; vUp.Value = current.RiderUp; vLean.Value = current.RiderLean; }
         savedSize = current?.VehicleScale;
         keepFit = current;
+        PartsChanged();
         targetHero = current?.Hero;
         Shown += (_, _) =>
         {
@@ -212,11 +238,16 @@ sealed class BorrowPowerForm : Form
             string? summons = ts.Count > 0 && ds.Count > 0 ? $"{Pretty(ts[0].Class)} as {Pretty(ds[0].Class)}" : null;
             var areas = PowerBorrow.AreaLooks(db, g, p.Prototype);
             string? areaNames = areas.Count > 0 ? string.Join(", ", areas.Select(a => Pretty(a.Name))) : null;
-            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype), vehicle, summons, areaNames);
+            var trig = PowerBorrow.TriggeredPairs(db, g, target, p.Prototype);
+            string? trigNames = trig.Count > 0 ? string.Join(", ", trig.Select(x => x.TargetName).Distinct()) + " as " + trig[0].DonorName : null;
+            return (keep, why, PowerBorrow.KeepTimingTakes(db, g, target, p.Prototype), PowerBorrow.EnemyUsers(db, g, root, target, p.Prototype), vehicle, summons, areaNames, trigNames);
         }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || t.Status != TaskStatus.RanToCompletion) return;
-            var (keep, why, takes, enemies, vehicle, summons, areaNames) = t.Result;
+            var (keep, why, takes, enemies, vehicle, summons, areaNames, trigNames) = t.Result;
+            triggeredLook.Visible = trigNames != null;
+            triggeredLook.Text = trigNames != null ? $"Its Triggered Powers' Look Too: {trigNames}" : "Its Triggered Powers' Look Too";
+            triggeredLook.Checked = triggeredWanted ?? true;
             areaLook.Visible = areaNames != null;
             areaLook.Text = areaNames != null ? $"Its Area's Look Too: {areaNames}" : "Its Area's Look Too";
             areaLook.Checked = areaWanted ?? true;
@@ -268,7 +299,8 @@ sealed class BorrowPowerForm : Form
         Result = new PowerBorrowEntry
         {
             Donor = p.Prototype, DonorName = $"{AutoTags.DisplayName(hero) ?? hero}: {p.Name}",
-            KeepTiming = look.Checked, Fit = fit.Checked, DonorHero = hero, SummonLook = summonLook.Visible && summonLook.Checked, AreaLook = areaLook.Visible && areaLook.Checked,
+            KeepTiming = look.Checked, Fit = fit.Checked, DonorHero = hero,
+            NoAnimations = whole.Checked && !partAnims.Checked, NoEffects = whole.Checked && !partEffects.Checked, NoProps = whole.Checked && !partProps.Checked, SummonLook = summonLook.Visible && summonLook.Checked, AreaLook = areaLook.Visible && areaLook.Checked, TriggeredLook = triggeredLook.Visible && triggeredLook.Checked,
         };
         // the same power again: its Vehicle Fit (set in the Powers tab) stays
         if (keepFit is { } kf && kf.Donor.Equals(p.Prototype, StringComparison.OrdinalIgnoreCase))

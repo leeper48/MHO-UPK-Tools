@@ -355,7 +355,8 @@ static class FreeCamPatch
             log.Add("UpdateViewTarget: isometric mode, behind offset, extra zoom");
         }
 
-        // ---- RemoveControllerBindsWithName: our gamepad lines left alone (Kurt, 2026-11-09: start-screen crash). The game removes
+        // ---- RemoveControllerBindsWithName: our gamepad lines left alone (Kurt, 2026-11-09: start-screen crash; that theory was
+        // WRONG, the crash came back: see SetBind below. Kept: the game also dropped our Back line in a session). The game removes
         // a controller button's bindings (Back, seen) and reports each one with a command through native OnBindChanged, which
         // reads a client object (global + 0x5B0) that doesn't exist yet during the splash screen: null read, crash at
         // MarvelHeroesOmega.exe+0x13C033D, on about every third start with an action on Back. The game's own lines there have
@@ -378,6 +379,29 @@ static class FreeCamPatch
             code.InsertRange(5, skips);
             result[idx] = f.Build(code);
             log.Add("RemoveControllerBindsWithName: FreeCam Options's gamepad lines left alone");
+        }
+
+        // ---- SetBind: Freecam's KBM_ lines not reported (Kurt, 2026-11-10: the start-screen crash again after the fix above,
+        // on the live client and the telemetry client). The minidumps (before and after that fix) all hold the command being
+        // run, "SetBind MouseX KBM_CamX": the first part of Freecam's middle-mouse / Tilde lines (KBM_MMB, KBM_On; F5-F7 and
+        // F10 also run SetBind). A press of one of those keys during the start movie runs SetBind (an exec), which calls
+        // native OnBindChanged, which reads the client object that doesn't exist yet: the crash at exe+0x13C033D (stack: key
+        // press, exec input command, script, execOnBindChanged). The binding itself is the script's Bindings change; only the
+        // report is skipped for commands starting with KBM_ (Freecam's internal names, never shown in the key binding UI).
+        {
+            var (idx, f, code) = Load(pkg, "MarvelInput.SetBind");
+            var calls = Enumerable.Range(0, code.Count - 1).Where(i => code[i].Tok is 0x1B or 0x1C && code[i + 1].Tok == 0x04).ToList();
+            Expect(calls.Count == 2, "SetBind: its two OnBindChanged calls not found");
+            foreach (int i in Enumerable.Reverse(calls))
+            {
+                var call = Bytecode.Parse(f.Code)[i];
+                var args = call.Ops.OfType<OParams>().Single().V;
+                Expect(args.Count == 4 && args[1].Tok == 0x00, "SetBind: OnBindChanged's command argument not found");
+                var ret = code[i + 1].Label ??= new JumpLabel("Ret");
+                code.Insert(i, Asm.IfNot(Asm.Nat(0x7B, Asm.Nat(0x80, args[1], Asm.I(4)), Asm.Str("KBM_")), ret));
+            }
+            result[idx] = f.Build(code);
+            log.Add("SetBind: Freecam's KBM_ lines not reported (start-screen crash)");
         }
         return result;
     }

@@ -307,6 +307,16 @@ static partial class Program
                     }
                     var plan = UniqueNames.PlanFor(mf, StockFiles.For(ucook, f), f, sharedIx, shipped, tag, uown, ucook);
                     plan.Notes.ForEach(n => Console.WriteLine("  " + n));
+                    // the mod's own copies of other packages still holding another model there: the mod's into them
+                    var synclog = new List<string>();
+                    string planned = mf;
+                    foreach (var (sf, sb) in UniqueNames.SyncCopies([plan], x => x.Equals(f, StringComparison.OrdinalIgnoreCase) ? planned : Path.Combine(um.Folder, x), synclog))
+                    {
+                        File.WriteAllBytes(Path.Combine(rest[2], sf), sb);
+                        built++;
+                        Console.WriteLine($"  wrote {Path.Combine(rest[2], sf)} ({sb.Length:N0} bytes, verified, GUID kept)");
+                    }
+                    synclog.ForEach(n => Console.WriteLine("  " + n));
                     if (!plan.Changes) { if (reshared) { File.Move(mf, Path.Combine(rest[2], f), true); built++; Console.WriteLine($"  wrote {Path.Combine(rest[2], f)} (shared again, verified, GUID kept)"); } continue; }
                     byte[] bytes = UniqueNames.Build(mf, plan);
                     if (reshared) File.Delete(mf);

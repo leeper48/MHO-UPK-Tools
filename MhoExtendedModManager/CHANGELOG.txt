@@ -1,6 +1,15 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.456
+- FreeCam Options: the start-screen crash, really fixed this time. 0.60.453's fix had the wrong cause. Freecam's mouse-camera keys (middle mouse button, Tilde, F5, F6, F7 and F10) change key bindings when pressed, and a press while the start movie plays crashed the game: the change was reported to a part of the game that isn't there yet. Those changes are no longer reported (the keys work as before).
+
+0.60.455
+- Powers tab, Borrow Power: Whole Power has Animations, Effects and Sounds, and Props (Weapons and Vehicles) boxes. Untick one and the power keeps its own of that part: another power's effects with this power's own animation, or without the other hero's weapons.
+- Powers tab, Borrow Power: Its Triggered Powers' Look Too: what this power sets off (Sorcerous Eruption's area) takes the look of what the other power sets off (Venom's spikes from the ground). Shown when both powers set off one.
+- Make Unique (and Save): a costume model that one of the hero's power packages also carries (Cable's Future Bomb holds every Cable costume) gets a path of its own, as other characters' copies do: the power package can load first and show the game's model instead (a Bishop costume flipped back to Cable). When the mod ships that power package itself, the mod's model is put into it instead, so both show the mod's look.
+- Model tab: a hero, team-up or NPC onto a pet now asks Whole Character or Fit, as a pet onto a pet does. Whole Character keeps the character's own skeleton and its idle, run and fidgets, at full size.
+
 0.60.453
 - FreeCam Options: Locked Behind Mode has Keep Current In-Game Zoom and a Zoom slider, as on Snap Behind: untick it to have Locked Behind start at the zoom shown.
 - FreeCam Options: Default MHO's Game's Zoom is now Keep Current In-Game Zoom, and works as on Snap Behind: the zoom is left exactly as it is (before, the extra wheel steps were taken off).

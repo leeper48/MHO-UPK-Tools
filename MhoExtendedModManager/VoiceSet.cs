@@ -31,6 +31,16 @@ sealed class PowerBorrowEntry
     /// isn't made to hold them).</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool KeepWeapons { get; set; }
+    /// <summary>Whole Power's parts (a user, 2026-11-09: Taskmaster's power brought his shield and sword; Cyclops wanted Storm's
+    /// Electrocute from his eyes): true leaves that part of the other power out, so this power keeps its own. Animations: its
+    /// animation (and its weapons stay shown); Effects: particles, sounds, camera shakes, decals, beams and the projectile's look;
+    /// Props: the weapons and vehicles the other power shows or brings.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool NoAnimations { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool NoEffects { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool NoProps { get; set; }
     /// <summary>The hero parts of the two heroes' base packages (UC__MarvelPlayer_&lt;hero&gt;_SF): not always the prototype
     /// folder's name (Captain Marvel's is MsMarvel). Null: worked out at the build.</summary>
     public string? Hero { get; set; }
@@ -44,6 +54,10 @@ sealed class PowerBorrowEntry
     /// rain of squirrels) play at the target as part of this power (PowerBorrow.AreaLooks).</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool AreaLook { get; set; }
+    /// <summary>Its Triggered Powers' Look Too (a user, 2026-11-09: Venom's ground spikes on Magik's Sorcerous Eruption): the
+    /// powers this power sets off take the look of what the other power sets off (PowerBorrow.TriggeredPairs).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool TriggeredLook { get; set; }
     /// <summary>The packages it built (power, projectile, the hero's base package for its animations).</summary>
     public List<string> Packages { get; set; } = [];
     /// <summary>Vehicle Fit (a borrowed ride's vehicle, Kurt 2026-10-21): the vehicle's size (1 = as made; null: the two

@@ -193,9 +193,11 @@ sealed partial class ModelPage
     bool skipPetAsk;
     long lastTargetClick;
 
-    /// <summary>"source|target" when the source is a game pet and the target another pet, else null.</summary>
+    /// <summary>"source|target" when the source is a game character package (a pet, hero, team-up, NPC …) and the target a
+    /// pet, else null. (A user, 2026-11-09: Jessica Jones onto Great Ultron took Ultron's skeleton and moves with no choice;
+    /// Whole Character was only on the command line.)</summary>
     string? PetPair(string target) =>
-        chosenKey?.StartsWith(GameSrc) == true && SplitGameKey(chosenKey) is var (src, mesh) && mesh == null && IsPet(src) && IsPet(target)
+        chosenKey?.StartsWith(GameSrc) == true && SplitGameKey(chosenKey) is var (src, mesh) && mesh == null && IsPet(target)
             && !src.Equals(target, StringComparison.OrdinalIgnoreCase) ? $"{src}|{target}" : null;
 
     /// <summary>Whole Pet or Fit for a pet target (null = cancelled, or not a pet pair: <paramref name="adding"/> adds the
@@ -206,16 +208,19 @@ sealed partial class ModelPage
         // asked each time a pet target is picked (Kurt: "It could vary"); not again for the list's own reselect after adding
         if (skipPetAsk && petWhole.TryGetValue(pair, out bool had)) return had;
         string src = SplitGameKey(chosenKey!).File, srcName = DescribePackage(src).Title;
-        bool odd = OddPet(src) || OddPet(target);
+        bool pet = IsPet(src), odd = OddPet(src) || OddPet(target);
+        string whole = pet ? "Whole Pet" : "Whole Character";
         int pick = Dialog.Choose(this,
             $"{srcName} onto {targetTitle}: How?\n\n" +
-            $"• Whole Pet (recommended): {srcName} as it is, with its own skeleton, idle, run and fidgets and its own size, in {targetTitle}'s package. {targetTitle} stays the pet in the game (its item, name and summon).\n\n" +
-            $"• Fit: the usual fit onto {targetTitle}'s skeleton; {targetTitle}'s own animations move it" + (odd ? " (their skeletons differ, so it bends into the other pet's poses)." : ".") +
+            (pet ? $"• Whole Pet (recommended): {srcName} as it is, with its own skeleton, idle, run and fidgets and its own size, in {targetTitle}'s package."
+                 : $"• Whole Character: {srcName} as it is, with its own skeleton and its own idle, run and fidgets (a pet plays only those), at its full size, in {targetTitle}'s package.")
+            + $" {targetTitle} stays the pet in the game (its item, name and summon).\n\n" +
+            $"• Fit: the usual fit onto {targetTitle}'s skeleton; {targetTitle}'s own animations move it" + (odd ? $" (their skeletons differ, so it bends into {targetTitle}'s poses)." : ".") +
             (adding ? $"\n\nEither way {target} is added to this mod (the game's own package until it's built)." : ""),
-            "Pet onto Pet", adding ? "Add as Whole Pet" : "Whole Pet", adding ? "Add and Fit" : "Fit", "Cancel");
+            pet ? "Pet onto Pet" : "Character onto Pet", adding ? $"Add as {whole}" : whole, adding ? "Add and Fit" : "Fit", "Cancel");
         if (pick is < 0 or 2) return null;
         petWhole[pair] = pick == 0;
-        Log($"{srcName} onto {targetTitle}: {(pick == 0 ? "the whole pet, with its own skeleton and animations" : "fitted to the target's skeleton")} (Build uses this).");
+        Log($"{srcName} onto {targetTitle}: {(pick == 0 ? (pet ? "the whole pet" : "the whole character") + ", with its own skeleton and animations" : "fitted to the target's skeleton")} (Build uses this).");
         BeginInvoke(RefreshPreview);   // (the preview shows what that choice builds)
         return pick == 0;
     }

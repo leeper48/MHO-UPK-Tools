@@ -40,7 +40,26 @@ static class SaveSteps
                 src = back;
                 any = true;
             }
-            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, own, game.Cooked);
+            string? Shipped(string f) => draft.Packages.FirstOrDefault(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase)).Source;
+            var plan = UniqueNames.PlanFor(src, StockFiles.For(game.Cooked, file), file, shared, shipped, tag, own, game.Cooked, Shipped);
+            // the mod's own copies of other packages still holding another model there get the mod's (a user's Bishop: the
+            // mod's recolored Future Bomb kept stock Cable's X-Men model, and showed instead on TAHITI, 2026-11-09)
+            if (plan.Syncs.Count > 0)
+            {
+                string pre = src;
+                var syncNotes = new List<string>();
+                foreach (var (sf, bytes) in UniqueNames.SyncCopies([plan], f => f.Equals(file, StringComparison.OrdinalIgnoreCase) ? pre : Shipped(f), syncNotes))
+                {
+                    Directory.CreateDirectory(work);
+                    string sdst = Path.Combine(work, "synced_" + sf);
+                    File.WriteAllBytes(sdst, bytes);
+                    int sk = draft.Packages.FindIndex(p => p.File.Equals(sf, StringComparison.OrdinalIgnoreCase));
+                    if (sk >= 0) draft.BeforeUnique[sf] = (draft.Packages[sk].Source, UniqueNames.Sha(bytes));   // (Undo Make Unique puts it back too)
+                    if (sk >= 0) draft.Packages[sk] = (sf, sdst);
+                    any = true;
+                }
+                log.AddRange(syncNotes.Select(n => "unique: " + n));
+            }
             string final = src;
             if (plan.Changes)
             {

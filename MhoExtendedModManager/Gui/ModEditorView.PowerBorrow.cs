@@ -333,7 +333,7 @@ sealed partial class ModEditorView
         vShowing = true;
         try
         {
-            keepWeapons.Visible = e != null && !e.KeepTiming; keepWeapons.Checked = e?.KeepWeapons == true; keepWeapons.Enabled = !borrowBuilding;
+            keepWeapons.Visible = e != null && !e.KeepTiming && !e.NoAnimations; keepWeapons.Checked = e?.KeepWeapons == true; keepWeapons.Enabled = !borrowBuilding;
             climbBox.Visible = e?.Climb != null;
             if (e?.Climb != null) ShowClimbNote(e);
         }
@@ -341,7 +341,7 @@ sealed partial class ModEditorView
         ShowNameIcon(e);
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
-            : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")}{(e.SummonLook ? ", and its summon's look" : "")}{(e.AreaLook ? ", and its area's look" : "")})"
+            : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : (e.NoAnimations || e.NoEffects || e.NoProps) ? "its " + string.Join(", ", new[] { e.NoAnimations ? null : "animation", e.NoEffects ? null : "effects", e.NoProps ? null : "props" }.OfType<string>()) + " only" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")}{(e.SummonLook ? ", and its summon's look" : "")}{(e.AreaLook ? ", and its area's look" : "")}{(e.TriggeredLook ? ", and its triggered powers' look" : "")})"
             : can ? (p.Animations.Count == 0 ? "Its own look (no animation: a borrowed look brings the other power's)" : "Its own look")
             : p.Animations.Count == 0 ? "Passive powers and toggles can't borrow a look" : "Only a hero's own powers can borrow a look";
     }

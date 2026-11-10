@@ -995,7 +995,8 @@ static partial class Program
                 string outDir = rest[1];
                 Directory.CreateDirectory(outDir);
                 string Stock(string f) => File.Exists(f) ? f : StockFiles.For(bcook, f.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? f : f + ".upk");
-                // the automatic form: two power prototypes (Powers\Player\Iceman\RapidFire.prototype …); --no-fit keeps the donor's speed
+                // the automatic form: two power prototypes (Powers\Player\Iceman\RapidFire.prototype …); --no-fit keeps the donor's speed;
+                // --no-animations / --no-effects / --no-props leave that part of Whole Power out
                 if (rest[2].EndsWith(".prototype", StringComparison.OrdinalIgnoreCase) && rest.Count > 3)
                 {
                     var plog = new List<string>();
@@ -1011,14 +1012,18 @@ static partial class Program
                         string dh = PowerBorrow.HeroPackage(bcook, null, dp, ppw?.DonorClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.DonorFile, $"marvelgamecontent.default__{ppw.DonorClass}".ToLowerInvariant()))
                             ?? throw new InvalidDataException("the donor power's hero package wasn't found");
                         plog.Add($"hero packages: UC__MarvelPlayer_{th}_SF ← UC__MarvelPlayer_{dh}_SF");
-                        var pspawn = rest.Contains("--keep-timing") ? [] : PowerBorrow.ConditionAttachments(pdb2, pgame, dp, Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog);
+                        var pspawn = rest.Contains("--keep-timing") || rest.Contains("--no-props") ? [] : PowerBorrow.ConditionAttachments(pdb2, pgame, dp, Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog);
                         // --rider <forward>,<up>,<lean degrees> (Vehicle Fit), --vehicle-scale <n>
                         int ri = rest.IndexOf("--rider"), vi = rest.IndexOf("--vehicle-scale");
                         var rf = ri >= 0 && ri + 1 < rest.Count ? rest[ri + 1].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray() : null;
                         var prider = rf is { Length: 3 } ? new AnimSwap.RiderFit(rf[0], rf[1], rf[2]) : null;
                         float? pvs = vi >= 0 && vi + 1 < rest.Count ? float.Parse(rest[vi + 1], System.Globalization.CultureInfo.InvariantCulture) : null;
                         var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook, spawn: pspawn,
-                            vehicleScale: pvs, rider: prider is { IsNone: false } && pspawn.Any(x => x.Vehicle) ? prider : null);
+                            vehicleScale: pvs, rider: prider is { IsNone: false } && pspawn.Any(x => x.Vehicle) ? prider : null,
+                            anims: !rest.Contains("--no-animations"), effects: !rest.Contains("--no-effects"), takeProps: !rest.Contains("--no-props"));
+                        // --triggered: Its Triggered Powers' Look Too
+                        if (rest.Contains("--triggered"))
+                            foreach (var (f, bytes) in PowerBorrow.BuildTriggered(PowerBorrow.TriggeredPairs(pdb2, pgame, tp, dp, plog), f => built.ContainsKey(f) ? null : Stock(f), bcook, plog)) built[f] = bytes;
                         plog.ForEach(Console.WriteLine);
                         foreach (var (f, bytes) in built)
                         {

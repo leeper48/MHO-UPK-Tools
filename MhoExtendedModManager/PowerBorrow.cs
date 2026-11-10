@@ -67,16 +67,17 @@ static partial class PowerBorrow
             string heroFile = $"UC__MarvelPlayer_{th}_SF.upk";
             string donorHero = StockFiles.For(game.Cooked, $"UC__MarvelPlayer_{dh}_SF.upk");
             // what the donor shows through its conditions (a ride's vehicle), spawned by the borrowed power instead
-            var spawn = e.KeepTiming ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
+            // (Props unticked: none of the other power's weapons or vehicles; a user, 2026-11-09: Taskmaster's shield and sword)
+            var spawn = e.KeepTiming || e.NoProps ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
             // a travel power (Kurt, 2026-10-21: what Thor's six travel tests settled goes to every travel borrow): the other
             // hero's always-ridden mount (Green Goblin's glider) comes along, and the hero's own cape moves (AddOwnTracks)
             bool travel = e.Power.Contains(@"\TravelPower\", StringComparison.OrdinalIgnoreCase);
-            if (!e.KeepTiming && travel) spawn.AddRange(MountAttachments(donorHero, log));
+            if (!e.KeepTiming && !e.NoProps && travel) spawn.AddRange(MountAttachments(donorHero, log));
             // the other hero's always-held weapons (Thor's hammer in his flight): its animations hold them (Kurt, 2026-10-21)
             // ... except those the donor's own power hides while it runs (Hawkeye puts his bow and arrow away on the Sky-Cycle:
             // hidebow / hidearrow; brought along, the bow stayed out on every rider, Kurt 2026-11-04)
             var donorHides = tp == null ? [] : PowerHiddenSlots(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant(), wholeOnly: !travel);
-            if (!e.KeepTiming && !th.Equals(dh, StringComparison.OrdinalIgnoreCase))
+            if (!e.KeepTiming && !e.NoProps && !th.Equals(dh, StringComparison.OrdinalIgnoreCase))
                 foreach (var w in HeldAttachments(donorHero, log, HeroBones(StockFiles.For(game.Cooked, heroFile))))
                 {
                     // (travel only: an attack hides its arrow for part of the shot; Kurt, 2026-11-04: Thor with Hawkeye's Nerve Gas
@@ -155,10 +156,11 @@ static partial class PowerBorrow
                     .SelectMany(m => m.Manifest.UpkReplacements.Select(f => (File: f, Mod: m.Manifest.Name))).GroupBy(x => x.File, StringComparer.OrdinalIgnoreCase)
                     .ToDictionary(g => g.Key, g => g.First().Mod, StringComparer.OrdinalIgnoreCase),
                 // the packages this mod ships already (a costume the borrow carries for its animation list: gets the sockets too)
-                modPackages: draft.Packages.Select(x => x.File).ToHashSet(StringComparer.OrdinalIgnoreCase));
+                modPackages: draft.Packages.Select(x => x.File).ToHashSet(StringComparer.OrdinalIgnoreCase),
+                anims: !e.NoAnimations, effects: !e.NoEffects, takeProps: !e.NoProps);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
-            if (!e.KeepTiming && CostumeListsNote(CostumeListsHiding(lib, editing?.Folder, th, game.Cooked), th) is { } hidden) log.Add("warning: " + hidden);
+            if (!e.KeepTiming && !e.NoAnimations && CostumeListsNote(CostumeListsHiding(lib, editing?.Folder, th, game.Cooked), th) is { } hidden) log.Add("warning: " + hidden);
             // the hero's own animated attachments (Kitty Pryde's Lockheed) play the power's animation names too: their own
             // travel animations also under the borrowed names (Lockheed hung still, no wing flaps, under Hawkeye's
             // movement_rideskycycle_*: he has only movement_run_flying_*; Kurt 2026-11-04, telemetry ride41)
@@ -286,6 +288,13 @@ static partial class PowerBorrow
                 else if (pfile.Length == 0) log.Add("area look: this power's package wasn't built; left out");
                 else built[pfile] = AddAreaLooks(built[pfile], $"marvelgamecontent.default__{tp.TargetClass}".ToLowerInvariant(), looks, game.Cooked, log);
             }
+            // Its Triggered Powers' Look Too: the powers this one sets off take the look of the other power's (PowerBorrow.Triggered)
+            if (e.TriggeredLook)
+            {
+                var tps = TriggeredPairs(db, fx, e.Power, e.Donor, log);
+                if (tps.Count == 0) log.Add("triggered look: one of the two powers sets off nothing with a look of its own; nothing to change");
+                else foreach (var (f, bytes) in BuildTriggered(tps, f => built.ContainsKey(f) ? null : Start(f), game.Cooked, log)) built[f] = bytes;
+            }
             foreach (var (f, bytes) in built)
             {
                 string path = Path.Combine(work, f);
@@ -321,7 +330,8 @@ static partial class PowerBorrow
     /// <paramref name="donorDefault"/>'s from <paramref name="donorPackage"/>; voice lines are left out (another hero's voice).
     /// Verified; throws InvalidDataException with the reason.
     /// </summary>
-    public static byte[] Graft(byte[] targetPackage, string targetDefault, string donorPackage, string donorDefault, List<string> log, bool voice = false, string? cooked = null)
+    public static byte[] Graft(byte[] targetPackage, string targetDefault, string donorPackage, string donorDefault, List<string> log, bool voice = false, string? cooked = null,
+        Func<string, bool>? take = null)
     {
         var dst = Package.FromBytes(targetPackage);
         var src = Package.Open(donorPackage);
@@ -329,6 +339,13 @@ static partial class PowerBorrow
         if (sd < 0) throw new InvalidDataException($"no {donorDefault} in {Path.GetFileName(donorPackage)}");
         if (td < 0) throw new InvalidDataException($"no {targetDefault} in the target package");
         var donorComps = Components(src, sd, out _, out _);
+        // Whole Power's parts (take: a component class → whether the donor's kind of it comes in): the parts left out stay the
+        // target's own (by path: copies below only append exports)
+        var keptOwn = take == null ? [] : Components(dst, td, out _, out _).Where(r => r > 0 && !take(dst.ClassOf(dst.Exports[r - 1])))
+            .Select(r => dst.PathOf(dst.Exports[r - 1])).ToList();
+        if (take != null)
+            foreach (int r in donorComps.Where(r => r > 0 && !take(src.ClassOf(src.Exports[r - 1]))))
+                log.Add($"  {src.Exports[r - 1].ObjectName} ({src.ClassOf(src.Exports[r - 1])}): left out (unticked part); this power keeps its own");
         // (does the target power loop? a looping animation, or any part timed on a loop phase)
         bool targetLoops = Components(dst, td, out _, out _).Any(r => r > 0 && (dst.ClassOf(dst.Exports[r - 1]).Equals("PowerFxAnimationLooping", StringComparison.OrdinalIgnoreCase)
             || TagWalker.Walk(dst, dst.ReadExportBytes(dst.Exports[r - 1]).ToArray(), 16) is { } tt && tt.Any(t => (t.Name.Equals("ActivationPoint", StringComparison.OrdinalIgnoreCase) || t.Name.Equals("DeactivationPoint", StringComparison.OrdinalIgnoreCase))
@@ -344,6 +361,7 @@ static partial class PowerBorrow
             if (r <= 0) continue;
             var e = src.Exports[r - 1];
             string cls = src.ClassOf(e);
+            if (take != null && !take(cls)) continue;
             if (!voice && cls.Equals("PowerFxSound", StringComparison.OrdinalIgnoreCase) && e.ObjectName.Contains("voice", StringComparison.OrdinalIgnoreCase))
             { log.Add($"  {e.ObjectName} ({cls}): left out (the donor hero's voice)"); continue; }
             string name = "borrowed_" + e.ObjectName;
@@ -400,7 +418,12 @@ static partial class PowerBorrow
             refs.Add(copy.RootRef);
             log.Add($"  {e.ObjectName} ({cls}) → {dst.PathOf(dst.Exports[copy.RootRef - 1])}");
         }
-        // the target's default lists the copies (its own components stay in the package, unused)
+        // the target's default lists the copies (its own components stay in the package, unused), after the own parts kept
+        if (keptOwn.Count > 0)
+        {
+            refs.InsertRange(0, keptOwn.Select(p => Find(dst, p) + 1).Where(x => x > 0));
+            log.Add($"  kept this power's own: {string.Join(", ", keptOwn.Select(p => p[(p.LastIndexOf('.') + 1)..]))}");
+        }
         td = Find(dst, targetDefault);
         Components(dst, td, out var tag, out byte[] d);
         var value = new byte[4 + 4 * refs.Count];
@@ -992,7 +1015,8 @@ static partial class PowerBorrow
         IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null,
         bool conditionStart = false,
         ((float ApplyAt, float Height, float ChannelStart) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoff = null,
-        IReadOnlyDictionary<string, string>? costumeModPackages = null, IReadOnlySet<string>? modPackages = null)
+        IReadOnlyDictionary<string, string>? costumeModPackages = null, IReadOnlySet<string>? modPackages = null,
+        bool anims = true, bool effects = true, bool takeProps = true)
     {
         MeshCopy.Register();   // (skeletal meshes copy too: a borrowed attachment class's model, Black Panther's daggers; 0.60.2)
         var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
@@ -1010,7 +1034,9 @@ static partial class PowerBorrow
             log.Add($"{pr.Role}: {pr.TargetClass} ({tf}) ← {pr.DonorClass} ({Path.GetFileName(pr.DonorFile)})");
             if (keepTiming && pr.Role == "power") { done[tf] = SwapLooks(cur, td, pr.DonorFile, dd, log); continue; }
             if (pr.Role == "power") { targetAnims.AddRange(AnimNames(pr.TargetFile, td, cooked)); donorAnims.AddRange(AnimNames(pr.DonorFile, dd, cooked)); donorLoops |= Loops(pr.DonorFile, dd); powerFile = tf; }
-            done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked);
+            // Whole Power's parts: a projectile's look is an effect
+            if (pr.Role == "projectile" && !effects) { log.Add($"  {pr.TargetClass}: keeps its own look (Effects unticked)"); continue; }
+            done[tf] = Graft(cur, td, pr.DonorFile, dd, log, cooked: cooked, take: anims && effects && takeProps ? null : cls => PartOf(cls) switch { "anim" => anims, "prop" => takeProps, _ => effects });
             if (pr.Role == "projectile") done[tf] = ProjectileMesh(ProjectileSlots(done[tf], td, pr.DonorFile, dd, log), td, pr.DonorFile, dd, log);
             if (crossHero) done[tf] = SpawnBorrowedAttachments(done[tf], td, log, held, HeroSlots(targetHeroPackage));
             // a spawned vehicle sized for this hero: the Vehicle Fit's size, else the two heroes' heights (Kurt, 2026-10-20:
@@ -1021,7 +1047,8 @@ static partial class PowerBorrow
             if (crossHero && pr.Role == "power" && spawn is { Count: > 0 } && cooked != null) done[tf] = SpawnAttachments(done[tf], td, spawn, cooked, log, HeroBones(targetHeroPackage), holdAnims: donorAnims, heroSlots: HeroSlots(targetHeroPackage));
             // a prop the costumes in heldBy hold now (added to them): its spawn left out for them, so the power throws the held one
             if (crossHero && pr.Role == "power" && held is { Classes.Count: > 0 } hc && heldBy is { Count: > 0 }) done[tf] = NotForHolders(done[tf], td, hc.Classes, heldBy, log);
-            if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log, spawn?.Where(x => !x.Vehicle).Select(x => x.Slot));
+            // (Animations unticked: this power's own animation holds this hero's weapons)
+            if (crossHero && pr.Role == "power" && cooked != null && !keepWeapons && anims) done[tf] = HideHeldWeapons(done[tf], td, targetHeroPackage, donorHeroPackage, cooked, log, spawn?.Where(x => !x.Vehicle).Select(x => x.Slot));
             else if (crossHero && pr.Role == "power" && keepWeapons) log.Add("  this hero's weapons stay shown while the power runs (Keep This Hero's Weapons)");
             // every prop the power now brings (a spawned vehicle or weapon, the donor's own shown ones): its fit
             if (crossHero && pr.Role == "power")
@@ -1041,6 +1068,7 @@ static partial class PowerBorrow
         }
         donorAnims = donorAnims.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (keepTiming) { log.Add("anims: the target's own (its timing kept)"); return done; }
+        if (!anims) { log.Add("anims: the target's own (Animations unticked)"); return done; }
         if (donorAnims.Count == 0) { log.Add("anims: the donor power plays no animation of its own"); return done; }
         // a looping animation (a travel power's start / loop / end) plays as long as the power runs: fitted to the target's
         // length, Spider-Man's 6 s swing loop on Thor's flight played ×4.6 (Kurt, 2026-10-20: flips way too fast)
@@ -1488,6 +1516,8 @@ static partial class PowerBorrow
         {
             if (r <= 0 || !p.ClassOf(p.Exports[r - 1]).Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase)) continue;
             var e = p.Exports[r - 1];
+            // (only the other hero's: this power's own, kept when Props is unticked, shows this hero's own weapons)
+            if (!e.ObjectName.StartsWith("borrowed_", StringComparison.OrdinalIgnoreCase)) continue;
             byte[] d = p.ReadExportBytes(e).ToArray();
             var tags = TagWalker.Walk(p, d, 16);
             if (tags == null) continue;
@@ -5398,6 +5428,13 @@ static partial class PowerBorrow
         log.Add($"    {what}: {extra.Count} setting(s) from its template merged in; it stands alone (archetype {(arch > 0 ? back.PathOf(back.Exports[arch - 1]) : arch < 0 ? back.Imports[-arch - 1].ObjectName : "none")})");
         return back;
     }
+
+    /// <summary>Which of Whole Power's parts a power component is: "anim" (PowerFxAnimation, its looping kind, physics weight),
+    /// "prop" (PowerFxMeshAttachment: weapons and vehicles shown, hidden or spawned) or "effect" (particles, sounds, camera
+    /// shakes, decals, beams, lights …).</summary>
+    public static string PartOf(string cls) =>
+        cls.Contains("Anim", StringComparison.OrdinalIgnoreCase) || cls.Equals("PowerFxPhysicsWeight", StringComparison.OrdinalIgnoreCase) ? "anim"
+        : cls.Equals("PowerFxMeshAttachment", StringComparison.OrdinalIgnoreCase) ? "prop" : "effect";
 
     static List<int> Components(Package p, int export, out TagWalker.Tag tag, out byte[] data)
     {

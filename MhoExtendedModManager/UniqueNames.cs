@@ -22,6 +22,9 @@ static class UniqueNames
         /// <summary>Changed objects left shared on purpose: their other copies are the hero's own (illusions, afterimages,
         /// summons), which show the mod's look by sharing the path. Path and those packages.</summary>
         public List<(string Path, List<string> Own)> Kept { get; init; } = [];
+        /// <summary>The mod's changed models that packages it ships also carry under the same path with other bytes (its own
+        /// recolored copy of a power package still holding the game's model): path and those packages (SyncCopies).</summary>
+        public List<(string Path, List<string> Files)> Syncs { get; init; } = [];
         public bool Changes => Renames.Count > 0 || Splits.Count > 0;
     }
 
@@ -169,9 +172,15 @@ static class UniqueNames
     /// <param name="own">Packages whose copies are the hero's own (<see cref="OwnFiles"/>): not counted, so those objects stay
     /// shared, except a skeletal mesh with more bones than the game's (sharing it with fewer bones is a crash risk).</param>
     /// <param name="cooked">The game's CookedPCConsole, for the import check (ImportIndex); null: no check.</param>
-    public static Plan PlanFor(string modPackage, string? stockPackage, string file, Dictionary<string, List<string>> shared, IReadOnlySet<string> shipped, string tag, IReadOnlySet<string>? own = null, string? cooked = null)
+    /// <param name="shippedPath">The mod's copy of a package it ships (file → path), for <see cref="Plan.Syncs"/>; null: the
+    /// file beside <paramref name="modPackage"/>.</param>
+    public static Plan PlanFor(string modPackage, string? stockPackage, string file, Dictionary<string, List<string>> shared, IReadOnlySet<string> shipped, string tag, IReadOnlySet<string>? own = null, string? cooked = null,
+        Func<string, string?>? shippedPath = null)
     {
         var kept = new List<(string, List<string>)>();
+        var syncs = new List<(string, List<string>)>();
+        shippedPath ??= f => Path.Combine(Path.GetDirectoryName(modPackage) ?? "", f);
+        var shippedOpen = new Dictionary<string, Package?>(StringComparer.OrdinalIgnoreCase);
         var notes = new List<string>();
         var renames = new List<CostumeMove.Rename>();
         var splits = new List<CostumeMove.Split>();
@@ -187,13 +196,48 @@ static class UniqueNames
             var e = pkg.Exports[i];
             string path = pkg.PathOf(e), key = $"{path}|{pkg.ClassOf(e).ToLowerInvariant()}";
             if (Library(path) || !shared.TryGetValue(key, out var carriers)) continue;
+            // the mod's own copies of other packages carrying this model (a recolored power package: Cable's Future Bomb holds
+            // every Cable costume's model; a user's Bishop on Cable X-Men flipped back to stock Cable on TAHITI, 2026-11-09):
+            // ones still holding other bytes get the mod's model (SyncCopies)
+            // (only from a model the mod changed into a copy still as the game has it: never the other way round)
+            if (pkg.ClassOf(e).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && cooked != null
+                && stock != null && stockByPath.TryGetValue(key, out var own0) && !SameMesh(pkg.ReadExportBytes(e), stock.ReadExportBytes(own0)))
+            {
+                var stale = new List<string>();
+                foreach (string c in carriers.Where(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && shipped.Contains(c)))
+                {
+                    if (!shippedOpen.TryGetValue(c, out var cp))
+                    {
+                        try { cp = shippedPath(c) is string sp && File.Exists(sp) ? Package.Open(sp) : null; }
+                        catch (Exception ex) when (ex is IOException or PackageFormatException or InvalidDataException) { cp = null; }
+                        shippedOpen[c] = cp;
+                    }
+                    if (cp == null) continue;
+                    int ci = Array.FindIndex(cp.Exports, x => cp.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase) && cp.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+                    if (ci < 0 || SameMesh(pkg.ReadExportBytes(e), cp.ReadExportBytes(cp.Exports[ci]))) continue;
+                    // the copy as the game has it (else the mod changed it on purpose)
+                    try
+                    {
+                        var cs = Package.Open(StockFiles.For(cooked, c));
+                        int csi = Array.FindIndex(cs.Exports, x => cs.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase) && cs.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+                        if (csi >= 0 && SameMesh(cp.ReadExportBytes(cp.Exports[ci]), cs.ReadExportBytes(cs.Exports[csi]))) stale.Add(c);
+                    }
+                    catch (Exception ex) when (ex is IOException or PackageFormatException or InvalidDataException) { }
+                }
+                if (stale.Count > 0) { syncs.Add((path, stale)); notes.Add($"{path}: the mod's own {string.Join(", ", stale)} still has another model there; it gets this one"); }
+            }
             var others = carriers.Where(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c)).ToList();
             if (others.Count == 0) continue;   // the mod ships every copy
             bool changed = stock == null || !stockByPath.TryGetValue(key, out var se) || !pkg.ReadExportBytes(e).AsSpan().SequenceEqual(stock.ReadExportBytes(se));
             if (!changed) continue;
             // the hero's own copies (illusions, afterimages, summons) stay shared, unless the mod's mesh has more bones than
             // the game's (then a copy with fewer bones loaded beside it is a crash risk: CrashCheck)
-            var mineToo = own == null || own.Count == 0 ? [] : others.Where(own.Contains).ToList();
+            // ... except copies in the hero's power packages (UC__Power…): Cable's Future Bomb copy showed instead of a user's
+            // Bishop on TAHITI (2026-11-09); a power package can load with the hero's powers, before the costume. Hypothesis
+            // from that case and Jean's illusions (a summon package, UC__MarvelAgent_, which kept the mod's look in game)
+            var mineToo = own == null || own.Count == 0 ? [] : others.Where(o => own.Contains(o) && !PowerPackage(o)).ToList();
+            if (own != null && others.Where(o => own.Contains(o) && PowerPackage(o)).ToList() is { Count: > 0 } powerCopies)
+                notes.Add($"{path}: also in {string.Join(", ", powerCopies.Select(o => o[4..^7]))} (a power package, which can load before the costume): given a path of its own");
             if (mineToo.Count > 0)
             {
                 bool grew = false;
@@ -254,7 +298,7 @@ static class UniqueNames
         }
         foreach (var (kp, ko) in kept.DistinctBy(k => k.Item1, StringComparer.OrdinalIgnoreCase))
             notes.Add($"{kp}: kept shared with the hero's own copies and summons: {string.Join(", ", ko.Select(o => o[4..^7]))} (they show the mod's look)");
-        if (groups.Count == 0) { if (classRenames.Count == 0) notes.Add("nothing changed that another package also carries"); return new(file, renames, splits, notes) { Shared = found, Kept = kept }; }
+        if (groups.Count == 0) { if (classRenames.Count == 0) notes.Add("nothing changed that another package also carries"); return new(file, renames, splits, notes) { Shared = found, Kept = kept, Syncs = syncs }; }
         // streamed textures (big mips in a .tfc, found by path) keep the stock path: their group is split
         var streamed = new HashSet<int>();
         for (int i = 0; i < pkg.Exports.Length; i++)
@@ -303,7 +347,7 @@ static class UniqueNames
             splits.Add(new(g, name, to, moved, inGroup.Count));
             notes.Add($"group {name}: its {inGroup.Count} streamed texture(s) and material(s) keep their path; the other {moved.Count} object(s) move to {to}: {string.Join("; ", why)}");
         }
-        return new(file, renames, splits, notes) { Shared = found, Kept = kept };
+        return new(file, renames, splits, notes) { Shared = found, Kept = kept, Syncs = syncs };
     }
 
     /// <summary>The game files other than this mod's that import the class at <paramref name="path"/> (empty without the game folder).</summary>
@@ -347,7 +391,7 @@ static class UniqueNames
         {
             string mf = Path.Combine(m.Folder, f);
             if (!File.Exists(mf)) continue;
-            try { if (PlanFor(mf, StockFiles.For(cooked, f), f, shared, shipped, tag, OwnFiles(f, cooked), cooked) is { Changes: true } p) plans.Add(p); }
+            try { if (PlanFor(mf, StockFiles.For(cooked, f), f, shared, shipped, tag, OwnFiles(f, cooked), cooked) is { } p && (p.Changes || p.Syncs.Count > 0)) plans.Add(p); }
             catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
         }
         lock (plansCache) plansCache[m.Folder] = (stamp, plans);
@@ -399,6 +443,11 @@ static class UniqueNames
             .DistinctBy(x => x.Path, StringComparer.OrdinalIgnoreCase).Take(3).ToList();
         if (items.Count == 0) items = plans.SelectMany(p => p.Shared.Select(x => (x.Path, x.Others))).DistinctBy(x => x.Path, StringComparer.OrdinalIgnoreCase).Take(3).ToList();
         static string Pkg(string f) => f[4..^7].Replace("Marvel", "").Replace("_", " ");
+        // only the mod's own copies out of step (its recolored power package still holding the game's model)
+        if (items.Count == 0 && plans.SelectMany(p => p.Syncs).Take(3).ToList() is { Count: > 0 } syncs)
+            return "Overlap: This mod's own " + string.Join("; ", syncs.Select(x => $"{string.Join(", ", x.Files.Select(Pkg))} still has the game's {x.Path}"))
+                + ". The game shows whichever copy loads first, so this mod can show the stock look. Make Unique puts the mod's model there too.";
+        if (items.Count == 0) return null;
         return "Overlap: The game also has a stock copy of " + string.Join("; ", items.Select(x => $"{x.Path} (in {string.Join(", ", x.Others.Take(3).Select(Pkg))}{(x.Others.Count > 3 ? " …" : "")})"))
             + ". The game shows whichever copy loads first, so near other players, their summons and team-ups, or hub NPCs, this mod can show the stock look.";
     }
@@ -480,7 +529,17 @@ static class UniqueNames
             Directory.CreateDirectory(work);
             var d = ModDraft.From(m);
             var done = new List<string>();
-            foreach (var p in plans)
+            // the mod's own copies of other packages that still hold another model get the mod's (SyncCopies)
+            foreach (var (sf, bytes) in SyncCopies(plans, f => Path.Combine(m.Folder, f), log))
+            {
+                string sdst = Path.Combine(work, "synced_" + sf);
+                File.WriteAllBytes(sdst, bytes);
+                if (copyName == null) d.BeforeUnique[sf] = (Path.Combine(m.Folder, sf), Sha(bytes));   // (Undo Make Unique puts it back too)
+                int sk = d.Packages.FindIndex(x => x.Item1.Equals(sf, StringComparison.OrdinalIgnoreCase));
+                if (sk >= 0) d.Packages[sk] = (sf, sdst);
+                done.Add(sf);
+            }
+            foreach (var p in plans.Where(p => p.Changes))
             {
                 string src = Path.Combine(m.Folder, p.File), dst = Path.Combine(work, p.File);
                 byte[] built = Build(src, p);
@@ -553,7 +612,7 @@ static class UniqueNames
                 if (stockPaths.Contains($"{path}|{cls.ToLowerInvariant()}") && Imported(path, cls)) imported = true;
                 if (!back) continue;
                 if (!shared.TryGetValue($"{path}|{cls.ToLowerInvariant()}", out var carriers)) continue;
-                if (carriers.Any(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c) && !own.Contains(c))) back = false;
+                if (carriers.Any(c => !c.Equals(file, StringComparison.OrdinalIgnoreCase) && !shipped.Contains(c) && (!own.Contains(c) || PowerPackage(c)))) back = false;
                 else if (cls.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase)
                     && (CrashCheck.Bones(modPackage, pkg.PathOf(pkg.Exports[i])) is not int n || CrashCheck.Bones(stockPackage, path) is not int o || n > o)) back = false;
             }
@@ -591,6 +650,77 @@ static class UniqueNames
         if (!output.AsSpan(check.GenerationsAt - 16, 16).SequenceEqual(pkg.RawFile.AsSpan(pkg.GenerationsAt - 16, 16))) problems.Add("the package's GUID changed");
         if (problems.Count > 0) throw new InvalidDataException($"{file}: " + string.Join("; ", problems.Take(5)));
         return output;
+    }
+
+    /// <summary>A hero's power package (UC__Power…): its copies of the hero's models aren't kept shared (see PlanFor).</summary>
+    static bool PowerPackage(string file) => file.StartsWith("UC__Power", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Two skeletal meshes' data alike, but for the NetIndex they start with (each package numbers its own).</summary>
+    static bool SameMesh(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b) => a.Length == b.Length && a.Length >= 4 && a[4..].SequenceEqual(b[4..]);
+
+    /// <summary>
+    /// <paramref name="copyPackage"/> (a package the mod ships that carries the model at <paramref name="path"/> too) with the
+    /// mod's model from <paramref name="modPackage"/> in place of its own: the model and what it uses (materials, textures,
+    /// sockets) copied in (MPM ExportCopy), then the old export takes the copy's data and sockets, so everything in the package
+    /// that pointed at it shows the mod's model; its old sockets get the name suffix _stockcopy (two objects can't share a
+    /// path). Verified; throws with the problems.
+    /// </summary>
+    public static byte[] SyncMesh(byte[] copyPackage, string modPackage, string path)
+    {
+        MeshCopy.Register();
+        var dst = Package.FromBytes(copyPackage);
+        var src = Package.Open(modPackage);
+        int si = Array.FindIndex(src.Exports, x => src.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase) && src.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+        int oi = Array.FindIndex(dst.Exports, x => dst.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase) && dst.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+        if (si < 0 || oi < 0) throw new InvalidDataException($"{path}: not in both packages");
+        string leaf = path[(path.LastIndexOf('.') + 1)..];
+        var copy = CrossMove.Quiet(() => ExportCopy.Copy(src, si, dst, [], leaf + "_modsync"), out string said)
+            ?? throw new InvalidDataException($"{path}: the model couldn't be copied: " + string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not supported")).Select(l => l.Trim())));
+        var p = Package.FromBytes(copy.Output);
+        int n = copy.RootRef - 1;
+        byte[] data = p.ReadExportBytes(p.Exports[n]).ToArray();
+        p.ReadExportBytes(p.Exports[oi]).AsSpan(0, 4).CopyTo(data);   // (the old export's NetIndex)
+        var outers = new Dictionary<int, int>();
+        var renames = new Dictionary<int, string>();
+        // (an export's name with its number: skeletalmeshsocket_0 is "skeletalmeshsocket", number 1)
+        string FullName(int j) => BitConverter.ToInt32(p.Body, p.ExportEntryStart[j] + 16) is int num && num > 0 ? $"{p.Exports[j].ObjectName}_{num - 1}" : p.Exports[j].ObjectName;
+        var newChildren = Enumerable.Range(0, p.Exports.Length).Where(j => p.Exports[j].OuterIndex == n + 1).ToList();
+        var taken = newChildren.Select(FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (int j in Enumerable.Range(0, p.Exports.Length).Where(j => p.Exports[j].OuterIndex == oi + 1 && taken.Contains(FullName(j))))
+            renames[j] = FullName(j) + "_stockcopy";
+        foreach (int j in newChildren) outers[j] = oi + 1;
+        var addNames = renames.Values.Where(x => !p.Names.Any(y => y.Equals(x, StringComparison.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var rep = new Dictionary<int, Func<long, byte[]>> { [oi] = _ => data };
+        byte[] output = PackageRebuilder.Rebuild(p, rep, [], out var written, addNames, null, renames, outers);
+        var problems = PackageRebuilder.Verify(p, output, rep.Keys.ToList(), [], written, addNames, null, renames, outers);
+        var back = Package.FromBytes(output);
+        if (!output.AsSpan(back.GenerationsAt - 16, 16).SequenceEqual(dst.RawFile.AsSpan(dst.GenerationsAt - 16, 16))) problems.Add("the package's GUID changed");
+        int bi = Array.FindIndex(back.Exports, x => back.PathOf(x).Equals(path, StringComparison.OrdinalIgnoreCase) && back.ClassOf(x).Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase));
+        // (the copy's references are renumbered for this package, so its size is what must match)
+        if (bi != oi || back.ReadExportBytes(back.Exports[bi]).Length != src.ReadExportBytes(src.Exports[si]).Length)
+            problems.Add($"{path}: the model didn't read back as the mod's");
+        if (problems.Count > 0) throw new InvalidDataException($"{path}: " + string.Join("; ", problems.Take(5)));
+        return output;
+    }
+
+    /// <summary>Every <see cref="Plan.Syncs"/> of the plans applied: shipped package → new bytes. <paramref name="source"/>
+    /// gives the mod's current copy of a package (its character package before Make Unique's renames, and the shipped ones).</summary>
+    public static Dictionary<string, byte[]> SyncCopies(IEnumerable<Plan> plans, Func<string, string?> source, List<string> log)
+    {
+        var done = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var plan in plans)
+            foreach (var (path, files) in plan.Syncs)
+            {
+                if (source(plan.File) is not string modPkg) continue;
+                foreach (string f in files)
+                {
+                    byte[]? cur = done.TryGetValue(f, out var b) ? b : source(f) is string sp && File.Exists(sp) ? File.ReadAllBytes(sp) : null;
+                    if (cur == null) continue;
+                    done[f] = SyncMesh(cur, modPkg, path);
+                    log.Add($"{f}: {path} is the mod's model now (it was another)");
+                }
+            }
+        return done;
     }
 
     public static byte[] Build(string modPackage, Plan plan)
