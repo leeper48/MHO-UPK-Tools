@@ -61,11 +61,11 @@ static partial class PowerBorrow
             var tp = plan.FirstOrDefault(x => x.Role == "power");
             string th = HeroPackage(game.Cooked, e.Hero, e.Power, tp?.TargetClass, tp == null ? [] : AnimNames(tp.TargetFile, $"marvelgamecontent.default__{tp.TargetClass}".ToLowerInvariant()))
                 ?? throw new InvalidDataException($"{e.Name}: its hero's package wasn't found");
-            string dh = HeroPackage(game.Cooked, e.DonorHero, e.Donor, tp?.DonorClass, tp == null ? [] : AnimNames(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant()))
-                ?? throw new InvalidDataException($"{e.DonorName}: its hero's package wasn't found");
+            string dh = DonorPackage(game.Cooked, e.DonorHero, e.Donor, tp?.DonorClass, tp == null ? [] : AnimNames(tp.DonorFile, $"marvelgamecontent.default__{tp.DonorClass}".ToLowerInvariant()))
+                ?? throw new InvalidDataException($"{e.DonorName}: its character's package wasn't found");
             e.Hero = th; e.DonorHero = dh;
             string heroFile = $"UC__MarvelPlayer_{th}_SF.upk";
-            string donorHero = StockFiles.For(game.Cooked, $"UC__MarvelPlayer_{dh}_SF.upk");
+            string donorHero = StockFiles.For(game.Cooked, DonorFile(dh));
             // what the donor shows through its conditions (a ride's vehicle), spawned by the borrowed power instead
             // (Props unticked: none of the other power's weapons or vehicles; a user, 2026-11-09: Taskmaster's shield and sword)
             var spawn = e.KeepTiming || e.NoProps ? [] : ConditionAttachments(db, fx, e.Donor, donorHero, log);
@@ -364,6 +364,10 @@ static partial class PowerBorrow
             if (take != null && !take(cls)) continue;
             if (!voice && cls.Equals("PowerFxSound", StringComparison.OrdinalIgnoreCase) && e.ObjectName.Contains("voice", StringComparison.OrdinalIgnoreCase))
             { log.Add($"  {e.ObjectName} ({cls}): left out (the donor hero's voice)"); continue; }
+            // an enemy's telegraph (Kurt, 2026-11-10: an enemy power's warningindicator, PowerFxTell_Circle, the circle on the ground
+            // before the hit, failed to copy on its class's enum): a warning for the player, not a look for a hero's power
+            if (cls.StartsWith("PowerFxTell", StringComparison.OrdinalIgnoreCase))
+            { log.Add($"  {e.ObjectName} ({cls}): left out (an enemy's warning on the ground before its attack)"); continue; }
             string name = "borrowed_" + e.ObjectName;
             int existing = Find(dst, dst.PathOf(dst.Exports[td]) + "." + name);
             if (existing >= 0) { refs.Add(existing + 1); log.Add($"  {e.ObjectName} ({cls}): already in from an earlier borrow"); continue; }
@@ -723,7 +727,55 @@ static partial class PowerBorrow
             .Distinct(StringComparer.OrdinalIgnoreCase).Take(max).ToList();
     }
 
+    /// <summary>
+    /// The donor's character package (Kurt, 2026-11-10: team-ups' and NPC / enemy powers as donors): a hero's name (its base
+    /// package, as before), or for a team-up's or an NPC's power its own package file (UC__MarvelTeamUp_Firestar_SF.upk,
+    /// UC__MarvelAgent_CloneColossus_SF.upk), as the Borrow Power window gives it, else a team-up power's folder
+    /// (Powers\TeamUps\&lt;Name&gt;\…) when that package exists. The entry keeps it (DonorHero).
+    /// </summary>
+    public static string? DonorPackage(string cooked, string? given, string power, string? powerClass, List<string> anims)
+    {
+        if (given != null && given.EndsWith(".upk", StringComparison.OrdinalIgnoreCase)) return File.Exists(StockFiles.For(cooked, given)) ? given : null;
+        if (!IsCharacterPower(power) && HeroPackage(cooked, given, power, powerClass, anims) is string h) return h;
+        var parts = power.Replace('/', '\\').Split('\\');
+        int t = Array.FindIndex(parts, x => x.Equals("TeamUps", StringComparison.OrdinalIgnoreCase));
+        if (t >= 0 && t + 1 < parts.Length - 1 && $"UC__MarvelTeamUp_{parts[t + 1]}_SF.upk" is var tf && File.Exists(StockFiles.For(cooked, tf))) return tf;
+        return null;
+    }
+
+    /// <summary>A team-up's or an NPC / enemy power (not a hero's): Powers\TeamUps\…, Powers\EnemyPowers\…, Powers\NPCPowers\….</summary>
+    public static bool IsCharacterPower(string power) => power.Replace('/', '\\').Split('\\') is var p && p.Length > 1
+        && (p[1].Equals("TeamUps", StringComparison.OrdinalIgnoreCase) || p[1].Equals("EnemyPowers", StringComparison.OrdinalIgnoreCase) || p[1].Contains("NPC", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The package file of a DonorHero value: a package file as it is, a hero's name as its base package.</summary>
+    public static string DonorFile(string donor) => donor.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? donor : $"UC__MarvelPlayer_{donor}_SF.upk";
+
+    /// <summary>
+    /// The animations a donor character plays from sets in other packages (its component's list: an enemy's set in its parent
+    /// package or a hero's), by name; the sets in its own package are searched first (Build).
+    /// </summary>
+    static Dictionary<string, AnimSwap.Swap> DonorPlays(string donorPackage, string cooked)
+    {
+        var res = new Dictionary<string, AnimSwap.Swap>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var ca = CostumeAnims.Read(donorPackage, Path.GetFileName(donorPackage), CostumeAnims.FilesFor(null, cooked));
+            foreach (var a in ca?.Anims ?? [])
+                if (a.From.File != null && a.Export >= 0 && a.From.Kind != CostumeAnims.Source.Shared) res[a.Name] = new AnimSwap.Swap(a.Name, a.From.File, a.From.Export, a.Export);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { }
+        return res;
+    }
+
     /// <summary>A hero's name from a power prototype's path (Powers\Player\&lt;Hero&gt;\…), else null.</summary>
+    /// <summary>
+    /// The power has an icon of its own in the game (Kurt, 2026-11-10: Kingpin's Obliterator Cane and many enemy powers name only
+    /// the "No Icon" placeholder, powernoicon): Use Its Icon is grayed out for the others.
+    /// </summary>
+    public static bool HasOwnIcon(Fx.GameData db, string power) =>
+        db.Find(power) is { } d && Fx.PowerList.Field(db, d.Id, "IconPath", 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a)
+        && Costume.IconTexture(a.Asset.Name) is { } t && !t.Texture.Contains("noicon", StringComparison.OrdinalIgnoreCase);
+
     public static string? HeroOf(string power)
     {
         var parts = power.Replace('/', '\\').Split('\\');
@@ -1091,7 +1143,8 @@ static partial class PowerBorrow
         try
         {
             var dmp = Package.Open(donorHeroPackage);
-            string dcls = "MarvelPlayer_" + Path.GetFileNameWithoutExtension(donorHeroPackage)["UC__MarvelPlayer_".Length..^3];
+            int ddef = ModMeshes.CharacterDefault(dmp);
+            string dcls = ddef >= 0 ? dmp.ClassOf(dmp.Exports[ddef]) : "MarvelPlayer_" + Path.GetFileNameWithoutExtension(donorHeroPackage)["UC__MarvelPlayer_".Length..^3];
             foreach (var (_, sp) in CostumeAnims.Aliases(dmp, dcls))
                 if (Array.FindIndex(dmp.Exports, e => dmp.PathOf(e).Equals(sp, StringComparison.OrdinalIgnoreCase)) is int fi && fi >= 0) formSets.Add(fi);
         }
@@ -1112,6 +1165,7 @@ static partial class PowerBorrow
                         foundBones = set.TrackBoneNames.Count;
                         foundForm = formSets.Contains(set.ExportIndex);
                     }
+            if (found == null && cooked != null && DonorPlays(donorHeroPackage, cooked).TryGetValue(an, out var via)) found = via;
             if (found == null) { log.Add($"anims: {an} not found in {Path.GetFileName(donorHeroPackage)}"); continue; }
             // a loop that turns the donor's mount a lot (Goblin's barrel roll) on a hero without the mount bone: the loop ends
             // before the roll (Kurt, 2026-10-29: his own flight loop was right but for the flip; the run swapped in for it bobbed
@@ -1259,7 +1313,9 @@ static partial class PowerBorrow
             var pinned = (props ?? []).Where(f => f.PinPivot).SelectMany(f => spawnedHere.Where(s => s.Class.Equals(f.Class, StringComparison.OrdinalIgnoreCase)).SelectMany(s => s.Bones ?? []))
                 .Where(b => !b.Equals("none", StringComparison.OrdinalIgnoreCase) && !b.Equals("root", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             done[hf] = AnimSwap.Build(heroPath, targetHeroClass, swaps, log, retarget: turns, rider: rider, skeleton: HeroSkeleton(targetHeroPackage), noPositions: pinned,
-                donorSkeleton: crossHero ? HeroSkeleton(donorHeroPackage) : null);
+                donorSkeleton: crossHero ? HeroSkeleton(donorHeroPackage) : null,
+                // (a team-up's, an NPC's or an enemy's body: its bone lengths aren't a hero's; heroes as before)
+                ownLengths: crossHero && !Path.GetFileName(donorHeroPackage).StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase));
             // the target's own animated bones the donor's animations don't move (Thor's cape in Kitty's Air Walking) get the
             // target's own run's keys, looped (travel borrows; tested on Thor's six, Kurt 2026-10-20 / 21)
             // ... and an attack too, from the target's own power animation, every bone it poses (Kurt, 2026-11-04: Angela with
@@ -4063,7 +4119,7 @@ static partial class PowerBorrow
                             }
                         }
                     }
-                    if (socks.Count > 0) borrows.Add((StockFiles.For(cooked, $"UC__MarvelPlayer_{e.DonorHero}_SF.upk"), socks, bm.Manifest.Name));
+                    if (socks.Count > 0) borrows.Add((StockFiles.For(cooked, DonorFile(e.DonorHero!)), socks, bm.Manifest.Name));
                 }
             if (borrows.Count == 0) { notes.Add($"No borrow mod in the library gives {hero} effects on sockets."); continue; }
             notes.Add($"{hero}: {borrows.Count} borrow(s) checked ({string.Join(", ", borrows.Select(b => b.Mod).Distinct())}).");

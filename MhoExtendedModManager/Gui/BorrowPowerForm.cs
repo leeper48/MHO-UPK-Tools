@@ -9,6 +9,24 @@ namespace MhoExtendedModManager.Gui;
 /// </summary>
 sealed class BorrowPowerForm : Form
 {
+    /// <summary>A team-up or NPC / enemy donor (Kurt, 2026-11-10): its package, class, kind and how many of its powers have an
+    /// animation (Model\StockData\borrow_donors.txt, from --donor-census).</summary>
+    sealed record DonorChar(string File, string Class, string Kind, int Count)
+    {
+        public string Display => System.Text.RegularExpressions.Regex.Replace(MaterialVariations.Readable(Class), "(?<=[a-z])(?=[A-Z])", " ");
+    }
+
+    static List<DonorChar> Donors()
+    {
+        using var s = typeof(BorrowPowerForm).Assembly.GetManifestResourceStream("MhoMffImporter.StockData.borrow_donors.txt");
+        if (s == null) return [];
+        using var r = new StreamReader(s);
+        var res = new List<DonorChar>();
+        for (string? l = r.ReadLine(); l != null; l = r.ReadLine())
+            if (l.Split('\t') is { Length: 4 } c && int.TryParse(c[3], out int n)) res.Add(new DonorChar(c[0], c[1], c[2], n));
+        return res;
+    }
+
     readonly DropDown heroBox = new() { Width = 460 }, powerBox = new() { Width = 460 };
     readonly RadioButton whole = new() { Text = "Whole Power: Its Animation, Effects and Projectile", AutoSize = true, Checked = true };
     readonly RadioButton look = new() { Text = "Keep This Power's Timing: Only What Its Effects Draw", AutoSize = true };
@@ -56,7 +74,9 @@ sealed class BorrowPowerForm : Form
     /// <summary>The name to give this power (Rename This Power), or null.</summary>
     public string? NewName => useName.Checked && nameBox.Text.Trim() is { Length: > 0 } n ? n : null;
     /// <summary>This power takes the borrowed power's icon.</summary>
-    public bool UseIcon => useIcon.Checked;
+    public bool UseIcon => useIcon.Checked && useIcon.Enabled;
+    bool iconWanted = true, settingIcon;
+    const string IconTip = "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Reset Power takes them off again.";
 
     /// <summary>The chosen donor power (prototype, display name), the mode and the fit.</summary>
     public PowerBorrowEntry? Result { get; private set; }
@@ -70,20 +90,21 @@ sealed class BorrowPowerForm : Form
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
         Font = Ui.Regular(9.5f);
         Padding = new Padding(14);
-        var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
+        var t = layoutTable = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
         t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         var head = new Label { Text = "Borrow a Power for " + targetName, AutoSize = true, Font = Ui.Bold(12f), Margin = new Padding(0, 0, 0, 4) };
         t.Controls.Add(head, 0, 0); t.SetColumnSpan(head, 2);
         var hint = new Label
         {
-            Text = "The look only: what the power does in the game stays this power's (the server decides that). Only this hero's power packages change, for every costume and anyone using this mod; the other hero stays as it is.",
+            Text = "The look only: what the power does in the game stays this power's (the server decides that). Only this hero's power packages change, for every costume and anyone using this mod; the other character (a hero, team-up or enemy) stays as it is.",
             AutoSize = true, Tag = "subtle", MaximumSize = new Size(560, 0), Margin = new Padding(0, 0, 0, 10),
         };
         t.Controls.Add(hint, 0, 1); t.SetColumnSpan(hint, 2);
-        t.Controls.Add(new Label { Text = "Hero", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 2);
-        t.Controls.Add(heroBox, 1, 2);
-        t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
-        t.Controls.Add(powerBox, 1, 3);
+        t.Controls.Add(KindStrip(), 1, 2);
+        t.Controls.Add(new Label { Text = "Character", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 3);
+        t.Controls.Add(heroBox, 1, 3);
+        t.Controls.Add(new Label { Text = "Power", AutoSize = true, Margin = new Padding(0, 8, 10, 0) }, 0, 4);
+        t.Controls.Add(powerBox, 1, 4);
         var modes = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 10, 0, 0) };
         var parts = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(22, 0, 0, 2) };
         parts.Controls.AddRange([partAnims, partEffects, partProps]);
@@ -91,10 +112,12 @@ sealed class BorrowPowerForm : Form
         modes.Controls.AddRange([whole, parts, fit, look, suggestion, mismatchNote, enemyNote, costumeNote, summonLook, areaLook, triggeredLook, useName, nameBox, useIcon]);
         Ui.Tip(useName, "The power's name in game becomes this (the borrowed power's, or type your own). It goes into the Strings tab (English), where you can change it; Reset Power takes it off again.");
         Ui.Tip(nameBox, "The new name of this power in game.");
-        Ui.Tip(useIcon, "This power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it). They go into the Icons tab; Reset Power takes them off again.");
+        Ui.Tip(useIcon, IconTip);
+        useIcon.CheckedChanged += (_, _) => { if (!settingIcon) iconWanted = useIcon.Checked; };
         useName.CheckedChanged += (_, _) => nameBox.Enabled = useName.Checked;
         if (current != null && current.NameId == null) useName.Checked = false;
         if (current != null && current.Icons == null) useIcon.Checked = false;
+        iconWanted = useIcon.Checked;
         foreach (var sl in new[] { vSize, vForward, vUp, vLean }) { sl.Width = 460; sl.Height = 30; sl.Margin = new Padding(0, 2, 0, 0); }
         vehicleFit.Controls.AddRange([vehicleHead, vSize, vForward, vUp, vLean]);
         vSize.Home = () => autoSize;
@@ -105,16 +128,16 @@ sealed class BorrowPowerForm : Form
         Ui.Tip(vLean, "Leans the rider forward (+) or back (−), in degrees, from the hips up and down together. Double-click: back to 0.");
         Ui.Tip(vehicleHead, "This power brings the other hero's vehicle. Fit it to this hero; the 3D preview shows the result after Save.");
         fit.Margin = new Padding(22, 0, 0, 6);
-        t.Controls.Add(modes, 0, 4); t.SetColumnSpan(modes, 2);
+        t.Controls.Add(modes, 0, 5); t.SetColumnSpan(modes, 2);
         var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(0, 10, 0, 0) };
         buttons.Controls.AddRange([
             Ui.FlatButton("Cancel", () => DialogResult = DialogResult.Cancel, tip: "Change nothing (Esc)."),
             Ui.AccentButton("Borrow", Choose, tip: "This power takes the chosen power's look; the preview shows it, Save puts it into the mod (Enter)."),
         ]);
-        t.Controls.Add(buttons, 0, 5); t.SetColumnSpan(buttons, 2);
+        t.Controls.Add(buttons, 0, 6); t.SetColumnSpan(buttons, 2);
         Controls.Add(t);
 
-        Ui.Tip(heroBox, "The hero whose power look to borrow.");
+        Ui.Tip(heroBox, "The character whose power look to borrow (the tabs above choose heroes, team-ups or NPCs and enemies). Type to search.");
         Ui.Tip(summonLook, "Both powers summon something. Ticked, what this power summons takes the other power's summon's model and animations (Hawkeye's turret as Squirrel Girl's squirrel); what it does in the game stays this power's.");
         summonLook.CheckedChanged += (_, _) => { if (summonLook.Visible) summonWanted = summonLook.Checked; };
         if (current != null) summonWanted = current.SummonLook;
@@ -145,8 +168,13 @@ sealed class BorrowPowerForm : Form
         var heroes = Directory.EnumerateFiles(cooked, "UC__MarvelPlayer_*_SF.upk").Select(Path.GetFileNameWithoutExtension).OfType<string>()
             .Where(f => f.Split('_').Length == 5 && !f.Contains("bak", StringComparison.OrdinalIgnoreCase)).Select(f => f.Split('_')[3])
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(h => AutoTags.DisplayName(h) ?? h, StringComparer.OrdinalIgnoreCase).ToList();
-        heroBox.Format = o => AutoTags.DisplayName((string)o) ?? (string)o;
-        heroBox.Items.AddRange(heroes);
+        // then the team-ups and the NPCs and enemies whose powers have an animation (Kurt, 2026-11-10)
+        var others = Donors().OrderBy(d => d.Kind == "Team-Up" ? 0 : 1).ThenBy(d => d.Display, StringComparer.OrdinalIgnoreCase).ToList();
+        heroBox.Format = o => o is DonorChar d ? d.Display : AutoTags.DisplayName((string)o) ?? (string)o;
+        kindLists[0] = [.. heroes];
+        kindLists[1] = [.. others.Where(d => d.Kind == "Team-Up")];
+        kindLists[2] = [.. others.Where(d => d.Kind != "Team-Up")];
+        ShowKind(0, select: false);
         heroBox.SelectedIndexChanged += (_, _) => LoadPowers();
         // powers built like this one first (a thrown power from a thrown one, a beam from a beam); the others dimmed, with their kind
         powerBox.Format = o => o is Fx.PowerList.Power p ? p.Name + (Different(p) is { } k ? "  ·  " + k.Label : "") : o.ToString() ?? "";
@@ -155,6 +183,13 @@ sealed class BorrowPowerForm : Form
         {
             // the name follows the picked power, unless one was typed
             if (powerBox.SelectedItem is Fx.PowerList.Power np && (nameBox.Text.Length == 0 || nameBox.Text == nameShown)) nameBox.Text = nameShown = np.Name;
+            // no icon of its own (only the game's "No Icon" placeholder): Use Its Icon grayed out (Kurt, 2026-11-10)
+            bool hasIcon = powerBox.SelectedItem is not Fx.PowerList.Power ip || PowerBorrow.HasOwnIcon(db, ip.Prototype);
+            settingIcon = true;
+            useIcon.Enabled = hasIcon;
+            useIcon.Checked = hasIcon && iconWanted;
+            settingIcon = false;
+            Ui.Tip(useIcon, hasIcon ? IconTip : "The chosen power has no icon of its own in the game (only the \"No Icon\" placeholder), so this power keeps its own icon.");
             Suggest();
         };
         string? startHero = current != null ? current.DonorHero ?? PowerBorrow.HeroOf(current.Donor) : null;
@@ -166,7 +201,14 @@ sealed class BorrowPowerForm : Form
         targetHero = current?.Hero;
         Shown += (_, _) =>
         {
-            int at = startHero == null ? -1 : heroes.FindIndex(h => h.Equals(startHero, StringComparison.OrdinalIgnoreCase));
+            // the tab that holds the saved donor (a hero's name, or a team-up's / NPC's package file)
+            int kind = 0, at = -1;
+            for (int k = 0; k < kindLists.Length && at < 0 && startHero != null; k++)
+            {
+                at = kindLists[k].FindIndex(o => (o is DonorChar d ? d.File : (string)o).Equals(startHero, StringComparison.OrdinalIgnoreCase));
+                if (at >= 0) kind = k;
+            }
+            ShowKind(kind, select: false);
             heroBox.SelectedIndex = at >= 0 ? at : 0;
             wantPower = current?.Donor;
         };
@@ -179,6 +221,71 @@ sealed class BorrowPowerForm : Form
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
         Ui.FitToScreen(this, 640, 560);
+        // taller when its notes need it (Kurt, 2026-11-10: an enemy's power with its notes pushed Borrow off the bottom)
+        bool fitting = false;
+        layoutTable.Layout += (_, _) => { if (!fitting && IsHandleCreated) BeginInvoke(() => { fitting = true; try { FitContent(); } finally { fitting = false; } }); };
+        Shown += (_, _) => FitContent();
+    }
+
+    readonly TableLayoutPanel layoutTable;
+
+    // Heroes / Team-Ups / NPCs tabs over the Character list (Kurt, 2026-11-10), as the Model tab's
+    static readonly string[] KindTitles = ["Heroes", "Team-Ups", "NPCs"];
+    static readonly string[] KindTips =
+    [
+        "Heroes: borrow a power from any hero.",
+        "Team-ups: borrow a team-up's power.",
+        "NPCs, enemies and bosses: borrow one of their powers (the ones with an animation).",
+    ];
+    readonly List<object>[] kindLists = [[], [], []];
+    readonly List<Label> kindTabs = [];
+    int kindShown;
+
+    Control KindStrip()
+    {
+        var strip = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 2) };
+        for (int k = 0; k < KindTitles.Length; k++)
+        {
+            int index = k;
+            var tab = new Label { Text = KindTitles[k], AutoSize = true, Padding = new Padding(6, 3, 6, 5), Cursor = Cursors.Hand, Font = Ui.Regular(9f), ForeColor = k == 0 ? Ui.Text : Ui.Subtle, BackColor = Color.Transparent, Margin = new Padding(0, 0, 4, 0) };
+            tab.Click += (_, _) => { if (index != kindShown) ShowKind(index, select: true); };
+            tab.Paint += (_, e) =>
+            {
+                if (kindShown != index) return;
+                using var b = new SolidBrush(Ui.Accent);
+                float s = Ui.Dpi(DeviceDpi);
+                e.Graphics.FillRectangle(b, 5 * s, tab.Height - 3 * s, tab.Width - 10 * s, 2.5f * s);
+            };
+            Ui.Tip(tab, KindTips[k]);
+            kindTabs.Add(tab);
+            strip.Controls.Add(tab);
+        }
+        return strip;
+    }
+
+    /// <summary>Fills the Character list with one tab's characters (the first picked when <paramref name="select"/>).</summary>
+    void ShowKind(int kind, bool select)
+    {
+        kindShown = kind;
+        for (int k = 0; k < kindTabs.Count; k++)
+        {
+            kindTabs[k].Text = $"{KindTitles[k]} ({kindLists[k].Count:N0})";
+            kindTabs[k].ForeColor = k == kind ? Ui.Text : Ui.Subtle;
+            kindTabs[k].Invalidate();
+        }
+        heroBox.Items.Clear();
+        heroBox.Items.AddRange([.. kindLists[kind]]);
+        if (select && heroBox.Items.Count > 0) heroBox.SelectedIndex = 0;
+    }
+
+    /// <summary>The window grown to show all of its content (only grown, never past the screen's working area).</summary>
+    void FitContent()
+    {
+        if (IsDisposed) return;
+        var pref = layoutTable.GetPreferredSize(new Size(ClientSize.Width - Padding.Horizontal, 0));
+        int need = pref.Height + Padding.Vertical + 8;
+        int max = Screen.FromControl(this).WorkingArea.Height - (Height - ClientSize.Height) - 20;
+        if (need > ClientSize.Height) ClientSize = new Size(ClientSize.Width, Math.Min(need, max));
     }
 
     string? wantPower, targetHero;
@@ -191,7 +298,9 @@ sealed class BorrowPowerForm : Form
 
     void LoadPowers()
     {
-        if (heroBox.SelectedItem is not string hero) return;
+        var donor = heroBox.SelectedItem as DonorChar;
+        string? hero = heroBox.SelectedItem as string;
+        if (donor == null && hero == null) return;
         int req = ++request;
         powerBox.Items.Clear();
         suggestion.Text = "Reading the powers…";
@@ -200,7 +309,9 @@ sealed class BorrowPowerForm : Form
         {
             var g = new Fx.FxGame(c0, []);
             var tk = PowerBorrow.KindOf(db, g, tgt);
-            var list = Fx.PowerList.For(db, hero, c0, []).Where(p => p.Animations.Count > 0).ToList();
+            var list = (donor != null
+                ? Fx.AgentPowers.List(db, donor.Class, c0, "x").Select(p => new Fx.PowerList.Power(p.Prototype, p.Name.StartsWith("x: ") ? p.Name[3..] : p.Name, p.Icon, p.Animations) { HasName = true })
+                : Fx.PowerList.For(db, hero!, c0, [])).Where(p => p.Animations.Count > 0).ToList();
             var ks = list.ToDictionary(p => p.Prototype, p => PowerBorrow.KindOf(db, g, p.Prototype), StringComparer.OrdinalIgnoreCase);
             // matching first, each part in the list's own order
             var sorted = list.OrderBy(p => tk != null && ks[p.Prototype] is { } k && !k.Matches(tk) ? 1 : 0).ToList();
@@ -208,14 +319,14 @@ sealed class BorrowPowerForm : Form
         }).ContinueWith(t =>
         {
             if (IsDisposed || req != request) return;
-            if (t.Status != TaskStatus.RanToCompletion) { suggestion.Text = "This hero's powers couldn't be read."; return; }
+            if (t.Status != TaskStatus.RanToCompletion) { suggestion.Text = "This character's powers couldn't be read."; return; }
             targetKind = t.Result.tk;
             foreach (var (k, v) in t.Result.ks) kindOf[k] = v;
             powerBox.Items.AddRange(t.Result.sorted);
             int at = wantPower == null ? -1 : t.Result.sorted.FindIndex(p => p.Prototype.Equals(wantPower, StringComparison.OrdinalIgnoreCase));
             wantPower = null;
             if (t.Result.sorted.Count > 0) powerBox.SelectedIndex = Math.Max(0, at);
-            else suggestion.Text = "This hero has no powers with an animation.";
+            else suggestion.Text = "This character has no powers with an animation.";
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
@@ -295,10 +406,10 @@ sealed class BorrowPowerForm : Form
 
     void Choose()
     {
-        if (powerBox.SelectedItem is not Fx.PowerList.Power p || heroBox.SelectedItem is not string hero) return;
+        if (powerBox.SelectedItem is not Fx.PowerList.Power p || (heroBox.SelectedItem is DonorChar dc ? dc.File : heroBox.SelectedItem as string) is not string hero) return;
         Result = new PowerBorrowEntry
         {
-            Donor = p.Prototype, DonorName = $"{AutoTags.DisplayName(hero) ?? hero}: {p.Name}",
+            Donor = p.Prototype, DonorName = $"{(heroBox.SelectedItem is DonorChar dn ? dn.Display : AutoTags.DisplayName(hero) ?? hero)}: {p.Name}",
             KeepTiming = look.Checked, Fit = fit.Checked, DonorHero = hero,
             NoAnimations = whole.Checked && !partAnims.Checked, NoEffects = whole.Checked && !partEffects.Checked, NoProps = whole.Checked && !partProps.Checked, SummonLook = summonLook.Visible && summonLook.Checked, AreaLook = areaLook.Visible && areaLook.Checked, TriggeredLook = triggeredLook.Visible && triggeredLook.Checked,
         };

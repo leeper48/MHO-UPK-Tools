@@ -97,7 +97,31 @@ sealed partial class ModelPage
         if (exe == null) { Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET).\n\nPick your editor's program in Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         string file = Path.Combine(host.WorkFolder, "edit", Path.GetFileNameWithoutExtension(ChosenPackage?.Key ?? "package"), FbxExport.SafeName(m.Texture) + ".png");
         Protected.CheckWrite(Path.GetDirectoryName(file)!);
-        try { if (!ExportPackageMap(m, file)) return; }
+        try
+        {
+            if (!ExportPackageMap(m, file)) return;
+            // a tiny stand-in (a copied material's 8 × 8 glow; Kurt, 2026-11-10): opened at the material's color map's size, so
+            // what's painted in the editor comes back at that size (Replace keeps an image's own size)
+            if (m.W < 64 || m.H < 64)
+            {
+                var color = packageMaps?.FirstOrDefault(x => x.Material == m.Material && x.Kind == "Color" && x.W >= 64);
+                int w = color?.W ?? 512, h = color?.H ?? 512;
+                using (var small = ImagePixels.Open(file))
+                using (var big = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                {
+                    using (var g = Graphics.FromImage(big))
+                    {
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+                        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                        g.DrawImage(small, 0, 0, w, h);
+                    }
+                    small.Dispose();
+                    ImagePixels.SavePng(big, file);
+                }
+                Log($"Image editor: {m.Texture} is only {m.W}×{m.H} (a stand-in), so it opens at {w}×{h}{(color != null ? $", the size of {m.Material}'s color map" : "")}; saved back, it keeps that size.");
+            }
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException)
         { Log($"Image editor: {Path.GetFileName(file)} couldn't be written ({ex.Message}); is it still open in the editor? Save or close it there first."); return; }
         Watch(file, m.Material, m.Kind, m);

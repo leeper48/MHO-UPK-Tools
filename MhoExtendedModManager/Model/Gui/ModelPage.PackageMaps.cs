@@ -117,11 +117,14 @@ sealed partial class ModelPage
         string temp = Path.Combine(Path.GetTempPath(), "mhoextmm_tex_" + Guid.NewGuid().ToString("N")[..8] + ".png");
         try
         {
-            // the original's size (divisible by 4 for DXT)
-            int w = m.W > 0 ? m.W : 4, h = m.H > 0 ? m.H : 4;
+            // the new image's own size, as a power of two from 4 to 2048 (Monarch, 2026-11-10: Nova's glow map is an 8 × 8
+            // placeholder, and every image put in for it came out 8 × 8); the texture is rebuilt at that size
             using (var src = ImagePixels.Open(image))
-            using (var fit = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
             {
+                static int Pow2(int v) { int p = 4; while (p < 2048 && p * 2 <= Math.Max(4, v) * 1.42) p *= 2; return p; }
+                int w = Pow2(src.Width), h = Pow2(src.Height);
+                if (w != m.W || h != m.H) Log($"Materials: {m.Texture} becomes {w}×{h} (was {m.W}×{m.H}), the new image's size.");
+                using var fit = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 using (var g = Graphics.FromImage(fit))
                 {
                     g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
@@ -132,8 +135,13 @@ sealed partial class ModelPage
                 ImagePixels.SavePng(fit, temp);
             }
             string? want = m.Format.Contains("DXT1", StringComparison.OrdinalIgnoreCase) ? "dxt1" : m.Format.Contains("DXT5", StringComparison.OrdinalIgnoreCase) ? "dxt5" : null;
-            var enc = TextureEncode.FromImage(temp, want, 85, 1f, noMips: false, refine: true);
             var pkg = Package.Open(sourcePath);
+            // a texture stored with one level keeps one (Kurt, 2026-11-10: HEAD D, marked TMGS_NoMipMaps with a single mip, got
+            // a full chain down to 1 x 1 here, and the costume crashed creating a 1 x 1 DXT1 texture)
+            bool oneLevel;
+            try { oneLevel = TextureInfo.Read(pkg, pkg.Exports[m.Export]).Mips.Count <= 1; }
+            catch (PackageFormatException) { oneLevel = false; }
+            var enc = TextureEncode.FromImage(temp, want, 85, 1f, noMips: oneLevel, refine: true);
             byte[]? output = TextureImport.ReplaceMany(pkg, [new TextureImport.Replacement(pkg.PathOf(pkg.Exports[m.Export]), TextureImport.WriteDds(enc), Path.GetFileName(image), NormalMap: m.Kind == "Normal")], out var problems, out var verify);
             if (output == null) { foreach (var p in problems) Log("Materials: " + p); return false; }
             var check = verify(output);
@@ -163,6 +171,43 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or PackageFormatException or UnauthorizedAccessException)
         { Log($"Materials: {m.Texture} not replaced: {ex.Message}"); return false; }
         finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
+    /// <summary>A material of the costume's own package renamed (Rename Material on a row's right-click), written as a build.</summary>
+    void RenamePackageMaterial(PackageMap m)
+    {
+        if (packageMapsFile == null || m.InFile != null || ChosenPackage is not CharacterList.Item pkgItem) return;
+        string? name = Ui.Prompt(this, "Rename Material", $"A new name for {m.Material} (letters, digits and _):", m.Material)?.Trim();
+        if (string.IsNullOrEmpty(name) || name.Equals(m.Material, StringComparison.Ordinal)) return;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]{0,62}$")) { Log($"Materials: \"{name}\" can't be a material's name: letters, digits and _ only, not starting with a digit."); return; }
+        try
+        {
+            var pkg = Package.Open(packageMapsFile);
+            int at = Array.FindIndex(pkg.Exports, e => e.ObjectName.Equals(m.Material, StringComparison.OrdinalIgnoreCase)
+                && (pkg.ClassOf(e).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase) || pkg.ClassOf(e).Equals("Material", StringComparison.OrdinalIgnoreCase)));
+            if (at < 0) { Log($"Materials: {m.Material} isn't a material of {Path.GetFileName(packageMapsFile)}."); return; }
+            int outer = pkg.Exports[at].OuterIndex;
+            if (Array.Exists(pkg.Exports, e => e.OuterIndex == outer && e.ObjectName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            { Log($"Materials: {Path.GetFileName(packageMapsFile)} already has an object called {name} there."); return; }
+            string[] addNames = Array.Exists(pkg.Names, n => n.Equals(name, StringComparison.Ordinal)) ? [] : [name];
+            var renames = new Dictionary<int, string> { [at] = name };
+            byte[] output = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>>(), [], out var written, addNames, null, renames);
+            var problems = PackageRebuilder.Verify(pkg, output, [], [], written, addNames, null, renames);
+            if (problems.Count > 0) { foreach (var p in problems.Take(3)) Log("Materials: PACKAGE PROBLEM: " + p); return; }
+            string outDir = UniqueDir(Path.Combine(host.WorkFolder, "builds", $"material name on {Path.GetFileNameWithoutExtension(pkgItem.Key)}"));
+            Directory.CreateDirectory(outDir);
+            string file = Path.Combine(outDir, pkgItem.Key);
+            File.WriteAllBytes(file, output);
+            host.SetPackage(pkgItem.Key, file);
+            built[pkgItem.Key] = file;
+            if (Fingerprint() is string fp) builtPrint[pkgItem.Key] = fp;
+            SaveState();
+            Log($"Materials: {m.Material} is called {name} now ({pkgItem.Key}; Save Changes keeps it).");
+            status.Text = $"{name} Renamed"; status.ForeColor = Ui.Enabled;
+            SchedulePreview();
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or PackageFormatException or UnauthorizedAccessException)
+        { Log($"Materials: {m.Material} not renamed: {ex.Message}"); }
     }
 
     /// <summary>

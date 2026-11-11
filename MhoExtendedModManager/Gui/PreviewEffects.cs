@@ -111,6 +111,7 @@ sealed class PreviewEffects : IDisposable
             var phase = HiddenEffect is { } hidden ? e => loaded.Phase(e) && !hidden(e.Name) : loaded.Phase;
             if (OnlyEffect is { } only) { var before = phase; phase = e => before(e) && e.Name.Equals(only, StringComparison.OrdinalIgnoreCase); }
             clock.Player = new Fx.PowerEffects.Player(loaded.Effects, Socket, Target, phase) { AnimSeconds = Math.Max(0.1f, Seconds()), Color = ColorFor?.Invoke(loaded.Power),
+                IncludeDecal = HiddenEffect is { } hiddenDecal ? d => !hiddenDecal(d.Name) : null,
                 // (offsets on the animation's clock: it plays at the game's speed, Seconds(), not its own length)
                 // (a single-animation attack's only: a channeled power's start / end offsets run in real time, Thor's Lightning Storm)
                 OffsetScale = playing != null && !PowerPreview.IsChannelPart(playing.Name) && MeshAnimator.Span(playing).Seconds is float own && own > 0.05f && Seconds() > 0.05f ? Seconds() / own : 1 };

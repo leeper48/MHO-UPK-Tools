@@ -46,9 +46,29 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
+    /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
+    /// Parts, game materials in This Material for a costume's own, Rename Material, Copy Setup and crash fixes.</summary>
+    static Notice BorrowDonors() => new(
+        "0.60.480-borrow-donors", "0.60.480",
+        "[!]New in Borrow Power: team-ups and enemies" + nl +
+        "  • Heroes, Team-Ups and NPCs tabs above the Character list: borrow a team-up's power (Firestar's Focused Flame) or an enemy's (Kingpin's Obliterator Cane)." + nl +
+        "  • Use Its Icon is grayed out when the other power has no icon of its own in the game (many enemy powers only show a \"No Icon\" placeholder)." + nl + nl +
+        "[!]Powers tab → Parts" + nl +
+        "  • A power's missile parts are listed too (Storm's Elusive Shock: its bolt's trail), and a hero's Character entry lists the trails its animations draw (Magik's sword glows) as Anim Trail rows to switch off." + nl +
+        "  • The 3D view follows the boxes at once, before you save." + nl + nl +
+        "[!]Model tab → Materials" + nl +
+        "  • With no source picked, This Material lists the game materials too (Cloth and Skin, Metal, Glow, the new Glow, Not Metal, Hair and See-Through), one click each; right-click a row → Rename Material." + nl +
+        "  • Copy Setup works with Nova Modern's material now: its copies showed the game's blue and white placeholder. Redo such copies (Revert to Original first)." + nl +
+        "  • A replaced map keeps your image's size (it was squeezed to the old one's, an 8 × 8 glow for Nova)." + nl + nl +
+        "[!]Fixes" + nl +
+        "  • A costume with a copied material could crash the game on loading (\"CreateTexture … SizeX=1\"). Built mods: run --fix-small-mips <mod>, or redo the copy." + nl +
+        "  • Whole Character summons take AntiVenom's, Toxin's and Hydra's symbiote spawns as the source." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-borrow");
+
     static Notice WholeSummons() => new(
         "0.60.462-whole-summons", "0.60.462",
         "[!]New on the Model tab: summons as another character" + nl +

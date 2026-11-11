@@ -1352,6 +1352,9 @@ sealed class PowerEffects
         // (above 100 % only the alpha grows, as in the game's files: the color isn't brightened)
         Vector4 Col(Vector4 v) => color is { IsNone: false } c ? new Vector4(c.Apply(new Vector3(v.X, v.Y, v.Z)) * MathF.Min(c.Opacity, 1), MathF.Min(v.W * c.Opacity, 1)) : v;
 
+        /// <summary>Which decals play (null: all; Kurt, 2026-11-10: a decal switched off on the Parts tab still showed).</summary>
+        public Func<Decal, bool>? IncludeDecal { get; init; }
+
         /// <summary>Moves the effects on by <paramref name="dt"/> seconds; <paramref name="ended"/>: the animation is over.</summary>
         public void Step(float dt, bool ended)
         {
@@ -1359,7 +1362,7 @@ sealed class PowerEffects
             if (ended && endedAt < 0) endedAt = time;
             var rng = new Random(7);
             foreach (var d in fx.Decals)
-                if (!decalsStarted.Contains(d) && Shown(d.TriggeredBy) && time >= StartOf(d.Point, d.Offset, d.Kind))
+                if (!decalsStarted.Contains(d) && Shown(d.TriggeredBy) && IncludeDecal?.Invoke(d) != false && time >= StartOf(d.Point, d.Offset, d.Kind))
                 { decalsStarted.Add(d); decals.Add((d, d.RandomRotation ? (float)(rng.NextDouble() * Math.PI * 2) : 0)); }
             foreach (var e in fx.Effects)
             {

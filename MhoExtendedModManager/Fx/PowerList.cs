@@ -237,10 +237,15 @@ static class PowerList
                 result.Add(new Power(travel, tname ?? "Travel Power", ticon, anims) { HasName = true });
         }
         // One button per name (Ragnarok has two prototypes: the leap and the forward strike).
+        // (the one whose package the mod changes first: Kurt, 2026-11-10, Storm's Crashing Hail and MassiveLightningStrike share
+        // a name; with a borrowed look on Crashing Hail the button sometimes kept the other one, which has none)
+        var modNames = mods.Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool Changed(Power p) => db.Find(p.Prototype) is { } pe && Field(db, pe.Id, "PowerUnrealClass", 'A', true) is { Found: true } pf
+            && db.Assets.TryGetValue(pf.Raw, out var pa) && modNames.Contains($"UC__{pa.Asset.Name}_SF.upk");
         foreach (var grp in result.GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).ToList())
         {
-            var keep = grp.First();
-            foreach (var other in grp.Skip(1))
+            var keep = grp.FirstOrDefault(Changed) ?? grp.First();
+            foreach (var other in grp.Where(o => !ReferenceEquals(o, keep)))
             {
                 foreach (var an in other.Animations) if (!keep.Animations.Contains(an, StringComparer.OrdinalIgnoreCase)) keep.Animations.Add(an);
                 result.Remove(other);

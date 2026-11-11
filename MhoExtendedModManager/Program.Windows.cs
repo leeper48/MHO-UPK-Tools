@@ -187,8 +187,8 @@ static partial class Program
             using var f = args.Length >= 5
                 ? new Gui.BorrowPowerForm(db, Settings.Cooked(root), args[2], args[3], new PowerBorrowEntry { Donor = args[4], DonorHero = args.Length > 5 ? args[5] : null })
                 : new Gui.BorrowPowerForm(db, Settings.Cooked(root), @"Powers\Player\Iceman\BasicBeam.prototype", "Chillblain",
-                new PowerBorrowEntry { Donor = @"Powers\Player\HumanTorch\ChanneledEnergyBeam.prototype", KeepTiming = true })
-            { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+                new PowerBorrowEntry { Donor = @"Powers\Player\HumanTorch\ChanneledEnergyBeam.prototype", KeepTiming = true });
+            f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-6000, -6000);   // (both forms off every screen)
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
                 await Task.Delay(6000);   // the powers and the suggestion read in the background

@@ -21,6 +21,9 @@ static class MaterialChoice
     public const string Default = "UC__MarvelPlayer_Punisher_ModernVU_SF:punisher_modernvu_testmat";
     public const string Metal = "UC__MarvelPlayer_Angela_SF:angela_std_v2-1";
     public const string Glow = "UC__MarvelPlayer_Angela_SF:weapons_1602_mtl";
+    /// <summary>A glow slot without the metal (Monarch, 2026-11-10: "a really nice material as an alternative to Angela that
+    /// includes a glow slot"): Nova Modern VU's chbasematerial_v2 instance (useemissive, use_emissivergb).</summary>
+    public const string GlowSoft = "UC__MarvelPlayer_Nova_RR_ModernVU_SF:novarr_modernvu_testmat";
     /// <summary>See-through (a user's Ms Marvel hair, 2026-10-30: black streaks where the alpha should cut it away; every other
     /// template is opaque): Emma Frost's hair, chbasematerial_v2_dblsided (two-sided, BLEND_Masked by the diffuse's alpha, as
     /// her DXT5 storm_hairtex), the same v2 family and slots as the cloth one.</summary>
@@ -36,6 +39,7 @@ static class MaterialChoice
         ("default", "Cloth and Skin", Default, "Punisher Modern's material: the plain one most models get (cloth, skin, leather)."),
         ("metal", "Metal", Metal, "Angela's armor material: its own reflection image and spec color, for metal and shiny armor."),
         ("glow", "Glow", Glow, "Angela's weapon material: her armor's with a glow slot (a glow map of its own, or the bright spots of the color map)."),
+        ("glowsoft", "Glow, Not Metal", GlowSoft, "Nova Modern's material: a glow slot (a glow map of its own) on a material that isn't metal-shiny like Angela's."),
         ("hair", "Hair and See-Through", Hair, "Emma Frost's hair material: two-sided and see-through where the Alpha map is dark (hair, lace, feathers). Automatic picks it for a material with an Alpha map."),
         ("base", "The Costume's Own", null, "The target costume's own material (its first material instance), with this material's maps."),
     ];

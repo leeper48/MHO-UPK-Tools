@@ -448,7 +448,7 @@ static class AnimSwap
     /// (RestTurns), for bones whose rest differs; their rotation keys in the copies are turned by it.</param>
     public static byte[] Build(string costumePath, string costumeClass, IReadOnlyList<Swap> swaps, List<string> log, IReadOnlyList<string>? inheritedSets = null, float rateScale = 1,
         IReadOnlyDictionary<string, System.Numerics.Quaternion>? retarget = null, RiderFit? rider = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? skeleton = null,
-        IReadOnlyCollection<string>? noPositions = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? donorSkeleton = null)
+        IReadOnlyCollection<string>? noPositions = null, IReadOnlyList<AnimExportCli.Meshes.MeshBone>? donorSkeleton = null, bool ownLengths = false)
     {
         if (skeleton == null && swaps.Any(s => s.Heights is { Count: > 0 } || s.Model is { Count: > 0 })) skeleton = PowerBorrow.HeroSkeleton(costumePath);   // (height keys need it)
         var body = BodyRoots(skeleton);
@@ -623,6 +623,22 @@ static class AnimSwap
                 if (Math.Abs(rate - 1) > 1e-5) d = MhoExtendedModManager.Model.StepRate.WithRate(pkg, d, rate, NameIdx);
                 byte[] dd = d;
                 replace[seq - 1] = _ => dd;
+            }
+            // another body's bone lengths (Kurt, 2026-11-10: a Fire Demon archer's Arc Shot on Storm stretched her: its set takes
+            // positions for 22 bones, spine, hips, palms, jaw, at the demon's lengths): a listed bone whose rest position differs
+            // clearly from this skeleton's keeps its own (only its turns come across)
+            if (ownLengths && donorSkeleton is { Count: > 1 } && skeleton is { Count: > 1 })
+            {
+                var dRest = donorSkeleton.GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Position, StringComparer.OrdinalIgnoreCase);
+                var tRest = skeleton.GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Position, StringComparer.OrdinalIgnoreCase);
+                var kept = new List<string>();
+                foreach (string bone in TranslationBones(pkg, sd))
+                {
+                    if (bone.Equals("root", StringComparison.OrdinalIgnoreCase) || !dRest.TryGetValue(bone, out var dp) || !tRest.TryGetValue(bone, out var tp)) continue;
+                    if (System.Numerics.Vector3.Distance(dp, tp) <= Math.Max(1.5f, 0.1f * tp.Length())) continue;
+                    if (WithoutTranslationBone(pkg, sd, bone) is { } without) { sd = without; kept.Add(bone); }
+                }
+                if (kept.Count > 0) log.Add($"  this skeleton's own bone lengths kept (the other body's differ): {string.Join(", ", kept)}");
             }
             foreach (string bm in bodyMoved) sd = WithTranslationBone(pkg, sd, bm, NameIdx);
             // Pivot on the Hand: these bones' positions in the animations aren't taken (they stay where the skeleton has them)
@@ -1437,6 +1453,18 @@ static class AnimSwap
     /// <summary>A set's data with <paramref name="bone"/> in its UseTranslationBoneNames (added when missing; the list must exist:
     /// without one every bone takes its animated position already).</summary>
     /// <summary>The set with <paramref name="bone"/> taken out of UseTranslationBoneNames, or null when it isn't listed.</summary>
+    /// <summary>The bones a set's UseTranslationBoneNames lists (names of the package's own table).</summary>
+    internal static List<string> TranslationBones(Package pkg, byte[] set)
+    {
+        var res = new List<string>();
+        var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
+        if (t == null) return res;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(t.ValueAt));
+        for (int k = 0; k < n; k++)
+            if (BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(t.ValueAt + 4 + 8 * k)) is int ni && ni >= 0 && ni < pkg.Names.Length) res.Add(pkg.Names[ni]);
+        return res;
+    }
+
     internal static byte[]? WithoutTranslationBone(Package pkg, byte[] set, string bone)
     {
         var t = TagWalker.Walk(pkg, set, 4)?.FirstOrDefault(x => x.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));

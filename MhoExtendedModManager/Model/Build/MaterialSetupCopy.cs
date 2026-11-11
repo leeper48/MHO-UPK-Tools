@@ -250,6 +250,7 @@ static class MaterialSetupCopy
         var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var standIns = new List<(string Slot, string From)>();
         var envCopies = new List<(string Slot, int Ref, string From)>();
+        var normalCopies = new List<(string Slot, int Ref, string From)>();
         var how = new List<string>();
         foreach (var (name, r) in MaterialOut.TextureRefs(src, mic))
         {
@@ -264,7 +265,15 @@ static class MaterialSetupCopy
                 else envCopies.Add((name, r, from));
                 continue;
             }
-            if (tgtSlots.TryGetValue(name, out int tt) && tt != 0)
+            if (tgtSlots.TryGetValue(name, out int tt) && tt != 0 && name.Equals("normaltex", StringComparison.OrdinalIgnoreCase) && !IsNormalMap(tgt, tt))
+            {
+                // the costume's normal map isn't marked as one (Kurt, 2026-11-10: a user's Bishop, made with another tool, had
+                // TORSO N as a plain texture: the copied v2 material wants a real normal map there, and the game drew its
+                // placeholder material instead): the copy gets its own normal-map version of it, the same pixels
+                normalCopies.Add((name, tt, from));
+                continue;
+            }
+            if (tgtSlots.TryGetValue(name, out tt) && tt != 0)
             {
                 // (the target's own texture, or one it takes from its hero's base package: the Skrull's normal map)
                 replace[from] = tt > 0 ? tgt.PathOf(tgt.Exports[tt - 1]) : ModMeshes.ImportPath(tgt, tt);
@@ -276,7 +285,7 @@ static class MaterialSetupCopy
 
         // flat stand-ins for the maps the target hasn't got, built on one of its own textures (format details)
         byte[] current = target;
-        if (standIns.Count > 0 || envCopies.Count > 0)
+        if (standIns.Count > 0 || envCopies.Count > 0 || normalCopies.Count > 0)
         {
             int template = TemplateTexture(tgt, tgtSlots.Values.Where(v => v > 0).Select(v => v - 1));
             if (template < 0) throw new InvalidDataException($"{targetFile} has no texture of a known texture group to build the new maps on");
@@ -315,16 +324,59 @@ static class MaterialSetupCopy
                 plan.Add(new MaterialOut.PlannedTexture(name, null, texName, template, png, dxt5, AlphaIsData: dxt5));
                 how.Add($"{name}: a stand-in ({what}): the target has no map for it");
             }
+            // the costume's own normal maps as real normal maps (after the stand-ins: their order in the plan is matched below)
+            var normalNames = new List<(string From, string Name)>();
+            foreach (var (name, tt, from) in normalCopies)
+            {
+                string png = Path.Combine(workDir, MaterialOut.Safe(name) + "_target.png");
+                string own = tt > 0 ? tgt.Exports[tt - 1].ObjectName : ModMeshes.ImportPath(tgt, tt);
+                if (!DecodeTexture(tgt, tt, targetFile, png)) { replace[from] = tt > 0 ? tgt.PathOf(tgt.Exports[tt - 1]) : own; how.Add($"{name}: the target's {own} (it isn't marked as a normal map and couldn't be read to make one: the game may show its placeholder material)"); continue; }
+                string texName = UniqueExport(tgt, MaterialOut.Safe($"{copyName}_{name}"));
+                plan.Add(new MaterialOut.PlannedTexture(name, null, texName, template, png, false));
+                normalNames.Add((from, texName));
+                how.Add($"{name}: the target's {own}, copied as a real normal map (it was a plain texture, which the game won't take in this material's normal slot)");
+            }
             current = MaterialOut.AddTextures(tgt, plan);
             var withTex = Package.FromBytes(current);
             string Added(string n) => withTex.PathOf(withTex.Exports.First(e => e.ObjectName.Equals(n, StringComparison.OrdinalIgnoreCase)));
             foreach (var (from, n) in envNames) replace[from] = Added(n);
             foreach (var (p, (name, from)) in plan.Skip(envNames.Count).Zip(standIns)) replace[from] = Added(p.NewName);
+            foreach (var (from, n) in normalNames) replace[from] = Added(n);
         }
         lines.AddRange(how.Select(h => "  " + h));
 
-        // a copy of this source with the same maps already in the package: reused (the same compiled data twice collides)
+        // what the source's material takes from its hero's base package (Kurt, 2026-11-10: Nova Modern's material uses the
+        // material function chbasematerials_v2.functions.truefalse from UC__MarvelPlayer_Nova_SF, which the game loads with
+        // Nova but not with Cable: every copy of it drew the game's blue and white placeholder material): copied in under the
+        // same path, as a costume moved to another hero does (CrossMove)
         var cur = Package.FromBytes(current);
+        if (SourceBase(sourceFile) is string bp)
+        {
+            var bas = Package.Open(bp);
+            for (int i = 0; i < src.Imports.Length; i++)
+            {
+                string cls = src.Imports[i].ClassName;
+                // (material functions only: the costume's other imports from its base package are its own effects' materials)
+                if (!cls.Equals("MaterialFunction", StringComparison.OrdinalIgnoreCase)) continue;
+                string path = FullImportPath(src, i);
+                if (AlwaysLoaded(path)) continue;
+                int bi = Array.FindIndex(bas.Exports, e => bas.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase) && bas.ClassOf(e).Equals(cls, StringComparison.OrdinalIgnoreCase));
+                if (bi < 0) continue;
+                if (!cur.Exports.Any(e => cur.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var bc = MaterialChoice.Explained(() => ExportCopy.Copy(bas, bi, cur, Array.Empty<string>()), out string bwhy)
+                        ?? throw new InvalidDataException($"{path} couldn't be copied from {Path.GetFileName(bp)}: {bwhy}");
+                    var bcheck = bc.Check(bc.Output);
+                    if (bcheck.Count > 0) throw new InvalidDataException($"{path}: " + string.Join("; ", bcheck.Take(5)));
+                    current = bc.Output;
+                    cur = Package.FromBytes(current);
+                }
+                replace[path] = path;
+                lines.Add($"copied from {Path.GetFileName(bp)}: {path} ({cls}): the source takes it from its hero's base package, which the game doesn't load for this character");
+            }
+        }
+
+        // a copy of this source with the same maps already in the package: reused (the same compiled data twice collides)
         int made = -1;
         for (int i = 0; i < cur.Exports.Length && standIns.Count == 0; i++)
             if (cur.Exports[i].ObjectName.StartsWith(copyName, StringComparison.OrdinalIgnoreCase) && cur.ClassOf(cur.Exports[i]).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)
@@ -366,6 +418,47 @@ static class MaterialSetupCopy
         foreach (int i in preferred) if (i >= 0 && i < pkg.Exports.Length && Known(i)) return i;
         for (int i = 0; i < pkg.Exports.Length; i++) if (Known(i)) return i;
         return -1;
+    }
+
+    /// <summary>An import's full path, through an outer that is an export of the package (the costume imports truefalse into
+    /// its own forced export chbasematerials_v2.functions).</summary>
+    static string FullImportPath(Package p, int i)
+    {
+        var parts = new List<string>();
+        int idx = -(i + 1);
+        for (int guard = 0; guard < 32 && idx != 0; guard++)
+        {
+            if (idx < 0) { var im = p.Imports[-idx - 1]; parts.Add(im.ObjectName); idx = im.OuterIndex; }
+            else { parts.Add(p.PathOf(p.Exports[idx - 1])); break; }
+        }
+        parts.Reverse();
+        return string.Join(".", parts);
+    }
+
+    /// <summary>The source costume's hero base package (UC__MarvelPlayer_&lt;Hero&gt;_SF.upk: beside the source, else the game's
+    /// stock one), or null for a base package itself or one not found.</summary>
+    static string? SourceBase(string sourceFile)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(Path.GetFileNameWithoutExtension(sourceFile), @"^(UC__MarvelPlayer_[^_]+)_(.+)_SF$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        string name = m.Groups[1].Value + "_SF.upk";
+        string beside = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? "", name);
+        if (File.Exists(beside)) return beside;
+        return Settings.Current.CookedFolder is string cooked && StockFiles.For(cooked, name) is var st && File.Exists(st) ? st : null;
+    }
+
+    /// <summary>A texture marked as a normal map (CompressionSettings TC_NormalMap), as the game's own are; an import (a texture in
+    /// the hero's base package) counts as one.</summary>
+    static bool IsNormalMap(Package pkg, int texture)
+    {
+        if (texture <= 0) return true;
+        try
+        {
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[texture - 1]).ToArray();
+            var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("CompressionSettings", StringComparison.OrdinalIgnoreCase));
+            return t != null && TagWalker.NameAt(pkg, d, t.ValueAt + (t.Size == 16 ? 8 : 0)).Equals("TC_NormalMap", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { return true; }
     }
 
     /// <summary>A texture's LODGroup property (its texture group, lower case), or null when it has none (the default).</summary>

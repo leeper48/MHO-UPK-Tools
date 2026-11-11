@@ -210,7 +210,17 @@ static class SummonLook
             if (targetAnims.Count > 0) inherited = pca!.Sets.OrderBy(x => x.Order).Select(x => x.Path).ToList();
             log.Add($"{targetFile} extends {parent}: {(targetAnims.Count > 0 ? $"it plays that one's animations ({targetAnims.Count})" : "no animation list there either")}");
         }
-        var donor = CostumeAnims.Read(sourcePackage, sourceFile, fileFor) ?? throw new InvalidDataException($"{sourceFile}: its animations aren't found");
+        var donor = CostumeAnims.Read(sourcePackage, sourceFile, fileFor);
+        static bool Usable(CostumeAnims? r) => r != null && r.Anims.Any(a => a.From.File != null && a.Export >= 0 && a.From.Kind != CostumeAnims.Source.Shared);
+        // a character whose class extends another package's plays that one's animations (Miike79, 2026-11-10: AntiVenom's, Toxin's
+        // and Hydra's symbiote spawns extend marvelagent_venomsymbiotepet, whose package holds venom_anim.symbiotespawn_as)
+        for (string at = sourcePackage, guard = ""; !Usable(donor) && cooked != null && guard.Length < 4 && PowerColorBuild.ParentPackage(at, cooked) is string sparent && fileFor(sparent) is { } spp; at = spp.Path, guard += "x")
+        {
+            var pd = CostumeAnims.Read(spp.Path, sparent, fileFor);
+            log.Add($"{sourceFile} extends {sparent}: {(Usable(pd) ? "its animations come from there" : "no animations there either")}");
+            if (Usable(pd)) donor = pd;
+        }
+        if (donor == null) throw new InvalidDataException($"{sourceFile}: its animations aren't found");
         var byName = donor.Anims.Where(a => a.From.File != null && a.Export >= 0).GroupBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         if (byName.Count == 0) throw new InvalidDataException($"{sourceFile} has no animations to take");
         if (targetAnims.Count == 0) throw new InvalidDataException($"{targetFile}: the animations it plays aren't found");

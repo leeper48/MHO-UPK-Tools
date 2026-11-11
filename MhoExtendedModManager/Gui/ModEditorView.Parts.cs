@@ -123,7 +123,8 @@ sealed partial class ModEditorView
             g.Rows[e.RowIndex].Cells["on"].Value = !off;
             g.Rows[e.RowIndex].DefaultCellStyle.ForeColor = off ? Ui.Subtle : Ui.Text;
             partsNote.Text = PartsSummary();
-            if (s.Kind == "Effect") powerPreview?.ReloadEffects();   // (shown or hidden at once)
+            if (s.Kind is "Effect" or "Decal") powerPreview?.ReloadEffects();   // (shown or hidden at once)
+            RefreshPartsPreview();
         };
         Ui.Tip(g, "The parts of the selected power or character in the game's files. Untick a part to switch it off (Save writes it into the mod's packages; tick it again for the game's own). Effect: a particle effect (▶ shows it in the 3D view, such as the dodge's ghosts); Sound: its sound events (▶ plays it); Attachment: a prop the power shows (Invisible Woman's disc); Decal: a mark on the ground (Luke Cage's CAGE; ✎ edits its image in your image editor, replaces or exports it); Setting: a switch such as Can Transition to Hover.");
         partsGrid = g;
@@ -132,6 +133,49 @@ sealed partial class ModEditorView
         box.RowCount = 4; box.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         box.Controls.Add(GhostsSection(), 0, 3);
         return box;
+    }
+
+    /// <summary>Preview copies of packages with saved parts switched back on (package → file).</summary>
+    readonly Dictionary<string, string> partsPreview = new(StringComparer.OrdinalIgnoreCase);
+    int partsPreviewRequest;
+
+    /// <summary>
+    /// The preview as the boxes are, saved or not (Kurt, 2026-11-10: a decal switched off and saved didn't come back in the preview
+    /// when ticked again): a part that is off in the saved package but ticked again is shown from a preview copy of that package
+    /// with it switched back on (PowerParts.Apply with the saved switch's original value); parts unticked since the save are
+    /// hidden by the preview already (HiddenEffect).
+    /// </summary>
+    void RefreshPartsPreview()
+    {
+        var saved = editing?.Manifest.PartsOff ?? [];
+        var backOn = saved.Where(x => !draft.PartsOff.Any(y => y.Package.Equals(x.Package, StringComparison.OrdinalIgnoreCase)
+            && y.Part.Equals(x.Part, StringComparison.OrdinalIgnoreCase) && y.Switch.Equals(x.Switch, StringComparison.OrdinalIgnoreCase)))
+            .GroupBy(x => x.Package, StringComparer.OrdinalIgnoreCase).ToList();
+        int req = ++partsPreviewRequest;
+        var jobs = backOn.Select(gr => (File: gr.Key, Source: DraftPath(gr.Key), Edits: gr.Select(x => (x, false)).ToList())).Where(j => j.Source != null && File.Exists(j.Source)).ToList();
+        string dir = Path.Combine(WorkFolder, "parts_preview", Guid.NewGuid().ToString("N")[..8]);
+        Task.Run(() =>
+        {
+            var built = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (file, src, edits) in jobs)
+                try
+                {
+                    byte[] b = PowerParts.Apply(src!, edits, []);
+                    Directory.CreateDirectory(dir);
+                    string path = Path.Combine(dir, file);
+                    File.WriteAllBytes(path, b);
+                    built[file] = path;
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+            return built;
+        }).ContinueWith(t =>
+        {
+            if (IsDisposed || req != partsPreviewRequest || t.Status != TaskStatus.RanToCompletion) return;
+            bool changed = partsPreview.Count != t.Result.Count || t.Result.Any(kv => !partsPreview.ContainsKey(kv.Key));
+            partsPreview.Clear();
+            foreach (var kv in t.Result) partsPreview[kv.Key] = kv.Value;
+            if ((changed || t.Result.Count > 0) && powerPreview != null) { powerPreview.OverrideFiles = PreviewOverrides; powerPreview.ReloadOverrides(); }
+        }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     static bool Same(PartOffEntry x, PowerParts.Switch s) =>

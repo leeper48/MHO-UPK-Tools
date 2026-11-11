@@ -1009,16 +1009,18 @@ static partial class Program
                         var ppw = plan.FirstOrDefault(x => x.Role == "power");
                         string th = PowerBorrow.HeroPackage(bcook, null, tp, ppw?.TargetClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.TargetFile, $"marvelgamecontent.default__{ppw.TargetClass}".ToLowerInvariant()))
                             ?? throw new InvalidDataException("the target power's hero package wasn't found");
-                        string dh = PowerBorrow.HeroPackage(bcook, null, dp, ppw?.DonorClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.DonorFile, $"marvelgamecontent.default__{ppw.DonorClass}".ToLowerInvariant()))
-                            ?? throw new InvalidDataException("the donor power's hero package wasn't found");
-                        plog.Add($"hero packages: UC__MarvelPlayer_{th}_SF ← UC__MarvelPlayer_{dh}_SF");
-                        var pspawn = rest.Contains("--keep-timing") || rest.Contains("--no-props") ? [] : PowerBorrow.ConditionAttachments(pdb2, pgame, dp, Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog);
+                        // --donor-package <file>: a team-up's or an NPC's package (its powers aren't in a hero's folder)
+                        int dpi = rest.IndexOf("--donor-package");
+                        string dh = PowerBorrow.DonorPackage(bcook, dpi >= 0 && dpi + 1 < rest.Count ? rest[dpi + 1] : null, dp, ppw?.DonorClass, ppw == null ? [] : PowerBorrow.AnimNames(ppw.DonorFile, $"marvelgamecontent.default__{ppw.DonorClass}".ToLowerInvariant()))
+                            ?? throw new InvalidDataException("the donor power's character package wasn't found (--donor-package <file>)");
+                        plog.Add($"character packages: UC__MarvelPlayer_{th}_SF ← {PowerBorrow.DonorFile(dh)}");
+                        var pspawn = rest.Contains("--keep-timing") || rest.Contains("--no-props") ? [] : PowerBorrow.ConditionAttachments(pdb2, pgame, dp, Stock(PowerBorrow.DonorFile(dh)), plog);
                         // --rider <forward>,<up>,<lean degrees> (Vehicle Fit), --vehicle-scale <n>
                         int ri = rest.IndexOf("--rider"), vi = rest.IndexOf("--vehicle-scale");
                         var rf = ri >= 0 && ri + 1 < rest.Count ? rest[ri + 1].Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray() : null;
                         var prider = rf is { Length: 3 } ? new AnimSwap.RiderFit(rf[0], rf[1], rf[2]) : null;
                         float? pvs = vi >= 0 && vi + 1 < rest.Count ? float.Parse(rest[vi + 1], System.Globalization.CultureInfo.InvariantCulture) : null;
-                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock($"UC__MarvelPlayer_{dh}_SF.upk"), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook, spawn: pspawn,
+                        var built = PowerBorrow.Build(plan, Stock($"UC__MarvelPlayer_{th}_SF.upk"), $"MarvelPlayer_{th}", Stock(PowerBorrow.DonorFile(dh)), plog, fit: !rest.Contains("--no-fit"), keepTiming: rest.Contains("--keep-timing"), cooked: bcook, spawn: pspawn,
                             vehicleScale: pvs, rider: prider is { IsNone: false } && pspawn.Any(x => x.Vehicle) ? prider : null,
                             anims: !rest.Contains("--no-animations"), effects: !rest.Contains("--no-effects"), takeProps: !rest.Contains("--no-props"));
                         // --triggered: Its Triggered Powers' Look Too
@@ -2595,15 +2597,50 @@ static partial class Program
                 Console.WriteLine($"{cheroes.Count} heroes, {powers} powers: {onHit} effects play on the one hit, {left} at socket_hit stay on the hero, {beams} beams, {leftOut} other powers left out");
                 return 0;
             }
+            case "--fix-small-mips":
+            {
+                // --fix-small-mips <mod | --all> [--dry-run]: texture mips listed under 4 x 4 in a mod's packages listed as 4 x 4,
+                // as the game's own (SmallMips); a copy of each changed file goes to dataackups\smallmips first
+                if (rest.Count < 2) { Console.WriteLine("--fix-small-mips <mod | --all> [--dry-run]"); return 1; }
+                bool dry = rest.Contains("--dry-run");
+                var mods = rest[1] == "--all" ? lib.Mods.ToList() : lib.Find(rest[1]) is { } one ? [one] : [];
+                if (mods.Count == 0) { Console.WriteLine($"no mod called {rest[1]}"); return 1; }
+                int changed = 0;
+                foreach (var m in mods)
+                    foreach (string f in m.Manifest.UpkReplacements.Distinct(StringComparer.OrdinalIgnoreCase))
+                    {
+                        string path = Path.Combine(m.Folder, f);
+                        if (!File.Exists(path)) continue;
+                        byte[]? output;
+                        List<string> names;
+                        try { output = SmallMips.Fix(MhoPackageModifier.Package.Open(path), out names); }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { continue; }
+                        if (output == null) continue;
+                        changed++;
+                        Console.WriteLine($"{m.Manifest.Name}: {f}: {string.Join(", ", names)}");
+                        if (dry) continue;
+                        string backup = Path.Combine(Settings.Home, "backups", "smallmips", ModInstaller.Sanitise(m.FolderName), f);
+                        Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                        if (!File.Exists(backup)) File.Copy(path, backup);
+                        string temp = path + ".smallmips.tmp";
+                        File.WriteAllBytes(temp, output);
+                        if (SmallMips.Fix(MhoPackageModifier.Package.Open(temp), out _) != null) { File.Delete(temp); Console.WriteLine("  FAILED: still has small mips after the fix"); return 1; }
+                        File.Move(temp, path, true);
+                        Console.WriteLine("  fixed (the old file is in " + backup + ")");
+                    }
+                Console.WriteLine($"{changed} package(s) {(dry ? "would change" : "changed")}" + (changed > 0 && !dry ? "; Apply Changes puts them into the game" : ""));
+                return 0;
+            }
             case "--hero-powers":
             {
                 // Read-only: a hero's powers as the 3D preview's power buttons list them (name, icon, animations).
-                if (rest.Count < 2) { Console.WriteLine("--hero-powers <hero>"); return 1; }
+                if (rest.Count < 2) { Console.WriteLine("--hero-powers <hero> [mod package files]"); return 1; }
                 string? hgr = settings.ResolvedGameRoot(data);
                 string? hcook = hgr != null && Settings.IsGameRoot(hgr) ? Settings.Cooked(hgr) : null;
                 if (hcook == null) { Console.WriteLine("game folder not found"); return 1; }
                 var db = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(hgr!, "Data", "Game", "Calligraphy.sip")));
-                foreach (var pw in Fx.PowerList.For(db, rest[1], hcook, [], effectOnly: true))
+                // (then a mod's package files: the list as that mod's packages give it, a borrowed look's animations)
+                foreach (var pw in Fx.PowerList.For(db, rest[1], hcook, rest.Skip(2).ToList(), effectOnly: true))
                 {
                     var ic = pw.Icon == null ? null : Fx.PowerList.Icon(pw.Icon, hcook);
                     Console.WriteLine($"  {pw.Name} ({Path.GetFileNameWithoutExtension(pw.Prototype)}): icon {pw.Icon ?? "none"}{(ic == null ? "" : $" {ic.Width}×{ic.Height}")}; {(pw.Animations.Count == 0 ? "(no animation: effects only" + (PowerBorrow.CastWithoutAnimation(db, pw.Prototype) ? "; can borrow a look)" : ")") : string.Join(", ", pw.Animations))}");
@@ -2811,6 +2848,31 @@ static partial class Program
                 foreach (var pw in Fx.AgentPowers.List(adb, rest[1], acook, "x"))
                     Console.WriteLine($"  {pw.Name[3..]} | {pw.Prototype} | anims {string.Join(",", pw.Animations.Take(4))} | packages {string.Join(", ", PowerRecolor.PackagesOfAgent(adb, pw.Prototype, rest[1], acook))}");
                 Console.WriteLine($"  all powers named: {Fx.AgentPowers.PowersOf(adb, rest[1]).Count} ({clock.ElapsedMilliseconds} ms)");
+                return 0;
+            }
+            case "--donor-census":
+            {
+                // Read-only: every team-up, enemy and NPC package whose character has powers with an animation (Borrow Power's
+                // donor list; Kurt, 2026-11-10), for Model\StockData\borrow_donors.txt. --donor-census <clean CookedPCConsole> <out.txt>
+                string? dgr = settings.ResolvedGameRoot(data);
+                if (rest.Count < 3 || dgr == null) { Console.WriteLine("--donor-census <clean CookedPCConsole> <out.txt>"); return 1; }
+                var ddb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(dgr, "Data", "Game", "Calligraphy.sip")));
+                var lines = new List<string>();
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                foreach (string f in Directory.EnumerateFiles(rest[1], "UC__*.upk").Select(Path.GetFileName).OfType<string>().OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (f.Contains("bak", StringComparison.OrdinalIgnoreCase) || f.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    string kind = f.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) ? "Team-Up"
+                        : f.StartsWith("UC__MarvelAgent_", StringComparison.OrdinalIgnoreCase) || f.StartsWith("UC__MarvelNPC_", StringComparison.OrdinalIgnoreCase) ? "NPC" : "";
+                    if (kind.Length == 0) continue;
+                    string cls = f[4..^7];
+                    int n;
+                    try { n = Fx.AgentPowers.List(ddb, cls, rest[1], "x").Count(p => p.Animations.Count > 0); }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or KeyNotFoundException or ArgumentException or IndexOutOfRangeException) { continue; }
+                    if (n > 0) lines.Add($"{f}\t{cls}\t{kind}\t{n}");
+                }
+                File.WriteAllLines(rest[2], lines);
+                Console.WriteLine($"{lines.Count} donor character(s) ({clock.Elapsed.TotalSeconds:0} s): {rest[2]}");
                 return 0;
             }
             case "--own-fx":

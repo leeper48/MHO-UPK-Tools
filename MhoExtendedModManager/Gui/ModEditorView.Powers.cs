@@ -135,7 +135,7 @@ sealed partial class ModEditorView
             powerPreview.OverrideFiles = PreviewOverrides;   // borrowed looks and dodge ghosts built since the last save
             // effect parts switched off (Parts) aren't shown, saved or not (Kurt, 2026-10-18: a recolored power's preview reads
             // the game's package, where they're still on)
-            powerPreview.HiddenEffect = name => draft.PartsOff.Any(x => x.Switch == "effect" && x.Part[(x.Part.LastIndexOf('.') + 1)..].Equals(name, StringComparison.OrdinalIgnoreCase));
+            powerPreview.HiddenEffect = name => draft.PartsOff.Any(x => x.Switch is "effect" or "decal" && x.Part[(x.Part.LastIndexOf('.') + 1)..].Equals(name, StringComparison.OrdinalIgnoreCase));
             powerPreview.HeroPowersLoaded += FillPowers;
             // Its buttons (made when a model loads) take the app's button look; the theme pass that gives it them in the
             // main window has run already here.
@@ -240,8 +240,10 @@ sealed partial class ModEditorView
     void FillPowers()
     {
         if (powerPreview == null) return;
-        string? keep = (powerList.SelectedItem as Fx.PowerList.Power)?.Prototype;
-        string? keepPart = (powerList.SelectedItem as Fx.PowerList.Power)?.Part;
+        // (the last one picked, when the list was emptied meanwhile: Kurt, 2026-11-10, a borrowed power's first click rebuilds
+        // its look, the list refilled while the preview reloaded and went back to the first power)
+        string? keep = (powerList.SelectedItem as Fx.PowerList.Power)?.Prototype ?? pickedPower;
+        string? keepPart = powerList.SelectedItem is Fx.PowerList.Power sp0 ? sp0.Part : pickedPart;
         var keepAnims = (powerList.SelectedItem as Fx.PowerList.Power)?.Animations.ToList();
         powerList.BeginUpdate();
         powerList.Items.Clear();
@@ -589,9 +591,31 @@ sealed partial class ModEditorView
 
     PowerColorEntry? EntryOf(string proto) => draft.PowerColors.FirstOrDefault(e => e.Power.Equals(proto, StringComparison.OrdinalIgnoreCase));
 
+    string? pickedPower, pickedPart;
+
+    /// <summary>
+    /// A power's name as this mod leaves it (Kurt, 2026-11-10: a borrow renamed to "Electro Elemental Storm" still showed
+    /// "ObliteratorCane"): the list reads the game's strings as they are in the game folder, where an applied mod's earlier
+    /// rename is; the draft's English string for the power's DisplayName, else the game's original, else the list's.
+    /// </summary>
+    string ShownName(Fx.PowerList.Power p)
+    {
+        if (p.Part != null || powerDb is not { } db || db.Find(p.Prototype) is not { } pe
+            || Fx.PowerList.Field(db, pe.Id, "DisplayName", 'S', true) is not { Found: true, Raw: var id and not 0 }) return p.Name;
+        if (draft.Strings.LastOrDefault(x => x.Language == "eng" && x.Id == id) is { } s && s.Text.Length > 0) return s.Text;
+        if (catalog != null)
+        {
+            stockEnglish ??= catalog.Strings("eng").GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Text);
+            if (stockEnglish.TryGetValue(id, out var t) && t.Length > 0) return t;
+        }
+        return p.Name;
+    }
+    Dictionary<ulong, string>? stockEnglish;
+
     void PowerSelected()
     {
         if (powerList.SelectedItem is not Fx.PowerList.Power p || hueSlider == null || satSlider == null || brightSlider == null) return;
+        pickedPower = p.Prototype; pickedPart = p.Part;
         if (!IsCharacterEntry(p.Prototype)) HideGhosts();
         fillingPower = true;
         var e = EntryOf(p.Prototype);
@@ -684,7 +708,7 @@ sealed partial class ModEditorView
         {
             using (var b = new SolidBrush(sel ? Ui.CardHover : hot ? Color.FromArgb(52, 52, 60) : Ui.Card)) g.FillPath(b, path);
             var ir = Rectangle.Inflate(r, -(int)(2 * S), -(int)(2 * S));
-            if (p.Icon != null && game != null && Fx.PowerList.IconSized(p.Icon, game.Cooked, ir.Width, ir.Height) is { } img)
+            if (p.Icon != null && game != null && (ModIcon(p.Icon, ir.Width, ir.Height) ?? Fx.PowerList.IconSized(p.Icon, game.Cooked, ir.Width, ir.Height)) is { } img)
             {
                 // (perf patch) scaled once and drawn 1:1 (was a bicubic resample of every tile on every repaint)
                 var clip = g.Clip; g.SetClip(path);
@@ -733,6 +757,43 @@ sealed partial class ModEditorView
         }
     }
 
+    /// <summary>
+    /// A power's icon as this mod replaces it (Kurt, 2026-11-10: a borrow's Use Its Icon showed Kingpin's cane on the tile, then
+    /// Storm's own icon after a click: the tile read the game's icon package, sometimes the live copy, where the applied mod's
+    /// icon is, sometimes the stock original); null when the mod doesn't replace it. Scaled once per file and size.
+    /// </summary>
+    Bitmap? ModIcon(string iconPath, int w, int h)
+    {
+        if (w <= 0 || h <= 0) return null;
+        string full = iconPath.Contains('.') ? iconPath : "MarvelUIIcons." + iconPath;
+        int dot = full.IndexOf('.');
+        string pkg = $"ICO__{full[..dot]}_SF.upk", tex = full[(dot + 1)..];
+        int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
+        string? src = view >= 0 && view < draft.Textures.Length
+            ? draft.Textures[view].LastOrDefault(t => t.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase)).Source
+            : draft.Extra.LastOrDefault(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase)).Source;
+        if (src == null || !File.Exists(src)) return null;
+        var key = (src + "|" + Ui.FileStamp(src), w, h);
+        if (modIcons.TryGetValue(key, out var hit)) return hit;
+        Bitmap? bmp = null;
+        try
+        {
+            if (Ui.DdsThumb(src, Math.Max(w, h) * 4) is { } thumb)
+                using (thumb)
+                {
+                    bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                    using var gg = Graphics.FromImage(bmp);
+                    gg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    gg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    gg.DrawImage(thumb, new Rectangle(0, 0, w, h));
+                }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or UnauthorizedAccessException) { bmp = null; }
+        modIcons[key] = bmp;
+        return bmp;
+    }
+    readonly Dictionary<(string, int, int), Bitmap?> modIcons = [];
+
     static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int rad)
     {
         var path = new System.Drawing.Drawing2D.GraphicsPath();
@@ -746,7 +807,7 @@ sealed partial class ModEditorView
     /// <summary>A tile's tooltip: the name, whose look it borrows, its color.</summary>
     string PowerTip(Fx.PowerList.Power p)
     {
-        var lines = new List<string> { p.Name };
+        var lines = new List<string> { ShownName(p) };
         if (BorrowOf(p.Prototype) is { } borrow) lines.Add("Looks like " + borrow.DonorName);
         if (EntryOf(p.Prototype) is { } e && !e.Color.IsNone) lines.Add("Recolored");
         if (PowerColorBuild.IsOwn(p.Prototype)) lines.Add("The character's own effects (glows, trails)");
@@ -760,7 +821,7 @@ sealed partial class ModEditorView
     /// <summary>The selected entry's name and icon beside the color controls.</summary>
     void ShowPowerTitle()
     {
-        powerTitle.Text = powerList.SelectedItem is Fx.PowerList.Power p ? (BorrowOf(p.Prototype) is { } b ? $"{p.Name}  ·  Looks Like {b.DonorName}" : p.Name) : "";
+        powerTitle.Text = powerList.SelectedItem is Fx.PowerList.Power p ? (BorrowOf(p.Prototype) is { } b ? $"{ShownName(p)}  ·  Looks Like {b.DonorName}" : ShownName(p)) : "";
         powerIcon.Visible = powerList.SelectedItem != null;
         powerIcon.Invalidate();
     }

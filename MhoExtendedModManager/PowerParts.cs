@@ -55,6 +55,11 @@ static class PowerParts
         if (defaults.Count == 0)
             defaults = [.. Enumerable.Range(0, pkg.Exports.Length).Where(i => pkg.Exports[i].ObjectName.StartsWith("default__", StringComparison.OrdinalIgnoreCase)
                 && pkg.PathOf(pkg.Exports[i]).StartsWith("marvelgamecontent.", StringComparison.OrdinalIgnoreCase) && !pkg.Exports[i].ObjectName.StartsWith("default__marvelattachment", StringComparison.OrdinalIgnoreCase))];
+        // the package's missiles too (Kurt, 2026-11-10: Storm's Elusive Shock with Arachne's Binding Webs kept its lightning bolt:
+        // the missile's trailfx is on default__marvelprojectile_… in the power's own package, which wasn't listed)
+        else
+            defaults.AddRange(Enumerable.Range(0, pkg.Exports.Length).Where(i => pkg.Exports[i].ObjectName.StartsWith("default__marvelprojectile", StringComparison.OrdinalIgnoreCase)
+                && pkg.PathOf(pkg.Exports[i]).StartsWith("marvelgamecontent.", StringComparison.OrdinalIgnoreCase) && !defaults.Contains(i)));
         foreach (int def in defaults)
             for (int i = 0; i < pkg.Exports.Length; i++)
             {
@@ -85,7 +90,53 @@ static class PowerParts
                 foreach (var t in walk.Where(t => Settings.ContainsKey(t.Name) && t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase) && t.Start + 24 < d.Length))
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Setting", t.Name.ToLowerInvariant(), Settings[t.Name].Label, Settings[t.Name].Off, d[t.Start + 24] != 0 ? "true" : ""));
             }
+        list.AddRange(AnimTrails(packageFile, pkg));
         return list;
+    }
+
+    /// <summary>The Switch key of an animation trail row (an effect the package's animations play: AnimSystems).</summary>
+    public const string AnimTrail = "animtrail";
+
+    /// <summary>
+    /// The effects the package's animations play (Kurt, 2026-11-10: Magik's sword glow on / off, as her other parts): one row per
+    /// particle system that AnimNotify_Trails and other animation notifies name (PSTemplate), read from the game's own copy of
+    /// the package (so a row stays when it's off). Part "animtrail:&lt;system&gt;", Original "&lt;system&gt;|&lt;notify path&gt;,…" while
+    /// the mod's copy still plays it, else "".
+    /// </summary>
+    static List<Switch> AnimTrails(string packageFile, Package now)
+    {
+        var res = new List<Switch>();
+        string? stockPath = StockFiles.Cooked is string cooked ? StockFiles.For(cooked, packageFile) : null;
+        Package stock;
+        try { stock = stockPath != null && File.Exists(stockPath) ? Package.Open(stockPath) : now; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { stock = now; }
+        var bySystem = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (notify, system) in Notifies(stock))
+            if (system.Length > 0) (bySystem.TryGetValue(system, out var l) ? l : bySystem[system] = []).Add(notify);
+        if (bySystem.Count == 0) return res;
+        var current = Notifies(now).ToDictionary(x => x.Notify, x => x.System, StringComparer.OrdinalIgnoreCase);
+        foreach (var (system, notifies) in bySystem.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            bool on = notifies.Any(n => current.TryGetValue(n, out var s) && s.Equals(system, StringComparison.OrdinalIgnoreCase));
+            string leaf = Leaf(system);
+            res.Add(new(packageFile, AnimTrail + ":" + system, leaf, "AnimNotify", "Anim Trail", AnimTrail,
+                $"{Words(leaf)} ({notifies.Count} animation{(notifies.Count == 1 ? "" : "s")})", leaf, on ? system + "|" + string.Join(",", notifies) : ""));
+        }
+        return res;
+    }
+
+    /// <summary>Each animation notify with a PSTemplate in the package: its path and the system's path ("" when none).</summary>
+    static IEnumerable<(string Notify, string System)> Notifies(Package pkg)
+    {
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            if (!pkg.ClassOf(pkg.Exports[i]).StartsWith("AnimNotify", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d;
+            try { d = pkg.ReadExportBytes(pkg.Exports[i]).ToArray(); } catch (PackageFormatException) { continue; }
+            if (Walk(pkg, d, t => t.Name.Equals("PSTemplate", StringComparison.OrdinalIgnoreCase))?.FirstOrDefault(t => t.Name.Equals("PSTemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } ps) continue;
+            int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ps.ValueAt));
+            yield return (pkg.PathOf(pkg.Exports[i]), r == 0 ? "" : RefPath(pkg, r));
+        }
     }
 
     /// <summary>
@@ -208,7 +259,27 @@ static class PowerParts
         }
         var pkg = Package.Open(path);
         var replace = new Dictionary<int, Func<long, byte[]>>();
-        foreach (var g in edits.GroupBy(x => x.Entry.Part, StringComparer.OrdinalIgnoreCase))
+        // animation trails: every notify that played the system gets it back, or none
+        var trailData = new Dictionary<int, byte[]>();
+        foreach (var (en, off) in edits.Where(x => x.Entry.Switch == AnimTrail))
+        {
+            var parts = en.Original.Split('|');
+            if (parts.Length < 2) { log.Add($"{en.Part}: no animations recorded for it, left as it is"); continue; }
+            int sys = off ? 0 : RefOf(pkg, parts[0]) ?? throw new InvalidDataException($"{parts[0]} isn't in {Path.GetFileName(path)} any more");
+            int n = 0;
+            foreach (string np in parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int i = Array.FindIndex(pkg.Exports, x => pkg.PathOf(x).Equals(np, StringComparison.OrdinalIgnoreCase));
+                if (i < 0) continue;
+                byte[] d = trailData.TryGetValue(i, out var had) ? had : pkg.ReadExportBytes(pkg.Exports[i]).ToArray();
+                if (Walk(pkg, d, t => t.Name.Equals("PSTemplate", StringComparison.OrdinalIgnoreCase))?.FirstOrDefault(t => t.Name.Equals("PSTemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } ps) continue;
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(ps.ValueAt), sys);
+                trailData[i] = d; n++;
+            }
+            log.Add($"{Path.GetFileName(path)}: {Leaf(parts[0])} {(off ? "off" : "back on")} in {n} animation(s)");
+        }
+        foreach (var (i, d) in trailData) { byte[] nd = d; replace[i] = _ => nd; }
+        foreach (var g in edits.Where(x => x.Entry.Switch != AnimTrail).GroupBy(x => x.Entry.Part, StringComparer.OrdinalIgnoreCase))
         {
             int i = Array.FindIndex(pkg.Exports, x => pkg.PathOf(x).Equals(g.Key, StringComparison.OrdinalIgnoreCase));
             if (i < 0) { log.Add($"{g.Key}: not in {Path.GetFileName(path)}, left out"); continue; }

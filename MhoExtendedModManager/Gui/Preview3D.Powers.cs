@@ -254,7 +254,10 @@ sealed partial class Preview3D
         else
         {
             powerFilter = pw.Prototype;
-            animList = [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))];
+            // in the power's own order (Kurt, 2026-11-10: Crashing Hail with Kingpin's cane played Storm's own hail swing, a
+            // fragment's merged in after the borrowed one, because the model's list has hers first)
+            animList = [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
+                .OrderBy(a => pw.Animations.FindIndex(x => x.Equals(a.Name, StringComparison.OrdinalIgnoreCase)))];
             FillAnims();
             if (animList.Count > 0) { autoPlay = true; Pick(PowerPreview.PreferredAnim(animList.Select(a => a.Name).ToList()) + 1, reload); }
         }

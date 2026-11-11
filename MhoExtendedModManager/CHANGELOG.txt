@@ -1,6 +1,70 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.480
+- Model tab → Whole Character for summons: a source whose class extends another character's takes its animations from that one's package (AntiVenom's, Toxin's and Hydra's symbiote spawns: their animations are in the Venom symbiote spawn's package). They stopped with "its animations aren't found".
+
+0.60.479
+- Model tab → Materials → Copy Setup From a Costume (and the game materials in that menu): the material functions the source takes from its hero's base package come along into the package. Nova Modern's material uses one from Nova's base package, which the game doesn't load for other heroes, and every copy of it showed the game's blue and white placeholder material.
+
+0.60.478
+- Model tab → Materials → Copy Setup From a Costume (and the game materials in that menu): when the costume's own normal map isn't marked as one (a mod made with another tool), the copy gets its own normal-map version of it. The copied material wants a real normal map there, and the game drew its blue and white placeholder material instead (a user's Bishop with Nova Modern's material).
+
+0.60.477
+- Model tab → Materials: a texture stored with one level (marked No Mipmaps, like a built model's HEAD D) keeps one level when it's replaced or edited; it got a full chain down to 1 × 1, and the costume crashed loading (the same "CreateTexture … SizeX=1, SizeY=1" message).
+- --fix-small-mips also puts such a texture back to its one level.
+
+0.60.476
+- Settings are saved whole or not at all, with the one before kept as settings.json.bak, which is read when settings.json is empty or broken (an empty settings.json made the app start as a new install).
+
+0.60.475
+- Textures the app writes list their smallest mips as 4 × 4, as the game's own DXT textures do. A copied material's 8 × 8 glow stand-in had 2 × 2 and 1 × 1 levels, and the game crashed loading the costume ("CreateTexture … SizeX=1, SizeY=1, Format=DXT1 … D3DERR_INVALIDCALL").
+- --fix-small-mips <mod | --all> [--dry-run]: fixes that in packages built before (tiny DXT textures only; the old file is backed up first).
+
+0.60.474
+- Model tab → Materials: a tiny map in the package (the 8 × 8 glow stand-in a copied material gets) opens in the image editor at the size of the material's color map, so what's painted comes back at that size.
+- Model tab → Materials: right-click a row of the costume's own materials → Rename Material.
+
+0.60.473
+- Model tab → Materials, with no source picked (the costume's own materials): This Material ▾ lists the game materials too (Cloth and Skin, Metal, Glow, Glow, Not Metal, Hair and See-Through) under Copy Setup From a Costume, one click each.
+
+0.60.472
+- Model tab → Materials: a map put in for a texture in the package keeps the new image's size (a power of two up to 2048); it was squeezed to the old texture's (Nova's glow map came out 8 × 8).
+- Model tab → Materials: a new Game Material, Glow, Not Metal (Nova Modern's material): a glow slot without Angela's metal shine.
+
+0.60.471
+- Powers tab: a power's tile tooltip and title show the name this mod gives it (Rename This Power), or the game's original name; they showed an earlier rename that was applied to the game.
+
+0.60.470
+- Borrow Power: a team-up's, NPC's or enemy's animation keeps this hero's own bone lengths where the other body's differ (a Fire Demon archer's Arc Shot on Storm stretched her jaw and face).
+- Borrow Power and the Powers tab: Use Its Icon is grayed out when the other power has no icon of its own in the game (only the "No Icon" placeholder: Kingpin's Obliterator Cane and many enemy powers); its tooltip says why.
+
+0.60.469
+- Powers tab: two powers sharing a name (Storm's Crashing Hail and Massive Lightning Strike) show as the one the mod changes, so a borrowed look's tile doesn't switch to the other power and lose its borrow.
+
+0.60.468
+- Powers tab: the first click on a power with a borrowed look stays on it (it went back to the first power once the borrowed look was built again).
+
+0.60.467
+- Borrow Power: Use Its Icon leaves this power's own icon when the other power has only the game's "No Icon" placeholder (Kingpin's Obliterator Cane and many enemy powers); it says so instead.
+- Powers tab: a power whose icon the mod replaces (a borrow's Use Its Icon) shows that icon on its tile; it could switch back to the game's icon after a click.
+
+0.60.466
+- Powers tab: a power with a borrowed look plays the borrowed animation in the 3D view (Crashing Hail with Kingpin's Obliterator Cane played Storm's own hail animation, which lifted her out of view, with another power's effects).
+
+0.60.465
+- Borrow Power: Heroes, Team-Ups and NPCs tabs above the Character list (with their counts) choose which characters it lists; NPCs are no longer dimmed. A saved borrow opens on its character's tab.
+
+0.60.464
+- Powers tab: the 3D preview follows the Parts boxes, saved or not: a decal switched off no longer shows, and a part switched off and saved shows again as soon as it's ticked (before Save).
+- Powers tab → a hero's Character entry → Parts: the trails its animations draw (Magik's sword glows, …) are listed as Anim Trail, one row per effect with how many animations play it; untick one to switch it off in all of them.
+
+0.60.463
+- Powers tab → Parts: a power's missile parts are listed too (Storm's Elusive Shock: its lightning bolt's trail), so they can be switched off.
+- Borrow Power: an enemy's warning on the ground before its attack (its telegraph) is left out of a borrow; it stopped the borrow ("can't copy … efillpattern (enum)").
+- Borrow Power: the window grows to show all of its notes (the Borrow button could be cut off).
+- Borrow Power: team-ups' and NPCs' / enemies' powers can be borrowed too (Firestar's Focused Flame on Cyclops's Optic Beam, a Sinister clone's melee combo …). The Character list has the heroes first, then the team-ups, then NPCs and enemies (dimmed); type to search.
+
 0.60.462
 - What's New and the manual: summons as a whole character (walkthrough and screenshot).
 - Model tab: the log says "whole character" (not "whole pet") when the source isn't a pet.

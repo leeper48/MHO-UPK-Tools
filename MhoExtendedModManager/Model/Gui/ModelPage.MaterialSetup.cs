@@ -18,6 +18,16 @@ sealed partial class ModelPage
         if (matGame == null) return;
         var menu = new ContextMenuStrip();
         menu.Items.Add(CopySetupItem(pm.Material, pm.InFile));
+        // the game materials the model builds offer (Kurt, 2026-11-10: Glow, Not Metal on a costume's own TORSO), one click each
+        menu.Items.Add(new ToolStripSeparator());
+        foreach (var tm in MaterialChoice.Templates.Where(x => x.Donor != null))
+        {
+            var (_, label, donor, tip) = tm;
+            var item = new ToolStripMenuItem(label, null, (_, _) => BeginInvoke(() => CopyTemplate(pm.Material, label, donor!)))
+                { ToolTipText = $"{tip}\n\nGives this material that one's setup (as Copy Setup From a Costume does) and keeps its own maps." };
+            if (pm.InFile != null) { item.Enabled = false; item.ToolTipText = $"{pm.Material} is in {pm.InFile}, the hero's base package: only a material of this package can be changed here."; }
+            menu.Items.Add(item);
+        }
         menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
         Ui.ShowUnder(menu, matGame);
     }
@@ -36,7 +46,31 @@ sealed partial class ModelPage
     }
 
     /// <summary>The costume to copy from (a searchable list of the game's characters), then its material when it has several.</summary>
-    void PickCopySource(string material)
+    void PickCopySource(string material) => PickTargetSlot(material, PickCopySourceFor);
+
+    /// <summary>A template material (MaterialChoice.Templates: "package:material") copied onto the selected material's slot.</summary>
+    void CopyTemplate(string material, string label, string donor) => PickTargetSlot(material, (t, tpath, tmesh, to) =>
+    {
+        string file = donor.Split(':')[0] + ".upk", leaf = donor.Split(':')[^1];
+        try
+        {
+            string spath = GameSource.PathFor(file);
+            byte[] sbytes = File.ReadAllBytes(spath);
+            foreach (string mesh in ModMeshes.List([(file, spath)], anyPackage: true).Select(m => m.Name))
+            {
+                List<MaterialSetupCopy.SlotInfo> slots;
+                try { slots = MaterialSetupCopy.Slots(sbytes, file, mesh); }
+                catch (InvalidDataException) { continue; }
+                if (slots.FirstOrDefault(x => x.Instance && x.Material.Split('.').Last().Equals(leaf, StringComparison.OrdinalIgnoreCase)) is { } from)
+                { _ = CopyMaterialSetup(t.Key, tpath, tmesh, to, spath, $"{label} ({Path.GetFileNameWithoutExtension(file)})", from); return; }
+            }
+            Log($"Copy Material Setup: {leaf} isn't on a model of {file}.");
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException) { Log($"Copy Material Setup: {ex.Message}"); }
+    });
+
+    /// <summary>The target's slot for <paramref name="material"/> (named like it, else its only one, else picked), then <paramref name="then"/>.</summary>
+    void PickTargetSlot(string material, Action<CharacterList.Item, string, string, MaterialSetupCopy.SlotInfo> then)
     {
         if (matGame == null || ChosenPackage is not CharacterList.Item t) return;
         if (host.Packages.FirstOrDefault(p => p.File.Equals(t.Key, StringComparison.OrdinalIgnoreCase)).Path is not string tpath || !File.Exists(tpath)) return;
@@ -51,10 +85,10 @@ sealed partial class ModelPage
         // the target's slot: the one named like the selected material (its own, or the source's when the source is this costume),
         // else its only one, else picked
         var named = mine.FirstOrDefault(s => s.Material.Split('.').Last().Equals(material, StringComparison.OrdinalIgnoreCase));
-        if (named != null || mine.Count == 1) PickCopySourceFor(t, tpath, tmesh, named ?? mine[0]);
+        if (named != null || mine.Count == 1) then(t, tpath, tmesh, named ?? mine[0]);
         else if (mine.Count > 1)
             DropList.Show(matGame, matGame.RectangleToScreen(matGame.ClientRectangle), [.. mine.Select(s => $"{t.Key} slot {s.Index}: {s.Material.Split('.').Last()}")], -1,
-                i => BeginInvoke(() => PickCopySourceFor(t, tpath, tmesh, mine[i])), thumb: MaterialThumbs(tpath, mine));
+                i => BeginInvoke(() => then(t, tpath, tmesh, mine[i])), thumb: MaterialThumbs(tpath, mine));
         else Log($"Copy Material Setup: {tmesh} has no material slots.");
     }
 

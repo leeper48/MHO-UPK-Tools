@@ -122,6 +122,7 @@ sealed partial class ModelPage : UserControl
         ("The Base Mesh's Own", "base", "The base hero's own material (older type; it gave a sheen on Punisher Classic)."),
         // (appended: the saved choice is an index)
         ("Hair and See-Through (Emma Frost's Hair)", MaterialChoice.Hair, "Two-sided and see-through where each material's Alpha map is dark (hair, lace, feathers): Emma Frost's hair material. Automatic already picks it for a material with an Alpha map."),
+        ("Glow, Not Metal (Nova Modern's)", MaterialChoice.GlowSoft, "Nova Modern's material: a glow slot (a glow map of its own) on a material that isn't metal-shiny like Angela's."),
     ];
     const int OwnMaterialIndex = 4;
 

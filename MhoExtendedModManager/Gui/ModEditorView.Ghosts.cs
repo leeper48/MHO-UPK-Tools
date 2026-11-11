@@ -31,6 +31,7 @@ sealed partial class ModEditorView
         foreach (var (f, b) in ghostBuilt) if (draft.DodgeGhosts.Any(g => g.Package.Equals(f, StringComparison.OrdinalIgnoreCase)) && GhostKey(f) == b.Key) d[f] = b.Path;
         foreach (string f in propTouched) if (DraftPath(f) is string pp) d[f] = pp;   // (added props: the work copy, after the borrowed looks)
         foreach (string f in ownFxTouched) if (DraftPath(f) is string op) d[f] = op;   // (borrowed effects: the work copy)
+        foreach (var (f, pp) in partsPreview) if (File.Exists(pp)) d[f] = pp;   // (parts ticked again since the save: the preview copy)
         return d;
     }
 

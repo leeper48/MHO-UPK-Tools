@@ -78,6 +78,14 @@ sealed partial class ModelPage
             if (SelectedMap() is { Kind: "Color" } || SelectedPackageMap() is { Kind: "Color" })
                 m.Items.Add(new ToolStripMenuItem("Adjust Colors", null, (_, _) => AdjustColors()) { Enabled = matAdjust.Enabled, ToolTipText = "Hue, saturation, brightness and levels for this color map." });
             m.Items.Add(new ToolStripMenuItem("Back to Automatic", null, (_, _) => MapBackToAutomatic()) { Enabled = matAuto.Enabled, ToolTipText = "Forgets your file for this map." });
+            // the costume's own material renamed (Kurt, 2026-11-10: a copied setup is called novarr_modernvu_testmat_on_…)
+            if (SelectedPackageMap() is { } rpm)
+                m.Items.Add(new ToolStripMenuItem("Rename Material", null, (_, _) => BeginInvoke(() => RenamePackageMaterial(rpm)))
+                {
+                    Enabled = rpm.InFile == null,
+                    ToolTipText = rpm.InFile == null ? $"Gives {rpm.Material} a new name in this package (letters, digits and _). The model keeps using it; a unique name also keeps another package's material of the same name from standing in for it."
+                        : $"{rpm.Material} is in {rpm.InFile}, the hero's base package: only a material of this package can be renamed here.",
+                });
             m.Closed += (_, _) => BeginInvoke(m.Dispose);
             m.Show(matGrid, matGrid.PointToClient(Cursor.Position));
         };

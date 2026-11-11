@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.60.462</Version>
+    <Version>0.60.480</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -37,7 +37,7 @@
   <ItemGroup>
     <!-- Stock package checksums for new users without MHModManager (see StockData\README.txt). -->
     <None Include="StockData\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <!-- What's new, shown by Settings ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ Changelog. -->
+    <!-- What's new, shown by Settings ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Changelog. -->
     <None Include="CHANGELOG.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- The manual (Help button / F1). Named Manual\, not Help\: MPM's Help\ is dropped from this app's output below. -->
     <None Include="Manual\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
@@ -45,13 +45,14 @@
     <None Include="Assets\herohor_bluebackdrop.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- Wwise Vorbis codebooks for WwiseVorbis.cs (from ww2ogg, BSD; voice playback in the Editor). -->
     <None Include="Assets\packed_codebooks_aoTuV_603.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <!-- The Model tab (MFF importer engine, 2026-10-03): MFF folder ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ character name and the folders without a character rig,
+    <!-- The Model tab (MFF importer engine, 2026-10-03): MFF folder ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ character name and the folders without a character rig,
          embedded under the importer's resource names; the optional Blender add-on next to the exe (Assets\Blender). -->
     <EmbeddedResource Include="Model\StockData\mff_names.json" LogicalName="MhoMffImporter.StockData.mff_names.json" />
     <EmbeddedResource Include="Model\StockData\mff_rigs.json" LogicalName="MhoMffImporter.StockData.mff_rigs.json" />
     <EmbeddedResource Include="Model\StockData\model_targets.txt" LogicalName="MhoMffImporter.StockData.model_targets.txt" />
     <EmbeddedResource Include="Model\StockData\model_pets.txt" LogicalName="MhoMffImporter.StockData.model_pets.txt" />
     <EmbeddedResource Include="Model\StockData\own_effects.txt" LogicalName="MhoMffImporter.StockData.own_effects.txt" />
+    <EmbeddedResource Include="Model\StockData\borrow_donors.txt" LogicalName="MhoMffImporter.StockData.borrow_donors.txt" />
     <EmbeddedResource Include="Model\StockData\model_summons.txt" LogicalName="MhoMffImporter.StockData.model_summons.txt" />
     <EmbeddedResource Include="Model\StockData\effect_models.txt" LogicalName="MhoMffImporter.StockData.effect_models.txt" />
     <EmbeddedResource Include="Model\StockData\model_props.txt" LogicalName="MhoMffImporter.StockData.model_props.txt" />

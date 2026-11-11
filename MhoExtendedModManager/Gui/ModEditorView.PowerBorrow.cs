@@ -342,6 +342,7 @@ sealed partial class ModEditorView
         }
         finally { vShowing = false; }
         ShowNameIcon(e);
+        ShowPowerTitle();   // (a new borrow's name: the title follows it)
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
             : e != null ? $"Looks like {e.DonorName} ({(e.KeepTiming ? "its effects, this power's timing" : (e.NoAnimations || e.NoEffects || e.NoProps) ? "its " + string.Join(", ", new[] { e.NoAnimations ? null : "animation", e.NoEffects ? null : "effects", e.NoProps ? null : "props" }.OfType<string>()) + " only" : e.Fit ? "the whole power, fitted to this power's timing" : "the whole power, at its own speed")}{(e.SummonLook ? ", and its summon's look" : "")}{(e.AreaLook ? ", and its area's look" : "")}{(e.TriggeredLook ? ", and its triggered powers' look" : "")})"
@@ -411,6 +412,13 @@ sealed partial class ModEditorView
         foreach (string field in new[] { "IconPath", "IconPathHiRes" })
         {
             if (Costume.IconTexture(Asset(e.Power, field)) is not { } mine || Costume.IconTexture(Asset(e.Donor, field)) is not { } theirs) continue;
+            // the game's "NO ICON" placeholder (Kurt, 2026-11-10: Kingpin's Obliterator Cane, as many enemy powers): this power
+            // keeps its own icon
+            if (theirs.Texture.Contains("noicon", StringComparison.OrdinalIgnoreCase))
+            {
+                if (notes.Count == 0) notes.Add($"{DonorPowerName(e)} has no icon of its own in the game (only the \"No Icon\" placeholder), so this power keeps its own.");
+                continue;
+            }
             string png = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}.png");
             string dds = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}_{ModInstaller.Sanitise(mine.Texture)}.dds");
             Directory.CreateDirectory(Path.GetDirectoryName(png)!);
@@ -473,6 +481,8 @@ sealed partial class ModEditorView
     readonly FlowLayoutPanel nameIconBox = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0), Visible = false };
 
     /// <summary>The borrowed power's own name ("Thor: Hammer of Storms" → "Hammer of Storms").</summary>
+    const string UseIconTip = "The power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it), converted to this power's icon size; it's put in the Icons tab, and Reset Power takes it off again.";
+
     static string DonorPowerName(PowerBorrowEntry e) => e.DonorName.Contains(": ") ? e.DonorName[(e.DonorName.IndexOf(": ", StringComparison.Ordinal) + 2)..] : e.DonorName;
 
     Control NameIconControls()
@@ -481,18 +491,20 @@ sealed partial class ModEditorView
         renameText.Width = (int)(300 * S);
         Ui.Tip(renamePower, "The power's name in game becomes the one in the box (at first the borrowed power's; type your own). It's put in the Strings tab (English), and Reset Power takes it off again.");
         Ui.Tip(renameText, "The power's new name in game: Enter (or clicking away) puts it in.");
-        Ui.Tip(useIcon, "The power's icon becomes the borrowed power's (the power bar's icon, and the large one where the game has it), converted to this power's icon size; it's put in the Icons tab, and Reset Power takes it off again.");
+        Ui.Tip(useIcon, UseIconTip);
         renamePower.CheckedChanged += (_, _) =>
         {
             renameText.Enabled = renamePower.Checked;
             if (vShowing || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e) return;
             if (renamePower.Checked) { if (renameText.Text.Trim().Length == 0) renameText.Text = DonorPowerName(e); PutNameAndIcon(e, renameText.Text.Trim(), false); }
             else TakeOffName(e);
+            ShowPowerTitle(); powerList.Invalidate();
         };
         void Rename()
         {
             if (vShowing || !renamePower.Checked || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e || renameText.Text.Trim().Length == 0) return;
             PutNameAndIcon(e, renameText.Text.Trim(), false);
+            ShowPowerTitle(); powerList.Invalidate();
         }
         renameText.KeyDown += (_, ke) => { if (ke.KeyCode == Keys.Enter) { ke.SuppressKeyPress = true; Rename(); } };
         renameText.Leave += (_, _) => Rename();
@@ -519,6 +531,11 @@ sealed partial class ModEditorView
             renameText.Text = e.NameId is ulong id && draft.Strings.FirstOrDefault(x => x.Language == "eng" && x.Id == id) is { } s ? s.Text : DonorPowerName(e);
             renameText.Enabled = renamePower.Checked;
             useIcon.Checked = e.Icons != null;
+            // grayed out when the other power has no icon of its own (only the "No Icon" placeholder), unless one is in already
+            // (so it can be taken off; Kurt, 2026-11-10)
+            bool hasIcon = e.Icons != null || powerDb == null || PowerBorrow.HasOwnIcon(powerDb, e.Donor);
+            useIcon.Enabled = hasIcon;
+            Ui.Tip(useIcon, hasIcon ? UseIconTip : "The borrowed power has no icon of its own in the game (only the \"No Icon\" placeholder), so this power keeps its own icon.");
         }
         finally { vShowing = false; }
     }

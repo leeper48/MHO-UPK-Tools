@@ -160,6 +160,9 @@ sealed class Settings
         {
             if (!File.Exists(SettingsFile)) return new();
             string text = File.ReadAllText(SettingsFile);
+            // an empty or broken file (Kurt, 2026-11-10: settings.json was 0 bytes and the app started as a new install):
+            // the copy kept by the last good save
+            if (!LooksValid(text) && File.Exists(SettingsFile + ".bak") && File.ReadAllText(SettingsFile + ".bak") is var kept && LooksValid(kept)) text = kept;
             var s = JsonSerializer.Deserialize<Settings>(text) ?? new();
             // 0.23–0.26 kept a personal Nexus API key here (encrypted). Nexus doesn't allow apps to use personal keys, so
             // the app no longer reads one: rewrite the file at once so the old key isn't left on disk.
@@ -169,10 +172,21 @@ sealed class Settings
         catch (Exception ex) when (ex is JsonException or IOException) { return new(); }
     }
 
+    static bool LooksValid(string text)
+    {
+        try { return text.Trim().Length > 2 && JsonSerializer.Deserialize<Settings>(text) != null; }
+        catch (JsonException) { return false; }
+    }
+
+    /// <summary>Written whole or not at all (a temp file, then swapped in; the one before it kept as settings.json.bak): a save cut
+    /// off half-way (Kurt, 2026-11-10: a 0-byte settings.json, the app came up as a new install) leaves the old file.</summary>
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsFile)!);
-        File.WriteAllText(SettingsFile, JsonSerializer.Serialize(this, MhoExtendedModManager.JsonOpts.Indented));
+        string temp = SettingsFile + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(this, MhoExtendedModManager.JsonOpts.Indented));
+        if (File.Exists(SettingsFile) && new FileInfo(SettingsFile).Length > 2) File.Replace(temp, SettingsFile, SettingsFile + ".bak", ignoreMetadataErrors: true);
+        else File.Move(temp, SettingsFile, overwrite: true);
     }
 
     /// <summary>The library's data folder (holds mods\ and state.json): the folder itself, or its data\ subfolder.</summary>
