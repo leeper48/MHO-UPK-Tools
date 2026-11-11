@@ -422,7 +422,7 @@ sealed partial class ModEditorView
                 continue;
             }
             string png = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}.png");
-            string dds = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}_{ModInstaller.Sanitise(mine.Texture)}.dds");
+            string dds = Path.Combine(Settings.Home, "converted", $"borrow_{ModInstaller.Sanitise(theirs.Texture)}_{ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(mine.Package))}_{ModInstaller.Sanitise(mine.Texture)}.dds");
             Directory.CreateDirectory(Path.GetDirectoryName(png)!);
             try
             {
@@ -474,7 +474,7 @@ sealed partial class ModEditorView
             var made = new List<(string Package, string Texture, string Dds)>();
             foreach (var mine in PowerIconTextures(proto))
             {
-                string dds = Path.Combine(Settings.Home, "converted", $"custom_{ModInstaller.Sanitise(mine.Texture)}_{stamp}.dds");
+                string dds = Path.Combine(Settings.Home, "converted", $"custom_{ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(mine.Package))}_{ModInstaller.Sanitise(mine.Texture)}_{stamp}.dds");
                 Directory.CreateDirectory(Path.GetDirectoryName(dds)!);
                 catalog.ImageToDds(mine.Package, mine.Texture, png, dds);
                 made.Add((mine.Package, mine.Texture, dds));
