@@ -1506,6 +1506,8 @@ sealed partial class ModelPage : UserControl
 
     List<string> SelectedParts() => parts.Rows.Cast<DataGridViewRow>().Where(r => r.Cells["use"].Value is true).Select(r => (string)r.Cells["part"].Value).ToList();
 
-    void Log(string line) { log.AppendText(line + Environment.NewLine); }
+    // (a closed page's log: a background wait that ends after the Editor closed writes nothing; Kurt, 2026-11-10, a crash on
+    // launching the game: UseOwnModel's wait ended after the page was gone)
+    void Log(string line) { if (IsDisposed || log.IsDisposed) return; log.AppendText(line + Environment.NewLine); }
 
 }

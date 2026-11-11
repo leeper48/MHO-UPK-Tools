@@ -52,7 +52,7 @@ static class WhatsNew
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
     /// Parts, game materials in This Material for a costume's own, Rename Material, Copy Setup and crash fixes.</summary>
     static Notice BorrowDonors() => new(
-        "0.60.480-borrow-donors", "0.60.480",
+        "0.60.481-borrow-donors", "0.60.481",
         "[!]New in Borrow Power: team-ups and enemies" + nl +
         "  • Heroes, Team-Ups and NPCs tabs above the Character list: borrow a team-up's power (Firestar's Focused Flame) or an enemy's (Kingpin's Obliterator Cane)." + nl +
         "  • Use Its Icon is grayed out when the other power has no icon of its own in the game (many enemy powers only show a \"No Icon\" placeholder)." + nl + nl +

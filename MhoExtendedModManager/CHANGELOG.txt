@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.481
+- Model tab: no crash ("Cannot access a disposed object: TextBox") when the Editor closes while the Model tab is still loading a costume's own model as the source.
+
 0.60.480
 - Model tab → Whole Character for summons: a source whose class extends another character's takes its animations from that one's package (AntiVenom's, Toxin's and Hydra's symbiote spawns: their animations are in the Venom symbiote spawn's package). They stopped with "its animations aren't found".
 

@@ -212,9 +212,11 @@ sealed partial class ModelPage
         Reselect(characters, key);
         ShowSummonSource(file);   // (a summon: in the panel below)
         if (!key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase)) GameChosen(key);   // (a package the list doesn't hold)
-        for (int i = 0; i < 1200 && !(key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+        for (int i = 0; i < 1200 && !IsDisposed && !(key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+        if (IsDisposed) return false;   // (the Editor closed meanwhile)
         if (!HasSource) { Log($"{file}: its own model couldn't be read as the source."); return false; }
-        for (int i = 0; i < 600 && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);   // (the export names the preview's animations)
+        for (int i = 0; i < 600 && !IsDisposed && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);   // (the export names the preview's animations)
+        if (IsDisposed) return false;
         Log($"Source: {file}'s own model (From the Game), to change it.");
         return true;
     }
