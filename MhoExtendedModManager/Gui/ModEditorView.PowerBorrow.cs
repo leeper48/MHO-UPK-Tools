@@ -120,6 +120,7 @@ sealed partial class ModEditorView
         box.Controls.Add(keepWeapons);
         box.Controls.Add(ClimbControls());
         box.Controls.Add(NameIconControls());
+        box.Controls.Add(customRow);   // (any power with an icon, borrowed look or not)
         LightSlider Slider(string label, float min, float max, float step, Func<float, string> format, string tip, Action changed)
         {
             var sl = new LightSlider { Label = label, Min = min, Max = max, Step = step, Mark = 0, Home = () => 0, Format = format, Width = (int)(320 * S), Height = (int)(30 * S), Margin = new Padding(0, 2, 0, 0) };
@@ -342,6 +343,7 @@ sealed partial class ModEditorView
         }
         finally { vShowing = false; }
         ShowNameIcon(e);
+        ShowCustomIcon(p);
         ShowPowerTitle();   // (a new borrow's name: the title follows it)
         ShowFits(e);
         borrowCaption.Text = borrowBuilding ? "Building the borrowed looks…"
@@ -441,9 +443,123 @@ sealed partial class ModEditorView
             }
             icons.Add(mine.Package + "|" + mine.Texture);
         }
-        if (icons.Count > 0) e.Icons = icons;
+        if (icons.Count > 0) { e.Icons = icons; e.IconImage = null; }
         if (notes.Count > 0) Dialog.Show(this, "The icon wasn't changed:" + Environment.NewLine + string.Join(Environment.NewLine, notes.Select(n => "  • " + n)), "Icon Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         foreach (var tp in texturePages) tp.Refresh();
+    }
+
+    /// <summary>
+    /// The power's icons made from the user's own image (Custom Icon, Monarch 2026-11-10: "if I've hand made one?"): a PNG, JPG,
+    /// BMP or .dds, converted to each of the power's icons (the power bar's, and the large one where the game has it) at its size
+    /// and format, as Use Its Icon does with the borrowed power's. False when nothing was put in.
+    /// </summary>
+    bool PutCustomIcon(string proto, PowerBorrowEntry? e, string image)
+    {
+        if (powerDb == null || catalog == null) return false;
+        string png = image, stamp = Guid.NewGuid().ToString("N")[..8];
+        string? temp = null;
+        var icons = new List<string>();
+        try
+        {
+            if (image.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
+            {
+                // (a .dds: decoded first; ImageToDds reads ordinary images)
+                var d = MhoPackageModifier.TextureDecode.ReadDds(image, out string why) ?? throw new InvalidDataException(why);
+                var bgra = MhoPackageModifier.TextureDecode.ToBgra(d.Format, d.W, d.H, d.Data, out why) ?? throw new InvalidDataException(why);
+                temp = png = Path.Combine(Settings.Home, "converted", $"custom_{stamp}.png");
+                Directory.CreateDirectory(Path.GetDirectoryName(png)!);
+                using var bmp = MhoPackageModifier.TextureDecode.ToBitmap(bgra, d.W, d.H);
+                bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            var made = new List<(string Package, string Texture, string Dds)>();
+            foreach (var mine in PowerIconTextures(proto))
+            {
+                string dds = Path.Combine(Settings.Home, "converted", $"custom_{ModInstaller.Sanitise(mine.Texture)}_{stamp}.dds");
+                Directory.CreateDirectory(Path.GetDirectoryName(dds)!);
+                catalog.ImageToDds(mine.Package, mine.Texture, png, dds);
+                made.Add((mine.Package, mine.Texture, dds));
+            }
+            if (made.Count == 0) { Dialog.Show(this, "This power has no icon in the game to replace.", "Icon Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+            if (e != null) TakeOffIcons(e);
+            RemoveIconReplacements(made.Select(m => (m.Package, m.Texture)));
+            foreach (var (pkg, tex, dds) in made)
+            {
+                int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
+                if (view >= 0)
+                {
+                    draft.Textures[view].RemoveAll(r => r.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+                    draft.Textures[view].Add((tex, dds));
+                }
+                else
+                {
+                    draft.Extra.RemoveAll(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+                    draft.Extra.Add((pkg, tex, dds));
+                }
+                icons.Add(pkg + "|" + tex);
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException)
+        {
+            Dialog.Show(this, $"{Path.GetFileName(image)} can't be used as the icon:" + Environment.NewLine + "  • " + ex.Message, "Icon Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+        finally { if (temp != null && File.Exists(temp)) try { File.Delete(temp); } catch (IOException) { } }
+        // (with a borrow: kept on it, so Reset Power takes it off; without, it's an ordinary replacement in the Icons tab)
+        if (e != null) { e.Icons = icons; e.IconImage = Path.GetFileName(image); }
+        foreach (var tp in texturePages) tp.Refresh();
+        return true;
+    }
+
+    /// <summary>A power's icon textures in the game (IconPath, and IconPathHiRes where it has one).</summary>
+    List<(string Package, string Texture)> PowerIconTextures(string proto)
+    {
+        var list = new List<(string, string)>();
+        if (powerDb is not { } db || db.Find(proto) is not { } d) return list;
+        foreach (string field in new[] { "IconPath", "IconPathHiRes" })
+            if (Fx.PowerList.Field(db, d.Id, field, 'A', true) is { Found: true } f && db.Assets.TryGetValue(f.Raw, out var a) && Costume.IconTexture(a.Asset.Name) is { } t
+                && !t.Texture.Contains("noicon", StringComparison.OrdinalIgnoreCase))
+                list.Add((t.Package, t.Texture));
+        return list;
+    }
+
+    bool HasIconReplacement(string pkg, string tex)
+    {
+        int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
+        return view >= 0 ? draft.Textures[view].Any(r => r.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase))
+            : draft.Extra.Any(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+    }
+
+    void RemoveIconReplacements(IEnumerable<(string Package, string Texture)> list)
+    {
+        foreach (var (pkg, tex) in list)
+        {
+            int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
+            if (view >= 0) draft.Textures[view].RemoveAll(r => r.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+            else draft.Extra.RemoveAll(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>Custom Icon for the selected power (any power with an icon, Kurt 2026-11-10: "even without Borrowed Power"): ticked
+    /// when its icon has a replacement in the mod that isn't the borrowed power's (Use Its Icon).</summary>
+    void ShowCustomIcon(Fx.PowerList.Power? p)
+    {
+        var icons = p == null ? [] : PowerIconTextures(p.Prototype);
+        customRow.Visible = icons.Count > 0;
+        if (p == null || icons.Count == 0) return;
+        var e = BorrowOf(p.Prototype);
+        bool borrowed = e?.Icons != null && e.IconImage == null;
+        vShowing = true;
+        try { customIcon.Checked = !borrowed && icons.Any(i => HasIconReplacement(i.Package, i.Texture)); }
+        finally { vShowing = false; }
+        if (chooseIcon != null) chooseIcon.Visible = customIcon.Checked;
+        Ui.Tip(customIcon, e?.IconImage != null ? $"{CustomIconTip}\n\nNow: {e.IconImage}" : CustomIconTip);
+    }
+
+    /// <summary>The user's image for Custom Icon (null: cancelled).</summary>
+    string? PickIconImage()
+    {
+        using var dlg = new OpenFileDialog { Title = "Your Icon for This Power", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.dds" };
+        return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
     }
 
     /// <summary>The name and icons a borrow put in, taken off (Reset Power, or another borrow for the power).</summary>
@@ -470,6 +586,7 @@ sealed partial class ModEditorView
         }
         if (e.Icons != null) foreach (var tp in texturePages) tp.Refresh();
         e.Icons = null;
+        e.IconImage = null;
     }
 
     // --- the name and icon of a power that has a borrowed look, in the Powers tab (Kurt, 2026-10-23: the Borrow window was
@@ -477,6 +594,10 @@ sealed partial class ModEditorView
     readonly CheckBox renamePower = new() { Text = "Rename This Power", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
     readonly TextBox renameText = new() { Width = 300, Margin = new Padding(22, 2, 0, 0) };
     readonly CheckBox useIcon = new() { Text = "Use Its Icon", AutoSize = true, Margin = new Padding(0, 4, 0, 2) };
+    readonly CheckBox customIcon = new() { Text = "Custom Icon", AutoSize = true, Margin = new Padding(0, 4, 0, 2) };
+    Button? chooseIcon;
+    readonly FlowLayoutPanel customRow = new() { AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = new Padding(0), Visible = false };
+    const string CustomIconTip = "The power's icon becomes your own image (PNG, JPG, BMP or .DDS), converted to this power's icon size (the power bar's icon, and the large one where the game has it). It's put in the Icons tab; unticking takes it off again (Reset Power too, on a power with a borrowed look).";
     /// <summary>The three together (shown for a power with a borrowed look; the name box's frame doesn't follow the box itself).</summary>
     readonly FlowLayoutPanel nameIconBox = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0), Visible = false };
 
@@ -511,9 +632,29 @@ sealed partial class ModEditorView
         useIcon.CheckedChanged += (_, _) =>
         {
             if (vShowing || powerList.SelectedItem is not Fx.PowerList.Power p || BorrowOf(p.Prototype) is not { } e) return;
-            if (useIcon.Checked) { PutNameAndIcon(e, null, true); if (e.Icons == null) { vShowing = true; useIcon.Checked = false; vShowing = false; } }
+            if (useIcon.Checked) { TakeOffIcons(e); RemoveIconReplacements(PowerIconTextures(p.Prototype)); PutNameAndIcon(e, null, true); }
             else TakeOffIcons(e);
+            ShowNameIcon(e); ShowCustomIcon(p); powerList.Invalidate(); ShowPowerTitle();   // (the bar and the big icon show the new one)
         };
+        // Custom Icon (Monarch, 2026-11-10): the user's own image instead of the borrowed power's; ticking it asks for the image
+        void Custom(bool pick)
+        {
+            if (vShowing || powerList.SelectedItem is not Fx.PowerList.Power p) return;
+            var e = BorrowOf(p.Prototype);
+            if (pick) { if (PickIconImage() is string image) PutCustomIcon(p.Prototype, e, image); }
+            else
+            {
+                if (e?.Icons != null) TakeOffIcons(e);
+                RemoveIconReplacements(PowerIconTextures(p.Prototype));
+                foreach (var tp in texturePages) tp.Refresh();
+            }
+            ShowNameIcon(e); ShowCustomIcon(p); powerList.Invalidate(); ShowPowerTitle();   // (the bar and the big icon show the new one)
+        }
+        customIcon.CheckedChanged += (_, _) => Custom(customIcon.Checked);
+        chooseIcon = Ui.FlatButton("Choose Image", () => Custom(true), "Pick another image for this power's icon (PNG, JPG, BMP or .DDS).");
+        chooseIcon.AutoSize = true; chooseIcon.Margin = new Padding((int)(12 * S), 0, 0, 0);
+        customRow.Controls.AddRange([customIcon, chooseIcon]);
+        Ui.Tip(customIcon, CustomIconTip);
         box.Controls.AddRange([renamePower, renameText, useIcon]);
         return box;
     }
@@ -530,10 +671,10 @@ sealed partial class ModEditorView
             renamePower.Checked = e.NameId != null;
             renameText.Text = e.NameId is ulong id && draft.Strings.FirstOrDefault(x => x.Language == "eng" && x.Id == id) is { } s ? s.Text : DonorPowerName(e);
             renameText.Enabled = renamePower.Checked;
-            useIcon.Checked = e.Icons != null;
+            useIcon.Checked = e.Icons != null && e.IconImage == null;
             // grayed out when the other power has no icon of its own (only the "No Icon" placeholder), unless one is in already
             // (so it can be taken off; Kurt, 2026-11-10)
-            bool hasIcon = e.Icons != null || powerDb == null || PowerBorrow.HasOwnIcon(powerDb, e.Donor);
+            bool hasIcon = (e.Icons != null && e.IconImage == null) || powerDb == null || PowerBorrow.HasOwnIcon(powerDb, e.Donor);
             useIcon.Enabled = hasIcon;
             Ui.Tip(useIcon, hasIcon ? UseIconTip : "The borrowed power has no icon of its own in the game (only the \"No Icon\" placeholder), so this power keeps its own icon.");
         }

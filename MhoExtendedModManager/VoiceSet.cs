@@ -20,6 +20,9 @@ sealed class PowerBorrowEntry
     public ulong? NameId { get; set; }
     /// <summary>The icons the borrow put in (Use Its Icon): "package|texture", taken off by Game's Look.</summary>
     public List<string>? Icons { get; set; }
+    /// <summary>The user's own image the icons were made from (Custom Icon, Monarch 2026-11-10: "if I've hand made one"): its file
+    /// name, for the panel; null = the borrowed power's icon (Use Its Icon).</summary>
+    public string? IconImage { get; set; }
     public string DonorName { get; set; } = "";
     /// <summary>Keep the target's components and timing, take only what they draw (powers built differently: a beam from a
     /// channeled beam); false: the donor's components, animation and projectile look.</summary>

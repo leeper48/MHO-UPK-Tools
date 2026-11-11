@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.483
+- Powers tab: Custom Icon gives any power your own image as its icon (PNG, JPG, BMP or .DDS, converted to the power's icon sizes, put in the Icons tab); Choose Image picks another, and unticking takes it off. On a power with a borrowed look it sits under Use Its Icon.
+
 0.60.482
 - Model tab: Professor X is a source on the NPCs tab (Default Game and Current Modded Game), as Whole Character only, onto a pet or a summon: his skeleton isn't the heroes' and his hover chair is part of him, so he can't be fitted.
 - Pets: a character with no run or walk animation (an NPC such as Professor X in his hover chair) plays its idle while the pet moves, instead of the pet's own run, which doesn't fit its skeleton.
