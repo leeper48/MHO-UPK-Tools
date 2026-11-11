@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.485
+- FreeCam Options: Snap Behind and Selfie turn the camera at once when they change the zoom too (the game eased the new zoom step's angle and field of view in over about half a second). Press Apply on the FreeCam Options tab to put it in.
+
 0.60.484
 - Powers tab: Custom Icon gives any power your own image as its icon (PNG, JPG, BMP or .DDS, converted to the power's icon sizes, put in the Icons tab); Choose Image picks another, and unticking takes it off. On a power with a borrowed look it sits under Use Its Icon.
 - Powers tab: Use Its Icon put the large (128 × 128) icon in the power bar's 40 × 40 slot, so it showed oversized in game: both icons have the same name in two packages and their converted files overwrote each other. Tick it again (Custom Icon: choose the image again) to fix a mod made before.

@@ -164,6 +164,11 @@ static class FreeCamPatch
             };
             if (!keepZoom) list.AddRange(SetZoom(C, PcVar, zoom));
             list.Add(Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.LastCamOffset"), VectConst(0, 0, 0)));
+            // (Kurt, 2026-11-11: still a third to half a second of lag in battle) a new zoom step also has its own rotation offset
+            // and field of view, which UpdateViewTarget eases to (RInterpTo / FInterpTo); its reset values make it jump instead:
+            // LastRotOffset rot(-1,-1,-1) takes sourceCamRot, LastCamFOV 0 takes sourceCamFOV
+            list.Add(Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.LastRotOffset"), RotConst(-1, -1, -1)));
+            list.Add(Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.LastCamFOV"), Asm.F(0)));
             return list;
         }
 
@@ -698,6 +703,16 @@ static class FreeCamPatch
             Asm.ReturnNothing(),
             Asm.End(),
         ];
+    }
+
+    /// <summary>A rotator constant (EX_RotationConst: pitch, yaw, roll as int32).</summary>
+    static Node RotConst(int pitch, int yaw, int roll)
+    {
+        var n = new Node(0x22);
+        var b = new byte[12];
+        BitConverter.GetBytes(pitch).CopyTo(b, 0); BitConverter.GetBytes(yaw).CopyTo(b, 4); BitConverter.GetBytes(roll).CopyTo(b, 8);
+        n.Ops.Add(new OBytes(b));
+        return n;
     }
 
     static Node VectConst(float x, float y, float z)
