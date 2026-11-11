@@ -64,9 +64,11 @@ static class PetMove
     static IEnumerable<string> Candidates(string slot) => slot.ToLowerInvariant() switch
     {
         "idle" => ["idle", "idle_outofcombat", "idle_combat"],
-        "movement_run" => ["movement_run", "movement_run_outofcombat", "movement_walk"],
-        "movement_run_outofcombat" => ["movement_run_outofcombat", "movement_run"],
-        "movement_walk" => ["movement_walk", "movement_run_outofcombat", "movement_run"],
+        // (last the idle: a character that never walks, Professor X in his hover chair, Kurt 2026-11-10: "his idle could be
+        // used for run"; the pet's own run can't fit another skeleton)
+        "movement_run" => ["movement_run", "movement_run_outofcombat", "movement_walk", "idle", "idle_outofcombat"],
+        "movement_run_outofcombat" => ["movement_run_outofcombat", "movement_run", "movement_walk", "idle", "idle_outofcombat"],
+        "movement_walk" => ["movement_walk", "movement_run_outofcombat", "movement_run", "idle", "idle_outofcombat"],
         "idle_combat" => ["idle_combat", "idle"],
         var f when f.StartsWith("fidget") => [f, "fidget01", "fidget02", "fidget03", "emote_hello02", "emote_laugh", "emote_pose", "idle"],
         var other => [other],

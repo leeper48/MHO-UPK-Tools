@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.482
+- Model tab: Professor X is a source on the NPCs tab (Default Game and Current Modded Game), as Whole Character only, onto a pet or a summon: his skeleton isn't the heroes' and his hover chair is part of him, so he can't be fitted.
+- Pets: a character with no run or walk animation (an NPC such as Professor X in his hover chair) plays its idle while the pet moves, instead of the pet's own run, which doesn't fit its skeleton.
+- Animation copies: no more "verify: FAIL" for an animation whose name holds a dot (Wizzer's Professor X idle), when the same animation fills a second slot.
+
 0.60.481
 - Model tab: no crash ("Cannot access a disposed object: TextBox") when the Editor closes while the Model tab is still loading a costume's own model as the source.
 

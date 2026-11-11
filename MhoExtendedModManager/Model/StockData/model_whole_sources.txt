@@ -1,0 +1,3 @@
+# NPC packages offered only as Whole Character sources on the Model tab (onto a pet or a summon: the character as it is, with its own skeleton and animations). Their skeletons aren't the heroes' (no fit), so they're never targets. file
+# Professor X (Kurt / Monarch, 2026-11-10): older bone names (g_leftarm …) and his hover chair skinned in; one animation (idle), which a pet plays for its run too.
+UC__MarvelNPC_ProfessorX_SF.upk

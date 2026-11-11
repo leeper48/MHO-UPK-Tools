@@ -243,6 +243,15 @@ sealed partial class ModelPage
         // asked each time a pet target is picked (Kurt: "It could vary"); not again for the list's own reselect after adding
         if (skipPetAsk && petWhole.TryGetValue(pair, out bool had)) return had;
         string src = SplitGameKey(chosenKey!).File, srcName = DescribePackage(src).Title;
+        // a whole-only source (Professor X): nothing to choose, it can't be fitted
+        if (WholeSources.Contains(src))
+        {
+            if (!petWhole.TryGetValue(pair, out bool was) || !was) { petWhole[pair] = true; SaveState(); }
+            Log($"{srcName} onto {targetTitle}: the whole character, with its own skeleton and animations (it can't be fitted: its skeleton isn't the heroes'){(IsPet(target) ? "; a pet's run, walk and fidgets it has no animation for play its idle" : "")}.");
+            UpdateSummonLook();
+            BeginInvoke(RefreshPreview);
+            return true;
+        }
         if (IsWholeSummon(target))
         {
             int sp = Dialog.Choose(this,

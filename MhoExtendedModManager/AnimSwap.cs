@@ -1719,5 +1719,6 @@ static class AnimSwap
         return output;
     }
 
-    static string Reason(string said) => string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not ")).Select(l => l.Trim())).Trim() is { Length: > 0 } r ? r : "see the log";
+    // (the verifier's own lines too: "verify: FAIL" alone said nothing, Professor X's idle 2026-11-10)
+    static string Reason(string said) => string.Join(" ", said.Split(Environment.NewLine).Where(l => l.Contains("can't") || l.Contains("FAIL") || l.Contains("not ") || l.TrimStart().StartsWith("- ")).Take(6).Select(l => l.Trim())).Trim() is { Length: > 0 } r ? r : "see the log";
 }

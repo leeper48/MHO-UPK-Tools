@@ -658,9 +658,10 @@ sealed partial class ModelPage : UserControl
             {
                 string n = Path.GetFileName(f);
                 if (n.Contains("bak", StringComparison.OrdinalIgnoreCase) || n.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n) || Summons.ContainsKey(n) || PetSources.Contains(n))) continue;
+                if (!(n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) || n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase) || OtherTargets.Contains(n) || Summons.ContainsKey(n) || PetSources.Contains(n) || WholeSources.Contains(n))) continue;
                 if (n.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase) || !seen.Add(n)) continue;
                 var (t, det) = DescribePackage(n);
+                if (WholeSources.Contains(n)) det += " · Whole Character Only (onto a Pet or a Summon)";
                 allPackages.Add((n, t, det));
             }
         allPackages.Sort((a, b) => string.Compare(a.Title + a.Detail, b.Title + b.Detail, StringComparison.OrdinalIgnoreCase));
@@ -736,7 +737,22 @@ sealed partial class ModelPage : UserControl
     /// <summary>Whether a From the Game package can be a target. Every pet with a model of its own (Kurt, 2026-11-06: the target
     /// listed 13, the source 42): a build onto Spider-Ham (69 of 81 core bones) fits well; onto a four-legged pet (Cosmo, 23)
     /// it builds and verifies, and the pet's own animations bend the model into their pose (on all fours).</summary>
-    static bool CanTarget(string file) => !IsPet(file) || PetSources.Contains(Path.GetFileName(file));
+    static bool CanTarget(string file) => (!IsPet(file) || PetSources.Contains(Path.GetFileName(file))) && !WholeSources.Contains(Path.GetFileName(file));
+
+    /// <summary>NPCs that are sources only as Whole Character, onto a pet or a summon (Kurt, 2026-11-10: Professor X in his hover
+    /// chair; Model\StockData\model_whole_sources.txt): their skeletons aren't the heroes', so they can't be fitted or be targets.</summary>
+    static readonly HashSet<string> WholeSources = LoadList("MhoMffImporter.StockData.model_whole_sources.txt");
+
+    static HashSet<string> LoadList(string resource)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var s = typeof(ModelPage).Assembly.GetManifestResourceStream(resource);
+        if (s == null) return set;
+        using var r = new StreamReader(s);
+        for (string? line; (line = r.ReadLine()) != null;)
+            if (line.Trim().Length > 0 && line[0] != '#') set.Add(line.Split('	')[0].Trim());
+        return set;
+    }
 
     /// <summary>A pet whose skeleton isn't the heroes' (four-legged, robots): the model takes its pose.</summary>
     static bool OddPet(string file) => IsPet(file) && !PetTargets.Contains(Path.GetFileName(file));

@@ -36,6 +36,11 @@ sealed partial class ModelPage
         // a pet onto a pet (Kurt, 2026-11-06: Cosmo fitted onto Baby Groot stood up in Groot's poses; "pet to pet should probably
         // copy animation set over from source … you can notify via pop-up"): the whole pet, its own skeleton and animations
         // (asked when the target was picked, Kurt 2026-11-06: "better making that decision earlier"; here only if not answered)
+        if (chosenKey?.StartsWith(GameSrc) == true && WholeSources.Contains(SplitGameKey(chosenKey).File) && PetPair(pkg.Key) == null)
+        {
+            Log($"{DescribePackage(SplitGameKey(chosenKey).File).Title} can only go onto a pet or a summon, as the whole character (its skeleton isn't the heroes', so it can't be fitted onto {pkg.Title}). Pick a target on the Pets tab, or a summon.");
+            return false;
+        }
         if (PetPair(pkg.Key) is string pair)
         {
             bool? whole = petWhole.TryGetValue(pair, out bool w) ? w : AskPetMode(pkg.Key, pkg.Title, false);
