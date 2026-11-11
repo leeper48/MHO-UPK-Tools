@@ -16,6 +16,30 @@ sealed partial class ModelPage
     void ShowCopySetupMenu(PackageMap pm)
     {
         if (matGame == null) return;
+        var menu = CopySetupMenu(pm);
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        Ui.ShowUnder(menu, matGame);
+    }
+
+    /// <summary>The manual's picture (MHO_EXTMM_SNAP_MATMENU): the Materials tab, the first of the costume's own materials
+    /// selected, and This Material ▾'s menu built (not shown) with the button it opens under.</summary>
+    internal async Task<(ContextMenuStrip Menu, Control Anchor)?> MaterialMenuForTest(string package)
+    {
+        // that package of the mod as the target (its own materials listed: no source)
+        if (targetKind.SelectedIndex != 0) { targetKind.SelectedIndex = 0; await Task.Delay(500); }
+        FillPackages(); Reselect(packages, package);
+        for (int i = 0; i < 300 && (ChosenPackage?.Key != package || refreshing); i++) await Task.Delay(100);
+        for (int i = 0; i < modelTabs.Count; i++) if (modelTabs.TitleAt(i) == "Materials") modelTabs.Select(i);
+        for (int i = 0; i < 300 && !matGrid.Rows.Cast<DataGridViewRow>().Any(r => r.Tag is PackageMap); i++) await Task.Delay(100);
+        await Task.Delay(4000);   // (the preview and the list's last reads)
+        var row = matGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is PackageMap pm && pm.InFile == null && pm.Kind == "Color");
+        if (row == null || matGame == null) return null;
+        matGrid.CurrentCell = row.Cells[0];
+        return (CopySetupMenu((PackageMap)row.Tag!), matGame);
+    }
+
+    ContextMenuStrip CopySetupMenu(PackageMap pm)
+    {
         var menu = new ContextMenuStrip();
         menu.Items.Add(CopySetupItem(pm.Material, pm.InFile));
         // the game materials the model builds offer (Kurt, 2026-11-10: Glow, Not Metal on a costume's own TORSO), one click each
@@ -28,8 +52,7 @@ sealed partial class ModelPage
             if (pm.InFile != null) { item.Enabled = false; item.ToolTipText = $"{pm.Material} is in {pm.InFile}, the hero's base package: only a material of this package can be changed here."; }
             menu.Items.Add(item);
         }
-        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
-        Ui.ShowUnder(menu, matGame);
+        return menu;
     }
 
     /// <summary>The menu item: Copy Setup From a Costume, for <paramref name="material"/> (the target's slot of that name, else

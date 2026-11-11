@@ -206,6 +206,29 @@ sealed partial class MainForm
             // (the Model tab's target props listed, for the manual's picture)
             if (editor.TabTitle(i) is "Model" && editor.ModelPageForTest is { } mpage) for (int w = 0; w < 600 && mpage.TargetPropLabels.Count == 0; w++) await Task.Delay(100);
             if (editor.TabTitle(i) is "Model") await Task.Delay(4000);
+            // (the manual's This Material ▾ picture: MHO_EXTMM_SNAP_MATMENU=<the mod's package>, the menu drawn under its button)
+            if (editor.TabTitle(i) is "Model" && Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_MATMENU") is { Length: > 0 } matPkg && editor.ModelPageForTest is { } mm)
+            {
+                await Task.Delay(3000);
+                if (await mm.MaterialMenuForTest(matPkg) is var (menu, anchor))
+                {
+                    await Task.Delay(2500);
+                    using var fb = new Bitmap(Width, Height);
+                    DrawToBitmap(fb, new Rectangle(0, 0, Width, Height));
+                    menu.CreateControl();
+                    var size = menu.GetPreferredSize(Size.Empty);
+                    menu.Size = size;
+                    using var mb = new Bitmap(size.Width, size.Height);
+                    menu.DrawToBitmap(mb, new Rectangle(Point.Empty, size));
+                    var at = PointToClient(anchor.PointToScreen(new Point(0, anchor.Height)));
+                    var origin = PointToScreen(Point.Empty);
+                    at.Offset(origin.X - Left, origin.Y - Top);   // (the client area within the window picture)
+                    if (at.X + size.Width > fb.Width) at.X = fb.Width - size.Width - 4;
+                    using (var g = Graphics.FromImage(fb)) g.DrawImage(mb, at);
+                    fb.Save(Path.Combine(dir, "editor_model_material_menu.png"));
+                    menu.Dispose();
+                }
+            }
             // (the manual's Powers shot, paused part way through the power: MHO_EXTMM_SNAP_FRAME = 0 … 1)
             if (editor.TabTitle(i) is "Powers" && float.TryParse(Environment.GetEnvironmentVariable("MHO_EXTMM_SNAP_FRAME"), System.Globalization.CultureInfo.InvariantCulture, out float snapFrame)
                 && editor.PowerPreviewForTest is StorePreview sfp)
