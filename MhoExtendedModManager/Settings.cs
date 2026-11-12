@@ -43,6 +43,9 @@ sealed class Settings
     /// <summary>Apply Changes writes at once, without the window asking first (Kurt, 2026-11-02). The window still opens when
     /// the checks found something, and when the apply stops. Set by the window's check box or Settings → Ask Before Applying.</summary>
     public bool ApplyWithoutAsking { get; set; }
+    /// <summary>Kurt's own copy only (2026-11-12): F5 on the Mods tab refreshes, then runs Apply Changes, closing the game
+    /// first if it's running (and waiting for it to exit). Set to true in settings.json by hand; no menu item on purpose.</summary>
+    public bool F5Applies { get; set; }
     /// <summary>Settings → File Pickers (a user, 2026-10-27: image pickers kept going back to Details): the view of pickers
     /// for packages and other files, and of pickers for images (<see cref="Gui.FileDialogView.Views"/>, or "Last Used").</summary>
     public string FileViewPackages { get; set; } = "Details";

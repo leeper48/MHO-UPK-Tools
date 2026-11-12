@@ -434,3 +434,50 @@ sealed class LightSlider : Control
         Cursor = !dragging && e.X > Track.Right + (int)(4 * S) ? Cursors.IBeam : Cursors.Hand;   // (the number: type a value)
     }
 }
+
+/// <summary>Apply Changes' progress (Kurt, 2026-11-12), left of the button while it writes: a rounded track filled in the
+/// accent color by files done, with "3 of 12 · file" in it. Hidden when nothing is being applied.</summary>
+sealed class ApplyProgress : Control
+{
+    int done, total;
+    string what = "";
+    public ApplyProgress()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
+        Visible = false;
+        Font = Ui.Regular(8.75f);
+    }
+    /// <summary>Shows the bar at <paramref name="d"/> of <paramref name="t"/> files, now on <paramref name="file"/>.</summary>
+    public void Set(int d, int t, string file)
+    {
+        done = d; total = Math.Max(1, t); what = file;   // (Say shows text alone)
+        Visible = true;
+        Invalidate();
+    }
+    /// <summary>The bar with an empty track and only <paramref name="text"/> (before any file is written: closing the game,
+    /// preparing the plan, waiting for the Apply window), so it's clear from the first click that something is under way.</summary>
+    public void Say(string text) { done = 0; total = 0; what = text + "…"; Visible = true; Invalidate(); }
+    public void Done() { Visible = false; what = ""; done = total = 0; }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float s = DeviceDpi / 96f, h = 22 * s;
+        var track = new RectangleF(1, (Height - h) / 2, Width - 2, h);
+        using (var p = Ui.Round(track, h / 2)) using (var b = new SolidBrush(Color.FromArgb(70, 0, 0, 0))) g.FillPath(b, p);
+        float f = total == 0 ? 0 : Math.Clamp(done / (float)total, 0, 1);
+        if (f > 0)
+        {
+            var fill = new RectangleF(track.X, track.Y, Math.Max(h, track.Width * f), h);
+            using var p = Ui.Round(fill, h / 2);
+            using var b = new SolidBrush(Ui.Accent);
+            g.FillPath(b, p);
+        }
+        using (var p = Ui.Round(track, h / 2)) using (var pen = new Pen(Color.FromArgb(90, Ui.Accent), 1)) g.DrawPath(pen, p);
+        string text = total == 0 ? what : $"{Math.Min(done + 1, total)} of {total}" + (what.Length > 0 ? "  ·  " + what : "");
+        if (total > 0 && done >= total) text = what.Length > 0 ? what : "Done";
+        TextRenderer.DrawText(g, text, Font, Rectangle.Round(new RectangleF(track.X + 10 * s, track.Y, track.Width - 20 * s, h)), Ui.Text,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+}

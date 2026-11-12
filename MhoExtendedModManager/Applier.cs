@@ -352,7 +352,8 @@ static class Applier
     }
 
     /// <summary>Writes the plan. Stops at the first failure (the files done so far stay done; each is its own undo step).</summary>
-    public static bool Execute(Plan p, GameState game, Originals originals, string libraryData)
+    /// <param name="progress">Called before each file (files done, total, file name) and once at the end (the GUI's bar).</param>
+    public static bool Execute(Plan p, GameState game, Originals originals, string libraryData, Action<int, int, string>? progress = null)
     {
         if (ZoneBuilds.GameRunning()) { Console.WriteLine("The game is running; close it first. Nothing written."); return false; }
         string legacy = Path.Combine(libraryData, "legacy");
@@ -360,6 +361,7 @@ static class Applier
         int done = 0;
         foreach (var s in p.Steps)
         {
+            progress?.Invoke(done, p.Steps.Count, s.File);
             Console.WriteLine($"{s.File}: {s.What}");
             string live = s.Strings ? Path.Combine(game.Loco, s.File) : Path.Combine(game.Cooked, s.File);
             // Last line of defense (security audit): only files directly in CookedPCConsole, or in a <lang>.all folder for strings.
@@ -397,6 +399,7 @@ static class Applier
             if (s.Type == Kind.Package) { ledger.Set(s.File, s.Crc); ledger.Save(); }   // what this app put there
             done++;
         }
+        progress?.Invoke(done, p.Steps.Count, "");
         Console.WriteLine($"Applied: {done} file(s) written and verified.");
         // MarvelGame.upk replaced by something that isn't FreeCam Options: its saved camera would crash the game (FreeCamBuddy.ResetRemembered)
         if (p.Steps.Any(s => s.File.Equals(FreeCam.FreeCamBuddy.File, StringComparison.OrdinalIgnoreCase)))

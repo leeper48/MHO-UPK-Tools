@@ -1,6 +1,12 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.488
+- Apply Changes shows its progress: a bar left of the button, from the moment you click it until everything is done (preparing, waiting for your OK in the Apply window, then the files done and the one being written). Leave the game closed until it goes away.
+
+0.60.486
+- FreeCam Options: Apply Changes on the Mods tab now also puts in your current FreeCam Options settings, when FreeCam Options is already applied (plain Freecam is left alone). Nothing is written when the settings haven't changed.
+
 0.60.485
 - FreeCam Options: Snap Behind and Selfie turn the camera at once when they change the zoom too (the game eased the new zoom step's angle and field of view in over about half a second). Press Apply on the FreeCam Options tab to put it in.
 

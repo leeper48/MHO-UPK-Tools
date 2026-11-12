@@ -45,6 +45,15 @@ sealed partial class MainForm : Form
     readonly Label status = new() { AutoSize = true, Anchor = AnchorStyles.Left, Font = Ui.Regular(9f), Padding = new Padding(12, 0, 0, 0) };
     bool reviewable;   // the status line lists changes or skipped files: a click opens the plan
     readonly Button applyButton;
+    /// <summary>Apply Changes' progress, left of the button while it writes (Kurt, 2026-11-12).</summary>
+    readonly ApplyProgress applyProgress = new() { Anchor = AnchorStyles.Right };
+    /// <summary>How many apply operations are under way (F5 → Apply → FreeCam Options nest): the bar shows from the first
+    /// click (Kurt: so nobody starts the game or touches anything meanwhile) and hides when the outermost one ends.</summary>
+    int applying;
+    /// <summary>The bar's update from Applier.Execute (any thread): ignored once the apply is over, so a late one can't bring it back.</summary>
+    void ApplyStep(int done, int total, string file) => BeginInvoke(() => { if (applying > 0) applyProgress.Set(done, total, file); });
+    void ApplyStart(string? text = null) { applying++; if (text != null) applyProgress.Say(text); }
+    void ApplyEnd() { if (--applying <= 0) { applying = 0; applyProgress.Done(); } }
     // Dark hover tips on the buttons and boxes (the mod list shows its own, per part of a card).
     readonly ToolTip tips = Ui.Tips;
     // Undo / redo of list changes (on/off, order, locks, tags): state.json as it was before each change, with a label.
@@ -522,10 +531,11 @@ sealed partial class MainForm : Form
         split.Panel2.Controls.Add(middleAndRight);
 
         // ---- Bottom bar
-        var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, ColumnCount = 3, Padding = new Padding(8, 6, 10, 6) };
+        var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, ColumnCount = 4, Padding = new Padding(8, 6, 10, 6) };
         bottomBar = bottom;
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var leftButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         var remove = Ui.FlatButton("Remove Mod", RemoveMod);
@@ -548,7 +558,11 @@ sealed partial class MainForm : Form
         bottom.Controls.Add(status, 1, 0);
         status.Click += (_, _) => { if (reviewable && !readOnly) Apply(review: true); };   // (the window, even with Don't Ask Again)
         applyButton.Anchor = AnchorStyles.Right;
-        bottom.Controls.Add(applyButton, 2, 0);
+        float bs = MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
+        applyProgress.Size = new Size((int)(320 * bs), (int)(28 * bs));
+        applyProgress.Margin = new Padding(0, 0, (int)(8 * bs), 0);
+        bottom.Controls.Add(applyProgress, 2, 0);
+        bottom.Controls.Add(applyButton, 3, 0);
 
         var modsPage = new Panel { Dock = DockStyle.Fill };
         modsPage.Controls.Add(split); modsPage.Controls.Add(bottom);
@@ -659,12 +673,71 @@ sealed partial class MainForm : Form
     void EnsureFreeCam()
     {
         if (freeCam != null) { freeCam.RefreshStatus(); return; }
-        freeCam = new FreeCamView(() => game?.Root,
-            () => lib?.Mods.Where(m => m.Enabled && m.Manifest.UpkReplacements.Contains(FreeCam.FreeCamBuddy.File, StringComparer.OrdinalIgnoreCase)).Select(m => (m.Name, Path.Combine(m.Folder, FreeCam.FreeCamBuddy.File))).ToList() ?? []);
+        freeCam = new FreeCamView(() => game?.Root, MarvelGameMods);
         freeCamHost.Controls.Add(freeCam);
         Theme.ApplyTree(freeCamHost, Palette.Dark);   // not the whole form: see ShowDetails
         Restyle(freeCamHost);
         freeCam.ApplyColors();
+    }
+
+    /// <summary>Enabled mods that replace MarvelGame.upk, with their copy of it (FreeCam Options builds only on Freecam's).</summary>
+    IReadOnlyList<(string Name, string Copy)> MarvelGameMods() =>
+        lib?.Mods.Where(m => m.Enabled && m.Manifest.UpkReplacements.Contains(FreeCam.FreeCamBuddy.File, StringComparer.OrdinalIgnoreCase)).Select(m => (m.Name, Path.Combine(m.Folder, FreeCam.FreeCamBuddy.File))).ToList() ?? [];
+
+    /// <summary>After Apply Changes (Kurt, 2026-11-12): FreeCam Options' current settings go in too, but only where they're
+    /// in use already (MarvelGame.upk is FreeCam Options' own build, with Freecam's loader): plain Freecam or none is left
+    /// alone. FreeCamBuddy.Apply writes only what differs, so unchanged settings change nothing. Returns a status note, or
+    /// null when nothing was done; a failure shows its log.</summary>
+    async Task<string?> FreeCamAfterApply()
+    {
+        if (!WhatsNew.FreeCamTab || game?.Root is not string root) return null;
+        FreeCam.FreeCamBuddy.Status st;
+        try { st = FreeCam.FreeCamBuddy.Detect(root); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        if (st is not { Kind: FreeCam.FreeCamBuddy.Kind.Buddy, Ours: true, Loader: true }) return null;
+        var cfg = FreeCam.FreeCamSettings.Load();   // the tab saves on every change, so the file is current
+        var mods = MarvelGameMods();
+        var log = new List<string>();
+        bool ok;
+        ApplyStart(); applyProgress.Set(1, 1, "FreeCam Options");
+        try { ok = await Task.Run(() => FreeCam.FreeCamBuddy.Apply(root, cfg, mods, dryRun: false, log)); }
+        catch (Exception ex) { log.Add(ex.Message); ok = false; }
+        finally { ApplyEnd(); }
+        freeCam?.RefreshStatus();
+        if (!ok) { ShowLog("FreeCam Options Not Applied", string.Join("\n", log.Select(l => "• " + l)), Dialog.Tone.Bad); return null; }
+        return log.Any(l => l.StartsWith("MarvelGame.upk: built", StringComparison.Ordinal)) ? "FreeCam Options Updated" : null;
+    }
+
+    /// <summary>F5 with Settings.F5Applies (Kurt's own copy): closes the game if it's running (its window first, then a forced
+    /// end after 20 s), waits until it has exited, refreshes and runs Apply Changes.</summary>
+    async void RefreshAndApply()
+    {
+        if (applying > 0) return;
+        ApplyStart("Starting");
+        try { await CloseGameAndApply(); }
+        finally { ApplyEnd(); }
+    }
+
+    async Task CloseGameAndApply()
+    {
+        var running = Process.GetProcessesByName("MarvelHeroesOmega");
+        if (running.Length > 0)
+        {
+            status.Text = "Closing the Game…";
+            applyProgress.Say("Closing the Game");
+            foreach (var p in running) { try { p.CloseMainWindow(); } catch (InvalidOperationException) { } }
+            var start = DateTime.UtcNow;
+            while (Process.GetProcessesByName("MarvelHeroesOmega").Length > 0)
+            {
+                if (DateTime.UtcNow - start > TimeSpan.FromSeconds(20))
+                    foreach (var p in Process.GetProcessesByName("MarvelHeroesOmega")) { try { p.Kill(); } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { } }
+                if (DateTime.UtcNow - start > TimeSpan.FromSeconds(60)) { status.Text = "The Game Didn't Close: Nothing Applied"; return; }
+                await Task.Delay(500);
+            }
+            applyProgress.Say("Waiting for the Game to Let Go of Its Files");
+            await Task.Delay(1500);   // let it let go of its files
+            Reload();
+        }
+        await ApplyAsync(nested: true);
     }
 
     /// <summary>The Extract tab's content, made on first view and again only if the library or game folder changed.</summary>
@@ -1194,7 +1267,18 @@ sealed partial class MainForm : Form
     }
 
     /// <param name="review">The status line's click: the window, even with Don't Ask Again on.</param>
-    async void Apply(bool review = false)
+    async void Apply(bool review = false) => await ApplyAsync(review);
+
+    /// <summary>Apply Changes, with the progress bar shown from the start to the end (closing nothing itself).</summary>
+    async Task ApplyAsync(bool review = false, bool nested = false)
+    {
+        if (readOnly || lib == null || game == null || applying > 0 && !nested) return;   // (one at a time: Ctrl+Enter / F5 again does nothing)
+        ApplyStart("Preparing");
+        try { await ApplyCore(review); }
+        finally { ApplyEnd(); }
+    }
+
+    async Task ApplyCore(bool review)
     {
         if (readOnly || lib == null || game == null) return;
         if (!game.HasStockList) { Dialog.Show(this, "There is no stock checksum list, so originals can't be verified. Reinstall the program to get it back (StockData folder).", "Can't Apply", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -1210,7 +1294,7 @@ sealed partial class MainForm : Form
         {
             Snapshots.Take(l, g, "apply", $"{plan.Steps.Count} file(s) to write");   // (Settings → Snapshots: what the library was before)
             bool ok = false;
-            string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder));
+            string log = CaptureOutput(() => ok = Applier.Execute(plan, g, originals, l.DataFolder, ApplyStep));
             return (ok, ok ? log : log + "\n\n" + ApplyCheck.Text(check, g).Replace("\nPLAN", "").TrimEnd());
         });
         // Without asking (Kurt, 2026-11-02): straight to writing, the status line says how it went, and that the checks found
@@ -1221,26 +1305,39 @@ sealed partial class MainForm : Form
         {
             if (plan.Steps.Count == 0)
             {
-                status.Text = "Nothing to Apply: The Game Already Matches Your List" + checkNote;
+                string? fc = await FreeCamAfterApply();
+                status.Text = (fc != null ? fc + "  ·  Mods: Nothing to Apply" : "Nothing to Apply: The Game Already Matches Your List") + checkNote;
                 reviewable = check.Any; status.Cursor = reviewable ? Cursors.Hand : Cursors.Default;
                 return;
             }
             applyButton.Enabled = false; applyButton.Text = "Applying…"; UseWaitCursor = true;
+            ApplyStart(); applyProgress.Set(0, plan.Steps.Count, "");
             (bool Ok, string Log) r;
             try { r = await run(); } catch (Exception ex) { r = (false, ex.Message); }
+            ApplyEnd();
             UseWaitCursor = false; applyButton.Enabled = true;
-            note = r.Ok ? Ui.TitleCase($"Applied {plan.Steps.Count} file(s)") + checkNote : null;
+            string? fcNote = r.Ok ? await FreeCamAfterApply() : null;
+            note = r.Ok ? Ui.TitleCase($"Applied {plan.Steps.Count} file(s)") + (fcNote != null ? "  ·  " + fcNote : "") + checkNote : null;
             Reload();
             if (!r.Ok) ShowLog("Not Applied", r.Log + "\n\nFiles written before the stop were verified and can be undone; nothing after it was changed.", Dialog.Tone.Bad);
             return;
         }
         // One window (Kurt): the plan and the question, then "Success" or what went wrong.
-        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : run, check.Any, review: check.Unexpected.Count > 0, dontAsk: settings.ApplyWithoutAsking);
+        Func<Task<(bool Ok, string Log)>> runShown = async () =>
+        {
+            ApplyStart(); applyProgress.Set(0, plan.Steps.Count, "");
+            try { return await run(); } finally { ApplyEnd(); }
+        };
+        applyProgress.Say("Waiting for Your OK in the Apply Window");
+        using var f = new ApplyForm(planText, plan.Steps.Count == 0 ? null : runShown, check.Any, review: check.Unexpected.Count > 0, dontAsk: settings.ApplyWithoutAsking);
         f.ShowDialog(this);
-        if (f.DialogResult == DialogResult.Retry) { ChangedGameFiles(); Apply(review); return; }
+        if (f.DialogResult == DialogResult.Retry) { ChangedGameFiles(); await ApplyCore(review); return; }
         // the box as left when Apply was pressed: ticked turns it on, unticked off
         if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK && f.DontAskAgain != settings.ApplyWithoutAsking) { settings.ApplyWithoutAsking = f.DontAskAgain; settings.Save(); }
         if (plan.Steps.Count > 0 && f.DialogResult == DialogResult.OK) Reload();
+        // FreeCam Options too (Kurt, 2026-11-12), after an apply that went through or when the mods had nothing to do
+        if (plan.Steps.Count == 0 || f.DialogResult == DialogResult.OK)
+            if (await FreeCamAfterApply() is string fc) status.Text = fc + "  ·  " + status.Text;
     }
 
     /// <summary>Icon changes in the game that no mod accounts for, saved as a mod so Apply's rebuild from stock keeps them.</summary>
