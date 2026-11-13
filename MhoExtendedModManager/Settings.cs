@@ -162,7 +162,7 @@ sealed class Settings
         try
         {
             if (!File.Exists(SettingsFile)) return new();
-            string text = File.ReadAllText(SettingsFile);
+            string text = SafeFile.LooksLikeText(SettingsFile) ? File.ReadAllText(SettingsFile) : "";
             // an empty or broken file (Kurt, 2026-11-10: settings.json was 0 bytes and the app started as a new install):
             // the copy kept by the last good save
             if (!LooksValid(text) && File.Exists(SettingsFile + ".bak") && File.ReadAllText(SettingsFile + ".bak") is var kept && LooksValid(kept)) text = kept;
@@ -186,10 +186,7 @@ sealed class Settings
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(SettingsFile)!);
-        string temp = SettingsFile + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, MhoExtendedModManager.JsonOpts.Indented));
-        if (File.Exists(SettingsFile) && new FileInfo(SettingsFile).Length > 2) File.Replace(temp, SettingsFile, SettingsFile + ".bak", ignoreMetadataErrors: true);
-        else File.Move(temp, SettingsFile, overwrite: true);
+        SafeFile.WriteAllText(SettingsFile, JsonSerializer.Serialize(this, MhoExtendedModManager.JsonOpts.Indented));
     }
 
     /// <summary>The library's data folder (holds mods\ and state.json): the folder itself, or its data\ subfolder.</summary>

@@ -134,9 +134,7 @@ sealed class ModLibrary
         State.Previews = picked.Count > 0 ? picked.ToDictionary(m => m.FolderName, m => m.LocalPreview!) : null;
         var carded = Mods.Where(m => m.LocalCard != null).OrderBy(m => m.Priority).ToList();
         State.CardPictures = carded.Count > 0 ? carded.ToDictionary(m => m.FolderName, m => m.LocalCard!) : null;
-        string path = Path.Combine(DataFolder, "state.json"), tmp = path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(State, ModManifest.Json));
-        File.Move(tmp, path, overwrite: true);
+        SafeFile.WriteAllText(Path.Combine(DataFolder, "state.json"), JsonSerializer.Serialize(State, ModManifest.Json));
     }
 
     /// <summary>

@@ -900,6 +900,11 @@ sealed partial class MainForm : Form
         lib = null; game = null;
         if (data == null) { list.Items.Clear(); header.Mod = null; header.Invalidate(); tabs.Clear(); status.Text = "No mod library yet: Settings → Migrate from MHModManager, or restart for the first-run setup."; return; }
         lib = ModLibrary.Load(data);
+        if (ModState.Recovered is string recovered)
+        {
+            ModState.Recovered = null;
+            BeginInvoke(() => Dialog.Show(this, recovered, "Mod List Restored", MessageBoxButtons.OK, MessageBoxIcon.Warning));
+        }
         string key = lib.DataFolder + "|" + string.Join("|", lib.Mods.Select(m => m.FolderName).Order(StringComparer.OrdinalIgnoreCase));
         if (foldersKey != null && key != foldersKey) { undo.Clear(); redo.Clear(); }
         foldersKey = key;

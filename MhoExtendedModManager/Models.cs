@@ -190,8 +190,56 @@ sealed class ModState
         ModOrder = ModOrder.Where(top.Contains).Concat(ModOrder.Where(n => !top.Contains(n) && !bottom.Contains(n))).Concat(ModOrder.Where(bottom.Contains)).ToList();
     }
 
-    public static ModState Load(string path) =>
-        File.Exists(path) ? JsonSerializer.Deserialize<ModState>(File.ReadAllText(path), ModManifest.Json) ?? new() : new();
+    /// <summary>What a broken state.json was replaced with at the last load (shown once by the main window), else null.</summary>
+    public static string? Recovered;
+
+    /// <summary>
+    /// state.json; a broken one (a user, 2026-11-13: zero bytes after a power cut, the app crashed at every start) is set
+    /// aside and the list comes from state.json.bak (the one before the last save), else the newest snapshot with mods turned on
+    /// (data\snapshots, taken at every launch and before every Apply), else starts empty.
+    /// </summary>
+    public static ModState Load(string path)
+    {
+        if (!File.Exists(path)) return new();
+        if (TryRead(path) is { } ok) return ok;
+        string? aside = SafeFile.SetAside(path);
+        string was = aside != null ? $"The damaged file was kept as {Path.GetFileName(aside)}." : "";
+        if (TryRead(path + ".bak") is { } bak)
+        {
+            Recovered = $"Your mod list (state.json) was damaged, most likely by a crash or power cut while it was being saved. It was restored from the copy kept by the save before it ({File.GetLastWriteTime(path + ".bak"):yyyy-MM-dd HH:mm}). {was}";
+            try { File.Copy(path + ".bak", path, overwrite: true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            return bak;
+        }
+        try
+        {
+            if (Snapshots.List().FirstOrDefault(s => s.State.EnabledMods.Count > 0) is { } snap)
+            {
+                Recovered = $"Your mod list (state.json) was damaged, most likely by a crash or power cut while it was being saved. It was restored from the snapshot of {snap.Taken.ToLocalTime():yyyy-MM-dd HH:mm} (on / off, order, locks, tags and notes as they were then). Check the list, then Apply Changes. {was}";
+                return Keep(path, JsonSerializer.Deserialize<ModState>(JsonSerializer.Serialize(snap.State, ModManifest.Json), ModManifest.Json) ?? new());
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
+        Recovered = $"Your mod list (state.json) was damaged, most likely by a crash or power cut while it was being saved, and no earlier copy was found. Every mod is listed but turned off. Before you press Apply Changes, turn your mods back on (or Settings → Snapshots), or Apply will take them out of the game. {was}";
+        return Keep(path, new());
+    }
+
+    /// <summary>Writes the recovered list at once, so the next start finds a state.json (else it looks like a new install).</summary>
+    static ModState Keep(string path, ModState st)
+    {
+        try { SafeFile.WriteAllText(path, JsonSerializer.Serialize(st, ModManifest.Json), keepBak: false); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return st;
+    }
+
+    static ModState? TryRead(string path)
+    {
+        try
+        {
+            if (!File.Exists(path) || !SafeFile.LooksLikeText(path)) return null;
+            return JsonSerializer.Deserialize<ModState>(File.ReadAllText(path), ModManifest.Json);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
+    }
 }
 
 /// <summary>
