@@ -13,6 +13,9 @@ sealed class FreeCamView : UserControl
     readonly Func<string?> gameRoot;
     readonly Func<IReadOnlyList<(string Name, string Copy)>> modsNamingIt;
     readonly FreeCamSettings cfg = FreeCamSettings.Load();
+    /// <summary>Settings → Ask Before Applying off (MainForm's settings): a successful Apply to Game shows no window, only a
+    /// line under the buttons (Kurt, 2026-11-15). A failed one still opens its window.</summary>
+    readonly Func<bool> applyWithoutAsking;
     static readonly FreeCamSettings Defaults = new();
     readonly Label statusDot = new() { AutoSize = true, Font = Ui.Bold(12f), Text = "●" };
     readonly Label statusText = new() { AutoSize = true, Font = Ui.Bold(10.5f) };
@@ -24,8 +27,9 @@ sealed class FreeCamView : UserControl
     FreeCamBuddy.Status? status;
     bool busy;
 
-    public FreeCamView(Func<string?> gameRoot, Func<IReadOnlyList<(string Name, string Copy)>> modsNamingIt)
+    public FreeCamView(Func<string?> gameRoot, Func<IReadOnlyList<(string Name, string Copy)>> modsNamingIt, Func<bool>? applyWithoutAsking = null)
     {
+        this.applyWithoutAsking = applyWithoutAsking ?? (() => false);
         this.gameRoot = gameRoot;
         this.modsNamingIt = modsNamingIt;
         Dock = DockStyle.Fill;
@@ -91,8 +95,11 @@ sealed class FreeCamView : UserControl
                 "The zoom Locked Behind starts at, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)")]),
             "Locked Behind follows the way the hero faces. Movement stays camera-relative (as in Freecam), so strafing turns the hero and the camera together. Lock Tilt holds the camera at the Start Tilt. Keep Current In-Game Zoom leaves the zoom when you switch to it; unticked, it starts at the zoom shown (1 × is the game's closest view)."), 2, 1);
         grid.Controls.Add(Card("SNAP BEHIND", ShortcutBody(s, "Snap Behind", () => cfg.SnapTilt, v => cfg.SnapTilt = v, () => cfg.SnapHeight, v => cfg.SnapHeight = v,
-            () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX),
-            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view)."), 0, 2);
+            () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX,
+            [Check("Snap on Attack", "Ticked: pressing any power (keyboard, mouse or gamepad) also turns the camera behind your hero, smoothly. Only the direction changes: the tilt, height and zoom stay as you have them (the settings above are for the Snap Behind key). Only in Free Orbit: Locked Behind and Default MHO aren't changed.", () => cfg.SnapOnAttack, v => cfg.SnapOnAttack = v),
+             Slider(s, "Only When Turned Past", 0, 180, 5, () => cfg.SnapOnAttackAngle, v => cfg.SnapOnAttackAngle = v, v => v == 0 ? "Always" : $"{v:0}°", Defaults.SnapOnAttackAngle,
+                "Snap on Attack only swings the camera when it's turned more than this far from the way your hero faces, so small turns toward a moving target leave it alone. 0: on every press.")]),
+            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view). Snap on Attack does the same snap on every power press while in Free Orbit."), 0, 2);
         grid.Controls.Add(Card("SELFIE", ShortcutBody(s, "Selfie", () => cfg.SelfieTilt, v => cfg.SelfieTilt = v, () => cfg.SelfieHeight, v => cfg.SelfieHeight = v,
             () => cfg.SelfieKeepZoom, v => cfg.SelfieKeepZoom = v, () => cfg.SelfieZoomX, v => cfg.SelfieZoomX = v, Defaults.SelfieTilt, Defaults.SelfieHeight, Defaults.SelfieZoomX),
             "Selfie puts the camera in front of your hero, facing them, at this tilt and height, and switches to Free Orbit. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown."), 1, 2);
@@ -285,12 +292,13 @@ sealed class FreeCamView : UserControl
 
     /// <summary>A shortcut's settings: the tilt and camera height it sets, and its zoom (kept, or set to a preset).</summary>
     Control ShortcutBody(float s, string name, Func<int> getTilt, Action<int> setTilt, Func<int> getHeight, Action<int> setHeight,
-        Func<bool> getKeep, Action<bool> setKeep, Func<double> getZoom, Action<double> setZoom, int tiltHome, int heightHome, double zoomHome)
+        Func<bool> getKeep, Action<bool> setKeep, Func<double> getZoom, Action<double> setZoom, int tiltHome, int heightHome, double zoomHome, Control[]? extra = null)
     {
         var tilt = Slider(s, "Tilt", -20, 60, 1, getTilt, setTilt, v => $"{v:0}°", tiltHome, $"How far the camera looks down after {name} (negative: from below).");
         var height = Slider(s, "Height", -250, 250, 5, getHeight, setHeight, v => v == 0 ? "Normal" : v > 0 ? $"+{v:0}" : $"{v:0}", heightHome, $"The camera's height after {name}: Freecam's raise / lower (RB + stick), set to this.");
         return Stack(s, [tilt, height, .. ZoomRows(s, name, getKeep, setKeep, getZoom, setZoom, zoomHome,
-            "The zoom it sets, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)")]);
+            "The zoom it sets, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)"),
+            .. (extra ?? [])]);
     }
 
     /// <summary>Keep Current In-Game Zoom and the Zoom slider it turns off (Snap Behind, Selfie, Locked Behind, Default MHO).</summary>
@@ -456,7 +464,7 @@ sealed class FreeCamView : UserControl
     {
         if (gameRoot() is not string root || busy) return;
         if (Process.GetProcessesByName("MarvelHeroesOmega").Length > 0) { Dialog.Show(FindForm(), "Close the game first: the game's files can only be changed while it isn't running.", "The Game Is Running", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        await Run("Applying", log => FreeCamBuddy.Apply(root, cfg, modsNamingIt(), dryRun: false, log), "FreeCam Options Applied", "Start the game: your settings are in. In game: the keys above, and the mouse wheel past the usual zoom.");
+        await Run("Applying", log => FreeCamBuddy.Apply(root, cfg, modsNamingIt(), dryRun: false, log), "FreeCam Options Applied", "Start the game: your settings are in. In game: the keys above, and the mouse wheel past the usual zoom.", quiet: applyWithoutAsking());
     }
 
     async void Remove()
@@ -467,7 +475,7 @@ sealed class FreeCamView : UserControl
         await Run("Removing", log => FreeCamBuddy.Remove(root, dryRun: false, log), "FreeCam Options Removed", "Freecam is as its installer left it.");
     }
 
-    async Task Run(string doing, Func<List<string>, bool> work, string doneHeading, string doneText)
+    async Task Run(string doing, Func<List<string>, bool> work, string doneHeading, string doneText, bool quiet = false)
     {
         busy = true; UpdateButtons();
         footer.Text = doing + "…";
@@ -479,7 +487,8 @@ sealed class FreeCamView : UserControl
         footer.Text = "";
         RefreshStatus();
         foreach (var r in refreshers) r();
-        if (ok) Dialog.ShowLog(FindForm(), doneHeading, doneText + "\n\n" + string.Join("\n", log.Select(l => "• " + l)), Dialog.Tone.Good);
+        if (ok && quiet) footer.Text = $"{doneHeading} ✓ · {DateTime.Now:t}";
+        else if (ok) Dialog.ShowLog(FindForm(), doneHeading, doneText + "\n\n" + string.Join("\n", log.Select(l => "• " + l)), Dialog.Tone.Good);
         else Dialog.ShowLog(FindForm(), "Not Applied", string.Join("\n", log.Select(l => "• " + l)), Dialog.Tone.Bad);
     }
 }

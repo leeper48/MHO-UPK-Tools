@@ -94,6 +94,12 @@ sealed class FreeCamSettings
     public bool SnapKeepZoom { get; set; } = false;
     /// <summary>The set zoom as a camera zoom: steps closer than the game's closest view (negative = farther).</summary>
     public double SnapZoomX { get; set; } = 0.5;
+    /// <summary>Snap on Attack (Kurt, 2026-11-15): every power press does a Snap Behind (keyboard, mouse and gamepad), in Free
+    /// Orbit only. Off by default.</summary>
+    public bool SnapOnAttack { get; set; } = false;
+    /// <summary>Snap on Attack only when the camera is turned more than this many degrees from the hero's facing (0 = every
+    /// press), and it swings there smoothly instead of jumping (Kurt, 2026-11-15: snapping on every press felt like teleporting).</summary>
+    public int SnapOnAttackAngle { get; set; } = 60;
     /// <summary>Default MHO mode (Kurt, 2026-11-09): the game's own camera direction, with its tilt kept (DefaultGameTilt) or
     /// set, and the height and zoom it starts at (the game's zoom, or set as Snap Behind's is). Every default is the base game's.</summary>
     public bool DefaultGameTilt { get; set; } = true;
@@ -181,6 +187,7 @@ sealed class FreeCamSettings
         ShoulderOffset = Math.Clamp(ShoulderOffset, -150, 150);
         FollowSpeed = Math.Clamp(FollowSpeed, 5, 200);
         BehindTilt = Math.Clamp(BehindTilt, -20, 60);
+        SnapOnAttackAngle = Math.Clamp(SnapOnAttackAngle, 0, 180);
         SnapTilt = Math.Clamp(SnapTilt, -20, 60); SelfieTilt = Math.Clamp(SelfieTilt, -20, 60);
         SnapHeight = Math.Clamp(SnapHeight, -250, 250); SelfieHeight = Math.Clamp(SelfieHeight, -250, 250);
         SnapZoomX = Math.Clamp(SnapZoomX, ZoomMin, ZoomMax); SelfieZoomX = Math.Clamp(SelfieZoomX, ZoomMin, ZoomMax);

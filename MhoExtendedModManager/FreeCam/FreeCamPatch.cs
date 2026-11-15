@@ -147,7 +147,7 @@ static class FreeCamPatch
         // kept or set (the game's closest step, then the chosen extra steps), then a zero LastCamOffset so UpdateViewTarget
         // jumps there instead of easing (Kurt: the easing lagged). Free Orbit stays free afterwards. <hud>: the HUD's
         // keyboard command (the controller and camera through PlayerOwner) instead of the controller's own code.
-        List<Node> Shortcut(bool selfie, bool hud)
+        List<Node> Shortcut(bool selfie, bool hud, bool ease = false)
         {
             Node Pc() => a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner"));
             Node PcVar(string prop) => hud ? a.Ctx(Pc(), prop) : a.Inst(prop);
@@ -159,9 +159,11 @@ static class FreeCamPatch
                 // Free Orbit (Kurt, 2026-11-09): Locked Behind would swing the camera straight back and Default MHO ignores the angle
                 Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastCamLoc"), Vector, "Y", true), Asm.F(0)),
                 Asm.Let(PcVar(Yaw), selfie ? Asm.Nat(Asm.AddInt, HeroYaw(), Asm.I(32768)) : HeroYaw()),
-                Asm.Let(PcVar(Pitch), Asm.I(-(int)(tilt * DegToUnits))),
-                Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "X", true), Asm.F(height)),   // Freecam's height
             };
+            // Snap on Attack only turns the camera behind (Kurt, 2026-11-15): tilt, height and zoom stay as the player left them
+            if (ease) return list;
+            list.Add(Asm.Let(PcVar(Pitch), Asm.I(-(int)(tilt * DegToUnits))));
+            list.Add(Asm.Let(a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "X", true), Asm.F(height)));   // Freecam's height
             if (!keepZoom) list.AddRange(SetZoom(C, PcVar, zoom));
             list.Add(Asm.Let(a.Ctx(C(), "MarvelPlayerCamera.LastCamOffset"), VectConst(0, 0, 0)));
             // (Kurt, 2026-11-11: still a third to half a second of lag in battle) a new zoom step also has its own rotation offset
@@ -266,6 +268,57 @@ static class FreeCamPatch
             Replace(pkg, "MarvelHUD." + Selfie, result, log, [.. Shortcut(selfie: true, hud: true), Asm.ReturnNothing(), Asm.End()]);
             Replace(pkg, "MarvelHUD." + BehindCmd, result, log, [.. SetMode(1, hud: true), Asm.ReturnNothing(), Asm.End()]);
             Replace(pkg, "MarvelHUD." + IsoCmd, result, log, [.. SetMode(2, hud: true), Asm.ReturnNothing(), Asm.End()]);
+            // Snap on Attack: a power press snaps the camera behind the hero, in Free Orbit only (Locked Behind is behind already;
+            // Default MHO and a pending Remember Camera restore are left alone). Two hooks, as the presses arrive two ways:
+            // MarvelPlayerController.PowerButtonPressed (script exec; the keyboard's and gamepad's power slots), the snap just
+            // before its ActivateAbilityInSlot (not when the UI took the key), and MarvelHUD.NotifyPressPower (a script event the
+            // exe calls when a power is pressed; nothing in script calls it, so the mouse powers and the native dedicated slots
+            // are expected there too: unconfirmed until seen in game). A press through both snaps twice, which looks the same.
+            if (cfg.SnapOnAttack)
+            {
+                // Only when the camera is turned more than SnapOnAttackAngle from the hero's facing (yaw difference wrapped to
+                // -32768..32767), and eased, not jumped (Kurt: on every press it felt like teleporting).
+                List<Node> AttackSnap(bool hud, JumpLabel skip)
+                {
+                    Node C() => hud ? a.DynCast("MarvelPlayerCamera", a.Ctx(a.Inst("Engine.HUD.PlayerOwner"), "Engine.PlayerController.PlayerCamera")) : Cam();
+                    Node PcVar(string prop) => hud ? a.Ctx(a.DynCast("MarvelPlayerController", a.Inst("Engine.HUD.PlayerOwner")), prop) : a.Inst(prop);
+                    Node HeroYaw() => a.Member(a.Ctx(PcVar("MarvelPlayerController.Agent"), "Engine.Actor.Rotation"), Rotator, "Yaw", false);
+                    Node Diff() => Asm.Nat(Asm.SubInt, Asm.Nat(Asm.AndInt, Asm.Nat(Asm.AddInt, Asm.Nat(Asm.SubInt, HeroYaw(), PcVar(Yaw)), Asm.I(32768)), Asm.I(65535)), Asm.I(32768));
+                    int limit = (int)(cfg.SnapOnAttackAngle * DegToUnits);
+                    var snap = Shortcut(selfie: false, hud, ease: true);
+                    var list = new List<Node> { Asm.IfNot(Asm.Nat(Asm.EqF, a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastCamLoc"), Vector, "Y", false), Asm.F(0)), skip) };
+                    if (limit > 0)
+                    {
+                        var right = new JumpLabel("Right");
+                        snap[0].Label = new JumpLabel("Snap");
+                        list.Add(Asm.IfNot(Asm.Nat(Asm.LessInt, Diff(), Asm.I(-limit)), right));
+                        list.Add(Asm.Goto(snap[0].Label!));
+                        list.Add(Asm.At(right, Asm.IfNot(Asm.Nat(Asm.GreaterInt, Diff(), Asm.I(limit)), skip)));
+                    }
+                    list.AddRange(snap);
+                    return list;
+                }
+                {
+                    var (idx, f, code) = Load(pkg, "MarvelPlayerController.PowerButtonPressed");
+                    int act = code.FindIndex(s => s.Label != null);
+                    Expect(act > 0 && code[act].Tok is 0x1B or 0x1C, "PowerButtonPressed: its ActivateAbilityInSlot call not where expected");
+                    var shared = code[act].Label!;
+                    code[act].Label = new JumpLabel("Activate");
+                    var block = AttackSnap(false, code[act].Label!);
+                    block[0].Label = shared;
+                    code.InsertRange(act, block);
+                    result[idx] = f.Build(code);
+                    log.Add("PowerButtonPressed: Snap on Attack (keyboard and gamepad power slots)");
+                }
+                {
+                    var (idx, f, code) = Load(pkg, "MarvelHUD.NotifyPressPower");
+                    Expect(code[0].Label == null, "NotifyPressPower: not the game's own code");
+                    code[0].Label = new JumpLabel("Highlight");
+                    code.InsertRange(0, AttackSnap(true, code[0].Label!));
+                    result[idx] = f.Build(code);
+                    log.Add("NotifyPressPower: Snap on Attack (every power press the game shows)");
+                }
+            }
             // Remember Camera: a new camera starts in "restore pending" (mode -1) and the first frame reads the store.
             if (cfg.RememberCamera)
                 Prepend(pkg, "MarvelPlayerCamera.PostBeginPlay", result, log, Asm.Let(a.Member(a.Inst("MarvelPlayerCamera.LastCamLoc"), Vector, "Y", true), Asm.F(-1)));

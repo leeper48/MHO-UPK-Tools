@@ -209,7 +209,7 @@ sealed partial class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
-        var askApply = new ToolStripMenuItem("Ask Before Applying") { CheckOnClick = true, ToolTipText = "Apply Changes shows what it will write and asks first. Off: it writes right away; anything the checks find is noted in the status line (click it to see), and only an apply that stops shows a window." };
+        var askApply = new ToolStripMenuItem("Ask Before Applying") { CheckOnClick = true, ToolTipText = "Apply Changes shows what it will write and asks first. Off: it writes right away; anything the checks find is noted in the status line (click it to see), and only an apply that stops shows a window. FreeCam Options' Apply to Game works the same way: off, it shows no window when it succeeds." };
         askApply.CheckedChanged += (_, _) => { if (settings.ApplyWithoutAsking == askApply.Checked) { settings.ApplyWithoutAsking = !askApply.Checked; settings.Save(); } };
         menu.Opening += (_, _) => askApply.Checked = !settings.ApplyWithoutAsking;
         menu.Items.Add(askApply);
@@ -673,7 +673,7 @@ sealed partial class MainForm : Form
     void EnsureFreeCam()
     {
         if (freeCam != null) { freeCam.RefreshStatus(); return; }
-        freeCam = new FreeCamView(() => game?.Root, MarvelGameMods);
+        freeCam = new FreeCamView(() => game?.Root, MarvelGameMods, () => settings.ApplyWithoutAsking);
         freeCamHost.Controls.Add(freeCam);
         Theme.ApplyTree(freeCamHost, Palette.Dark);   // not the whole form: see ShowDetails
         Restyle(freeCamHost);
