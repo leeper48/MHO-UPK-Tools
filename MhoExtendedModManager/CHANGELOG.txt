@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.495
+- FreeCam Options → Snap Behind: Snap on Attack (off at first). Your powers (keyboard, mouse or gamepad) turn the camera behind your hero while you fight in Free Orbit, smoothly, and only when it's turned further than Only When Turned Past (60° to start; 0 = every press). Only the direction changes: your tilt, height and zoom stay. Locked Behind and Default MHO aren't changed. Apply to Game to put it in.
+- FreeCam Options: with Settings → Ask Before Applying off, Apply to Game no longer opens a window when it works; the line beside the button says it was applied. A failed apply still shows what happened.
+
+0.60.489
+- A mod list (state.json) damaged by a crash or power cut while it was being saved no longer crashes the app at every start: it's restored from the copy kept by the save before, else the newest snapshot, and you're told what happened. Settings and the list are now written so a cut-off save can't leave a broken file.
+
 0.60.488
 - Apply Changes shows its progress: a bar left of the button, from the moment you click it until everything is done (preparing, waiting for your OK in the Apply window, then the files done and the one being written). Leave the game closed until it goes away.
 

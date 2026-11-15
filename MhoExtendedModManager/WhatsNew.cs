@@ -46,11 +46,23 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
     /// Parts, game materials in This Material for a costume's own, Rename Material, Copy Setup and crash fixes.</summary>
+    static Notice SnapOnAttack() => new(
+        "0.60.495-snap-on-attack", "0.60.495",
+        "[!]New on the FreeCam Options tab" + nl +
+        "  • Snap on Attack (on the Snap Behind card): your powers turn the camera behind your hero while you fight in Free Orbit, from the keyboard, mouse or gamepad. It swings smoothly, and only when the camera is turned further than Only When Turned Past (60° to start), so small turns toward a target leave it alone. Your tilt, height and zoom stay as they are." + nl +
+        "  • With Settings → Ask Before Applying off, Apply to Game doesn't open a window when it works; the line beside the button says it was applied." + nl + nl +
+        "[!]Also" + nl +
+        "  • Apply Changes shows its progress in a bar left of the button, until everything is done." + nl +
+        "  • Apply Changes on the Mods tab also puts in your current FreeCam Options settings, once FreeCam Options is applied." + nl +
+        "  • A mod list damaged by a crash or power cut no longer crashes the app at every start: it's restored from the copy kept before it, and you're told." + nl + nl +
+        "Apply to Game again (with the game closed) to get Snap on Attack. If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-freecam");
+
     static Notice BorrowDonors() => new(
         "0.60.481-borrow-donors", "0.60.481",
         "[!]New in Borrow Power: team-ups and enemies" + nl +
