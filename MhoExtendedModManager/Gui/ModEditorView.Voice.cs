@@ -203,6 +203,7 @@ sealed partial class ModEditorView
         if (v == null)
         {
             if (voiceBefore.Remove(file, out string? before)) draft.Packages[k] = (file, before);
+            BorrowBaseBack(file);
         }
         else
         {
@@ -212,7 +213,11 @@ sealed partial class ModEditorView
             var missing = new List<VoiceOffEntry>();
             string? cookedNow = game?.Cooked;
             byte[] bytes;
-            try { bytes = await Task.Run(() => VoiceSet.Replace(from, v.File, log, cookedNow, missing, file)); }
+            try
+            {
+                bytes = await Task.Run(() => VoiceSet.Replace(from, v.File, log, cookedNow, missing, file));
+                await Task.Run(() => VoiceOnBorrowBase(file, b => VoiceSet.Replace(b, v.File, [], cookedNow, [], file)));
+            }
             catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException)
             { voiceStatus.Text = ""; Dialog.Show(this, $"{v.Title}'s voice couldn't be copied into {file}: {ex.Message}", "Voice Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             if (IsDisposed) return;
@@ -241,6 +246,56 @@ sealed partial class ModEditorView
     }
 
     List<VoiceOffEntry>? voiceMissing;
+
+    /// <summary>--voice-borrow-test: Use Another Voice on <paramref name="file"/> with the stock voice titled <paramref name="title"/>,
+    /// as the menu does; waits for the copy. False when the voice or package isn't there.</summary>
+    internal async Task<bool> UseVoiceForTest(string file, string title)
+    {
+        if (game == null) return false;
+        var v = VoiceSet.Sources(game.Cooked).FirstOrDefault(x => x.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+        int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
+        if (v == null || k < 0) return false;
+        string was = draft.Packages[k].Source;
+        UseVoice(file, v);
+        for (int i = 0; i < 600 && draft.Packages[k].Source == was; i++) await Task.Delay(100);
+        return draft.Packages[k].Source != was;
+    }
+
+    /// <summary>The borrow_base copies as they were before this edit's voice changes (null: there was none), for Back to This Mod's Voice.</summary>
+    readonly Dictionary<string, byte[]?> voiceBaseBefore = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A voice change also made to the copy borrowed powers rebuild <paramref name="file"/> from (Modelorrow_base). Borrows
+    /// rebuild every package they touch from that copy, else the game's original, on every change and at Save, after the
+    /// voice steps, so a voice put into such a package was dropped (Monarch, 2026-11-11: voice changes not kept in mods with
+    /// several costume packages; Borrow Power had added the hero's other costumes). A package a borrow added that has no kept
+    /// copy gets one from the game's original first, so the borrow builds on the changed voice.
+    /// </summary>
+    void VoiceOnBorrowBase(string file, Func<string, byte[]?> change)
+    {
+        string kept = Path.Combine(WorkFolder, "borrow_base", file);
+        bool borrowed = draft.PowerBorrows.Any(e => e.Packages.Contains(file, StringComparer.OrdinalIgnoreCase));
+        if (!File.Exists(kept))
+        {
+            if (!borrowed || game == null) return;
+            string? start = new Originals(lib.DataFolder, game).Find(file) ?? (StockFiles.For(game.Cooked, file) is var st && File.Exists(st) ? st : null);
+            if (start == null) return;
+            lock (voiceBaseBefore) voiceBaseBefore.TryAdd(file, null);
+            Directory.CreateDirectory(Path.GetDirectoryName(kept)!);
+            File.Copy(start, kept, true);
+        }
+        else lock (voiceBaseBefore) if (!voiceBaseBefore.ContainsKey(file)) voiceBaseBefore[file] = File.ReadAllBytes(kept);
+        if (change(kept) is byte[] b) File.WriteAllBytes(kept, b);
+    }
+
+    /// <summary>Back to This Mod's Voice: the borrows' starting copy as it was before this edit's voice changes.</summary>
+    void BorrowBaseBack(string file)
+    {
+        if (!voiceBaseBefore.Remove(file, out byte[]? was)) return;
+        string kept = Path.Combine(WorkFolder, "borrow_base", file);
+        try { if (was == null) File.Delete(kept); else File.WriteAllBytes(kept, was); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
     readonly Label voiceStatus = new() { AutoSize = true, Tag = "subtle", Padding = new Padding(14, 8, 0, 0) };
     readonly Dictionary<string, byte[]> voiceWavs = new(StringComparer.OrdinalIgnoreCase);
     int voicePlayId;
@@ -1017,6 +1072,15 @@ sealed partial class ModEditorView
             if (k < 0) continue;
             byte[]? bytes = VoiceSet.Write(draft.Packages[k].Source, [.. g.Select(l => (l.Offset, l.Off ? l.Event : (string?)null))]);
             if (bytes == null) continue;
+            // the same lines in the borrows' starting copy, found there by situation and event (its offsets can differ)
+            var wanted = g.ToList();
+            VoiceOnBorrowBase(g.Key, b =>
+            {
+                var there = VoiceSet.Read(g.Key, b, []);
+                var edits = wanted.Select(l => (Line: l, At: there.FirstOrDefault(t => t.Situation == l.Situation && t.Detail == l.Detail && t.Event.Equals(l.Event, StringComparison.OrdinalIgnoreCase))))
+                    .Where(x => x.At != null).Select(x => (x.At!.Offset, x.Line.Off ? x.Line.Event : (string?)null)).ToList();
+                return edits.Count > 0 ? VoiceSet.Write(b, edits) : null;
+            });
             string file = Path.Combine(work, g.Key);
             File.WriteAllBytes(file, bytes);
             draft.Packages[k] = (g.Key, file);

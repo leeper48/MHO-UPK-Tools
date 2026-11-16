@@ -295,7 +295,11 @@ sealed partial class ModEditorView
     {
         if (agentLoading || game == null) return;
         var files = draft.Packages.Select(x => x.File).Where(f => PowerColorBuild.HasOwnEffects(f) && !agentPowers.ContainsKey(f)
-            && !f.StartsWith("UC__MarvelPlayerAudio_", StringComparison.OrdinalIgnoreCase)).ToList();   // (an audio package is no character with an AI's powers)
+            && !f.StartsWith("UC__MarvelPlayer", StringComparison.OrdinalIgnoreCase)).ToList();
+        // (not a hero's packages, nor an audio package: a hero's own powers are the list above. Monarch and Miike, 2026-11-15:
+        // with the hero's base package in the mod (Ghost Rider's, beside a costume), his powers were read again as that
+        // "character's" powers, shown in a second row, and every one of them was marked another character's: Borrow Power
+        // said "Only a hero's own powers can borrow a look" for all of them)
         if (files.Count == 0) return;
         agentLoading = true;
         var g = game;
@@ -358,7 +362,9 @@ sealed partial class ModEditorView
     {
         if (game == null) return;
         using var d = new OpenFileDialog { Title = "Add a Power Package", InitialDirectory = game.Cooked, RestoreDirectory = true,
-            Filter = "Power packages (UC__Power*.upk)|UC__Power*.upk|All effect packages (UC__*.upk)|UC__*.upk" };
+            // (Monarch, 2026-11-11: condition packages too: buffs, debuffs and lasting effects such as Doctor Strange's
+            // Mystic Energy orbs are UC__MarvelConditionEffect_* packages; the list showed only UC__Power* at first)
+            Filter = "Power and condition packages (UC__Power*.upk, UC__MarvelConditionEffect*.upk)|UC__Power*.upk;UC__MarvelConditionEffect*.upk|All effect packages (UC__*.upk)|UC__*.upk" };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         string f = Path.GetFileName(d.FileName);
         string? real = Directory.EnumerateFiles(game.Cooked, f).Select(Path.GetFileName).FirstOrDefault();

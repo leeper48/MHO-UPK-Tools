@@ -24,7 +24,7 @@ sealed partial class ModEditorView
     static Task<List<Costume>?>? costumesTask;
 
     /// <summary>A package's current file: the draft's (a work copy after a change, else the mod's own).</summary>
-    string? DraftPath(string file) => draft.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
+    internal string? DraftPath(string file) => draft.Packages.FirstOrDefault(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase)).Source;
     string? AnimFile => animPackages.Count == 0 ? null : animPackages[Math.Max(0, animPackage?.SelectedIndex ?? 0)];
     CostumeAnims.Anim? SelectedAnim => animGrid?.SelectedRows.Count > 0 ? animGrid.SelectedRows[0].Tag as CostumeAnims.Anim : null;
     /// <summary>An animation a change put in (a set of the package's own named …_on_…). A form's animation (its set is the

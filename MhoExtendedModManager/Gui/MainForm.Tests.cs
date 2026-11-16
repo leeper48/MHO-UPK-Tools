@@ -1224,6 +1224,55 @@ sealed partial class MainForm
         return missing > 0 && missing == offs ? 0 : 1;
     }
 
+    /// <summary>
+    /// --voice-borrow-test (scratch libraries only; Monarch, 2026-11-11): Use Another Voice on a package a borrowed power also
+    /// builds, Save, and the saved package must hold the new voice (it was rebuilt from the borrows' starting copy and lost it).
+    /// Then reopened and saved unchanged: still there. Results in &lt;dir&gt; esult.txt.
+    /// </summary>
+    public async Task VoiceBorrowTest(string dir, string modName, string package, string voice)
+    {
+        Directory.CreateDirectory(dir);
+        var lines = new List<string>();
+        void Check(bool ok, string what) => lines.Add((ok ? "PASS " : "FAIL ") + what);
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            List<string> Events(Mod mm) => [.. VoiceSet.Read(package, Path.Combine(mm.Folder, package), mm.Manifest.VoiceOff ?? []).Where(l => l.Sound).Select(l => l.Event)];
+            var before = Events(m);
+            lines.Add($"before: {before.Count} lines, first {before.FirstOrDefault()}");
+            OpenEditor(m); pages.Select(1);
+            Check(await editor!.UseVoiceForTest(package, voice), $"Use Another Voice: {voice} into {package}");
+            var inDraft = editor.DraftPath(package) is string dp ? VoiceSet.Read(package, dp, []).Where(l => l.Sound).Select(l => l.Event).ToList() : [];
+            lines.Add($"draft: {inDraft.Count} lines, first {inDraft.FirstOrDefault()}");
+            string? saved = await editor.SaveForTest();
+            Check(saved != null, "saved");
+            m = lib!.Find(saved ?? modName)!;
+            var after = Events(m);
+            lines.Add($"saved: {after.Count} lines, first {after.FirstOrDefault()}");
+            Check(after.Count > 0 && !after.SequenceEqual(before) && after.SequenceEqual(inDraft), "the saved package holds the new voice (as the draft had it)");
+            OpenEditor(m); pages.Select(1);
+            saved = await editor!.SaveForTest();
+            m = lib!.Find(saved ?? modName)!;
+            Check(Events(m).SequenceEqual(after), "reopened and saved again: the voice stays");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(Path.Combine(dir, "result.txt"), lines);
+    }
+
+    /// <summary>--borrow-lock-test (scratch libraries only): the Powers tab of a mod, which hero powers Borrow Power takes.</summary>
+    public async Task BorrowLockTest(string outFile, string modName)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            lines.AddRange(await editor!.BorrowStateForTest());
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
+    }
+
     public async Task VoiceShiftTabTest(string dir, string modName, float pitch, float formant, float warmth)
     {
         Directory.CreateDirectory(dir);

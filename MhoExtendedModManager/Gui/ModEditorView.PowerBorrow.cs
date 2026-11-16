@@ -323,14 +323,28 @@ sealed partial class ModEditorView
     /// <summary>The climb speed and when the hero is fully up, against when the loop starts.</summary>
     void ShowClimbNote(PowerBorrowEntry e) => climbNote.Text = $"Climb Speed {e.ClimbNow:0}" + (e.ClimbSpeed == null ? " (the game's)" : "") + ". " + ClimbNoteText(e, e.ClimbNow);
 
+    /// <summary>A hero's own power with an animation (a power with no animation of its own takes one too when it's cast, not passive: Seeker Orbs).</summary>
+    bool CanBorrow(Fx.PowerList.Power p) => !PowerColorBuild.IsOwn(p.Prototype) && !PowerColorBuild.IsPackage(p.Prototype) && !agentOwner.ContainsKey(p.Prototype) && PowerBorrow.HeroOf(p.Prototype) != null
+        && (p.Animations.Count > 0 || powerDb != null && PowerBorrow.CastWithoutAnimation(powerDb, p.Prototype));
+
+    /// <summary>--borrow-lock-test: once the Powers tab's lists are in (the other characters' powers too), each hero power with
+    /// an animation and whether Borrow Power takes it.</summary>
+    internal async Task<List<string>> BorrowStateForTest()
+    {
+        SelectTab(pages.FindIndex(x => x.Title == "Powers"));
+        for (int i = 0; i < 600 && (!powerPreview.HeroPowersReady || agentLoading || powerList.Items.Count == 0); i++) await Task.Delay(100);
+        await Task.Delay(3000);   // (the other characters' powers arrive after the list fills)
+        var items = powerList.Items.Cast<Fx.PowerList.Power>().ToList();
+        return [$"{items.Count} entries", .. items.Where(p => PowerBorrow.HeroOf(p.Prototype) != null && p.Animations.Count > 0)
+            .GroupBy(p => p.Prototype, StringComparer.OrdinalIgnoreCase).Select(g => $"{(CanBorrow(g.First()) ? "can   " : "LOCKED")} {g.First().Name} ×{g.Count()}")];
+    }
+
     PowerBorrowEntry? BorrowOf(string proto) => draft.PowerBorrows.FirstOrDefault(e => e.Power.Equals(proto, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The selected power's borrow, in the caption and the buttons (a hero's power with an animation only).</summary>
     void ShowBorrow(Fx.PowerList.Power p)
     {
-        // (a power with no animation of its own takes one too when it's cast, not passive: Seeker Orbs)
-        bool can = !PowerColorBuild.IsOwn(p.Prototype) && !PowerColorBuild.IsPackage(p.Prototype) && !agentOwner.ContainsKey(p.Prototype) && PowerBorrow.HeroOf(p.Prototype) != null
-            && (p.Animations.Count > 0 || powerDb != null && PowerBorrow.CastWithoutAnimation(powerDb, p.Prototype));
+        bool can = CanBorrow(p);
         var e = BorrowOf(p.Prototype);
         if (borrowButton != null) borrowButton.Enabled = can && !borrowBuilding;
         if (borrowRemove != null) borrowRemove.Enabled = e != null && !borrowBuilding;

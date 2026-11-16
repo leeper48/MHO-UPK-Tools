@@ -852,6 +852,26 @@ static partial class Program
             Application.Run(main);
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--borrow-lock-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --borrow-lock-test <out.txt> <mod> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.BorrowLockTest(args[1], args[2]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 5 && args[0].Equals("--voice-borrow-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --voice-borrow-test <dir> <mod> <package> <voice title> (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.VoiceBorrowTest(args[1], args[2], args[3], args[4]); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
         if (args.Length == 3 && args[0].Equals("--keep-editing-test", StringComparison.OrdinalIgnoreCase))
         {
             if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;   // scratch libraries only
