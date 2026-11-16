@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.498
+- Audio → Voice: Use Another Voice and lines turned off are kept in a mod with borrowed powers. Save rebuilt the packages a borrow changes (the hero's other costumes it adds) and dropped the voice.
+- Powers tab: with the hero's base package in the mod (beside a costume, as a borrow adds it), the hero's powers were listed twice and Borrow Power refused every one ("Only a hero's own powers can borrow a look"). Each power is listed once again and can borrow a look.
+- Powers tab → Add Package: the file window lists condition effect packages (UC__MarvelConditionEffect…: buffs, debuffs, Doctor Strange's Mystic Energy orbs) beside the power packages from the start.
+
 0.60.495
 - FreeCam Options → Snap Behind: Snap on Attack (off at first). Your powers (keyboard, mouse or gamepad) turn the camera behind your hero while you fight in Free Orbit, smoothly, and only when it's turned further than Only When Turned Past (60° to start; 0 = every press). Only the direction changes: your tilt, height and zoom stay. Locked Behind and Default MHO aren't changed. Apply to Game to put it in.
 - FreeCam Options: with Settings → Ask Before Applying off, Apply to Game no longer opens a window when it works; the line beside the button says it was applied. A failed apply still shows what happened.

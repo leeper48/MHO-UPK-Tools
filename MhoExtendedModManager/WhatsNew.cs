@@ -52,11 +52,15 @@ static class WhatsNew
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
     /// Parts, game materials in This Material for a costume's own, Rename Material, Copy Setup and crash fixes.</summary>
     static Notice SnapOnAttack() => new(
-        "0.60.495-snap-on-attack", "0.60.495",
+        "0.60.498-snap-on-attack", "0.60.498",
         "[!]New on the FreeCam Options tab" + nl +
         "  • Snap on Attack (on the Snap Behind card): your powers turn the camera behind your hero while you fight in Free Orbit, from the keyboard, mouse or gamepad. It swings smoothly, and only when the camera is turned further than Only When Turned Past (60° to start), so small turns toward a target leave it alone. Your tilt, height and zoom stay as they are." + nl +
         "  • With Settings → Ask Before Applying off, Apply to Game doesn't open a window when it works; the line beside the button says it was applied." + nl + nl +
+        "[!]Fixed" + nl +
+        "  • Voice changes are kept in a mod with borrowed powers (Save dropped them from the costumes a borrow added)." + nl +
+        "  • With the hero's base package in a mod, Borrow Power refused every power (\"Only a hero's own powers can borrow a look\") and the powers were listed twice." + nl + nl +
         "[!]Also" + nl +
+        "  • Powers tab → Add Package lists condition effect packages too (buffs, debuffs, Doctor Strange's orbs)." + nl +
         "  • Apply Changes shows its progress in a bar left of the button, until everything is done." + nl +
         "  • Apply Changes on the Mods tab also puts in your current FreeCam Options settings, once FreeCam Options is applied." + nl +
         "  • A mod list damaged by a crash or power cut no longer crashes the app at every start: it's restored from the copy kept before it, and you're told." + nl + nl +
