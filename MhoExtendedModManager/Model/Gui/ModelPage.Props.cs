@@ -284,7 +284,7 @@ sealed partial class ModelPage
         Check(ok && built.ContainsKey(file) && log.Text.Contains("kept as it is"), "its own model built back as it is");
         // Prop Fit (phase 2): the sliders show for a prop target; a move, turn and size change the preview and go into the build
         UpdatePropFitUi();
-        Check(propFitBox?.Visible == true && sizeBoxRef?.Visible == false && sizeCaption?.Text == "PROP FIT", "Prop Fit shows in place of the size sliders");
+        Check(propFitBox?.Visible == true && sizeBoxRef?.Visible == false && sizeCaption?.Text.EndsWith("PROP FIT") == true, "Prop Fit shows in place of the size sliders");
         // the gizmo on the game prop (Kurt, 2026-10-28): on its grip; an arrow moves it, a ring turns it, kept after letting go
         for (int i = 0; i < 150 && (!GizmoShownForTest || refreshing); i++) await Task.Delay(100);
         Check(GizmoShownForTest, $"Gizmo on the game prop: shown ({heldClass})");

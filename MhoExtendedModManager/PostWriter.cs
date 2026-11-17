@@ -190,8 +190,58 @@ static class PostWriter
     public const string BannerName = "Marvel Heroes Omega Banner.png";
     static string BlankFile => Path.Combine(AppContext.BaseDirectory, "Assets", "Post", "showcase_blank.jpg");
 
+    static string VisualUpdateBlankFile => Path.Combine(AppContext.BaseDirectory, "Assets", "Post", "visual_update_blank.jpg");
+
     /// <summary>Where the comic cover goes on the 1920 x 1080 showcase image (right of the middle, nearly full height).</summary>
     public static readonly System.Drawing.Rectangle CoverSlot = new(935, 40, 650, 1000);
+    /// <summary>The Visual Update template's cover slot: the open area right of the two panels.</summary>
+    public static readonly System.Drawing.Rectangle VisualUpdateCoverSlot = new(1160, 40, 650, 1000);
+    /// <summary>The Visual Update template's panels (1920 x 1080): under LAUNCH and VISUAL UPDATE, between the titles and the logos.</summary>
+    public static readonly System.Drawing.Rectangle LaunchPanel = new(102, 100, 344, 800), VisualUpdatePanel = new(566, 100, 468, 800);
+
+    /// <summary>The kinds of Nexus picture: the file name ends in its suffix (" showcase", " visual update"), which also picks the cover slot.</summary>
+    public const string ShowcaseSuffix = " showcase", VisualUpdateSuffix = " visual update";
+    public static System.Drawing.Rectangle CoverSlotFor(string file) =>
+        Path.GetFileNameWithoutExtension(file).EndsWith(VisualUpdateSuffix, StringComparison.OrdinalIgnoreCase) ? VisualUpdateCoverSlot : CoverSlot;
+
+    /// <summary>A .dds (or any picture) as a Bitmap; null when it can't be read.</summary>
+    public static System.Drawing.Bitmap? Picture(string file)
+    {
+        try
+        {
+            if (!file.EndsWith(".dds", StringComparison.OrdinalIgnoreCase)) return ImageFiles.Load(file);
+            var d = MhoPackageModifier.TextureDecode.ReadDds(file, out _);
+            var bgra = d is { } x ? MhoPackageModifier.TextureDecode.ToBgra(x.Format, x.W, x.H, x.Data, out _) : null;
+            return bgra == null ? null : MhoPackageModifier.TextureDecode.ToBitmap(bgra, d!.Value.W, d.Value.H);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException or InvalidDataException) { return null; }
+    }
+
+    /// <summary>
+    /// The Visual Update template (Kurt, 2026-11-17): the game's look under LAUNCH, the mod's under VISUAL UPDATE (each fitted
+    /// into its panel, standing on its bottom), the right side left for a cover. Writes a 1920 x 1080 PNG.
+    /// </summary>
+    public static System.Drawing.Bitmap VisualUpdateImage(System.Drawing.Image? before, System.Drawing.Image? after, string? cover = null)
+    {
+        var bmp = new System.Drawing.Bitmap(1920, 1080, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = System.Drawing.Graphics.FromImage(bmp);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        if (File.Exists(VisualUpdateBlankFile)) using (var back = System.Drawing.Image.FromFile(VisualUpdateBlankFile)) g.DrawImage(back, 0, 0, 1920, 1080);
+        // both at the same height (a fair before / after), centered in their panel and cut at its edges
+        void Fit(System.Drawing.Image? img, System.Drawing.Rectangle r)
+        {
+            if (img == null) return;
+            int h = Math.Min(680, r.Height), w = img.Width * h / Math.Max(1, img.Height);
+            g.SetClip(r);
+            g.DrawImage(img, new System.Drawing.Rectangle(r.X + (r.Width - w) / 2, r.Bottom - h, w, h));
+            g.ResetClip();
+        }
+        Fit(before, LaunchPanel);
+        Fit(after, VisualUpdatePanel);
+        if (cover != null) DrawCover(g, cover, VisualUpdateCoverSlot);
+        return bmp;
+    }
 
     /// <summary>Copies the banner into a folder of exported images (Export Images, Export ZIP's post folder).</summary>
     public static void AddBanner(string folder)
@@ -221,7 +271,7 @@ static class PostWriter
             // the character: as tall as the cover, centered in the left part (like Kurt's example)
             int h = 900, w = art.Width * h / Math.Max(1, art.Height);
             g.DrawImage(art, new System.Drawing.Rectangle(470 - w / 2, 1030 - h, w, h));
-            if (cover != null) DrawCover(g, cover);
+            if (cover != null) DrawCover(g, cover, CoverSlot);
         }
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outFile))!);
         bmp.Save(outFile, System.Drawing.Imaging.ImageFormat.Png);
@@ -241,16 +291,15 @@ static class PostWriter
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
                 // the slot scaled to this image's size (the same layout at another size)
                 g.ScaleTransform(bmp.Width / 1920f, bmp.Height / 1080f);
-                DrawCover(g, cover);
+                DrawCover(g, cover, CoverSlotFor(showcaseFile));
             }
             bmp.Save(showcaseFile, System.Drawing.Imaging.ImageFormat.Png);
         }
     }
 
-    static void DrawCover(System.Drawing.Graphics g, string cover)
+    static void DrawCover(System.Drawing.Graphics g, string cover, System.Drawing.Rectangle r)
     {
-        using var c = System.Drawing.Image.FromFile(cover);
-        var r = CoverSlot;
+        using var c = ImageFiles.Load(cover);
         float k = Math.Min(r.Width / (float)c.Width, r.Height / (float)c.Height);
         int w = (int)(c.Width * k), h = (int)(c.Height * k);
         g.DrawImage(c, new System.Drawing.Rectangle(r.X + (r.Width - w) / 2, r.Y + (r.Height - h) / 2, w, h));

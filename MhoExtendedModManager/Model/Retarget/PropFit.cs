@@ -41,8 +41,16 @@ static class PropFit
         r.Notes.Add($"prop fit: moved {a.MoveX:0.#}, {a.MoveY:0.#}, {a.MoveZ:0.#}; turned {a.TurnX:0}°, {a.TurnY:0}°, {a.TurnZ:0}°; size ×{a.Scale:0.##}, around {sk.Bones[HoldBone(sk)].Name}");
     }
 
-    /// <summary>A prop skeleton: no pelvis and only a few bones (the game's props have 1–6: g_handle, g_muzzle …).</summary>
-    public static bool IsProp(MhoSkeleton sk) => sk.Find("g_pelvis") < 0 && sk.Bones.Count <= 12;
+    /// <summary>A prop skeleton: no pelvis and only a few bones (the game's props have 1–6: g_handle, g_muzzle …), or a
+    /// telescoping staff (a user, 2026-11-17: Gambit's has 17 bones, staff_root and g_sidea1-6 / g_sideb1-6, so Swap Model
+    /// stayed greyed out on it; Moon Knight's bo staff is built the same). A wider rule (any 13–24 bones without body bones)
+    /// also caught turrets, summons, pets and Medusa's hair ribbon (--isprop-census), so only staffs.</summary>
+    public static bool IsProp(MhoSkeleton sk)
+    {
+        if (sk.Find("g_pelvis") >= 0) return false;
+        if (sk.Bones.Count <= 12) return true;
+        return sk.Bones.Count <= 24 && sk.Find("staff_root") >= 0 && sk.Find("g_sidea1") >= 0;
+    }
 
     static Vector3 Mirror(Vector3 v) => new(v.X, -v.Y, v.Z);
 

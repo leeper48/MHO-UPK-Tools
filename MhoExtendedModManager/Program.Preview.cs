@@ -651,6 +651,31 @@ static partial class Program
                         Console.WriteLine($"{f} → {string.Join("; ", ps.Select(p => $"{p.Name} ({p.File}, {p.Power})"))}");
                 return 0;
             }
+            case "--isprop-census":
+            {
+                // --isprop-census <CookedPCConsole>: skeletal meshes in UC__ packages with 13-24 bones and no pelvis, and whether
+                // PropFit.IsProp counts them as props (read only; skips bak / copy files)
+                if (rest.Count < 2) { Console.WriteLine("--isprop-census <CookedPCConsole>"); return 1; }
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string f in Directory.GetFiles(rest[1], "UC__*.upk"))
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        foreach (var mi in Model.MhoSkeleton.List(f))
+                        {
+                            var sk = Model.MhoSkeleton.Load(f, mi.Name);
+                            if (sk.Bones.Count is < 13 or > 24 || sk.Find("g_pelvis") >= 0) continue;
+                            string key = mi.Name + "|" + sk.Bones.Count;
+                            if (!seen.Add(key)) continue;
+                            Console.WriteLine($"{(Model.PropFit.IsProp(sk) ? "PROP " : "     ")} {sk.Bones.Count,2}  {mi.Name,-40} {fn}  [{string.Join(" ", sk.Bones.Take(8).Select(b => b.Name))}]");
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException or ArgumentException or IndexOutOfRangeException) { }
+                }
+                return 0;
+            }
             case "--prop-fbx-probe":
             {
                 // Read-only on the game (writes the game-source FBX cache): a prop exported as Edit in Blender would, read back

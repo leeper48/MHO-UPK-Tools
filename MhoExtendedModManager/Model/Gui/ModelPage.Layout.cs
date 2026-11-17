@@ -83,6 +83,9 @@ sealed partial class ModelPage
         void Show()
         {
             bool folded = Folded(key);
+            // (the caption as it is now: the size column's changes to PROP FIT for a prop target, which kept no arrow, so a
+            // folded column looked open and empty: Monarch, 2026-11-17)
+            caption = label.Text.TrimStart('▸', '▾', ' ');
             label.Text = (folded ? "▸ " : "▾ ") + caption;
             foreach (Control c in t.Controls) if (c != label) c.Visible = !folded;
         }

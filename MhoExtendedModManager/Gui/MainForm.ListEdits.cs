@@ -113,7 +113,7 @@ sealed partial class MainForm
     /// <summary>Create Post for an installed mod: the post saved in it, kept in its Post\ folder (no reload needed).</summary>
     void CreatePost(Mod m)
     {
-        using var f = new PostForm(PostWriter.From(m), m.Folder, ModPost.Read(m.Folder), (n, d, imgs) => ModPost.Write(m.Folder, n, d, imgs));
+        using var f = new PostForm(PostWriter.From(m), m.Folder, ModPost.Read(m.Folder), (n, d, imgs) => ModPost.Write(m.Folder, n, d, imgs), catalog: storePreview.Catalog);
         f.ShowDialog(this);
     }
 

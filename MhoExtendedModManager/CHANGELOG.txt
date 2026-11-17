@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.537
+- Create Post and the Editor's Details page: Make Visual Update Image, the game's look under LAUNCH beside the mod's under VISUAL UPDATE (the game's store image and the mod's by default; pick another of the mod's or the game's images, or a file of your own, for either), with room on the right for a comic cover.
+- Model tab: Swap Model works on Gambit's staff (and Moon Knight's bo staffs): their telescoping skeletons weren't taken for props, so Swap Model stayed greyed out.
+- Model tab: a folded Size in Game section keeps its ▸ when the target is a prop (PROP FIT); it looked open and empty, hiding the Prop Fit sliders and Held On.
+
 0.60.535
 - Create Post: the Nexus post follows Nexus's own Full Description template (Description, Installation instructions, Main features, Requirements, Shout outs). A post saved earlier keeps its layout until Start Over.
 - Create Post: Make Showcase Image (a 1920 x 1080 Nexus picture: the Marvel Heroes Omega backdrop, the mod's store image and a comic cover you pick or drop in with your image editor), Open in Image Editor for any post picture (each save comes back), and Export Images adds the Marvel Heroes Omega banner for the top of the page.

@@ -179,7 +179,7 @@ sealed partial class ModelPage
         var ap = addedPick;
         bool prop = ap != null || TargetIsProp();
         if (propFitBox.Visible != prop) { propFitBox.Visible = prop; sizeBoxRef.Visible = !prop; }
-        if (sizeCaption != null) sizeCaption.Text = ap != null ? "PROP FIT  ·  ADDED PROP" : prop ? "PROP FIT" : "SIZE IN GAME";
+        if (sizeCaption != null) sizeCaption.Text = (Folded("size") ? "▸ " : "▾ ") + (ap != null ? "PROP FIT  ·  ADDED PROP" : prop ? "PROP FIT" : "SIZE IN GAME");   // (the fold arrow kept)
         // an added prop: its fit as the Animations tab kept it (moved further: ±120), turned for this hand by default
         float range = ap != null ? 120 : 60, dz = ap != null ? PowerBorrow.DefaultTurnZ(ap.Class) : 0;
         foreach (var s in new[] { propMoveX, propMoveY, propMoveZ }) { s.Min = -range; s.Max = range; }

@@ -106,6 +106,7 @@ static partial class Program
         ("--variation-test", "--variation-test <scratch folder>", "Test, writes only in the scratch folder: the Variations tab's edits on copies of the stock squirrel packages, each read back."),
         ("--summon-partners", "--summon-partners", "Every summon or power model with its partner: the same power's other model (Strike Team - Beast's tumble and the Beast who stays), as the Model tab offers after a build. Changes nothing."),
         ("--prop-census", "--prop-census [hero ...]", "Every hero costume's props: the package holding each prop's model, its bone, slots and every package with a copy (MHO_CENSUS_OUT: the Model tab's props table). Changes nothing."),
+        ("--isprop-census", "--isprop-census <CookedPCConsole>", "List the skeletal meshes with 13 to 24 bones and no pelvis in the game's UC__ packages, and which of them the Model tab counts as props (read only)."),
         ("--prop-fbx-probe", "--prop-fbx-probe <package file> <mesh>", "A prop exported as Edit in Blender would, read back: its joints and bounds against the game's (the export's axes). Writes only the game-model cache."),
         ("--model-props-test", "--model-props-test <mod> <costume package> <prop mesh> <other source package>", "Scratch libraries only (MHO_EXTMM_HOME): props in the Model tab's Source panel: picked as the source, right-clicked to the target, its own model built back, another game model fitted onto it. The mod isn't saved."),
         ("--model-partner-test", "--model-partner-test <mod> <target package> <source package>", "Scratch libraries only (MHO_EXTMM_HOME): a build onto a power model offers its summon; answered Build onto It Too. The mod isn't saved."),
@@ -138,7 +139,7 @@ static partial class Program
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
-        ("--post", "--post <mod> [nexus|discord | images <dir> | showcase <out.png> [cover]]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown); save its images, or make its showcase image."),
+        ("--post", "--post <mod> [nexus|discord | images <dir> | showcase <out.png> [cover] | visualupdate <out.png> [cover]]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown); save its images, or make its showcase image."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
         ("--card-pictures", "--card-pictures [mod]", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to. With a mod: the pictures its preview offers, and those of the characters its models came from. Changes nothing."),
         ("--spell-test", "--spell-test <text>", "The spell checker on a text: each misspelled word with its suggestions (read only)."),
@@ -385,6 +386,15 @@ static partial class Program
                     files.ForEach(Console.WriteLine);
                     Console.WriteLine($"{files.Count} image(s) saved.");
                     return files.Count > 0 ? 0 : 1;
+                }
+                if (rest.Count > 3 && rest[2].Equals("visualupdate", StringComparison.OrdinalIgnoreCase))
+                {
+                    // --post <mod> visualupdate <out.png> [cover]: Make Visual Update Image with its default pictures
+                    var vgame = settings.GameRoot is string vr ? new GameState(vr, lib.DataFolder) : null;
+                    string? vmade = Gui.VisualUpdateForm.MakeDefault(src, pm.Folder, vgame != null ? new StockCatalog(lib, vgame) : null, Path.GetFullPath(rest[3]));
+                    if (vmade != null && rest.Count > 4) PostWriter.PutCover(vmade, rest[4]);
+                    Console.WriteLine(vmade ?? "Not made.");
+                    return vmade != null ? 0 : 1;
                 }
                 if (rest.Count > 3 && rest[2].Equals("showcase", StringComparison.OrdinalIgnoreCase))
                 {

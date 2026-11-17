@@ -18,6 +18,7 @@ sealed class PostForm : Form
     readonly string modFolder, modName;
     readonly Action<string?, string?, List<string>> save;
     readonly List<string> images;
+    readonly StockCatalog? catalog;   // the game's store images for Make Visual Update Image
     readonly string tempImages = Path.Combine(Path.GetTempPath(), "mhoextmm_post_" + Guid.NewGuid().ToString("N")[..8]);
     string? selectedImage;
     bool dirty;
@@ -29,8 +30,9 @@ sealed class PostForm : Form
     /// <param name="save">Keeps the post: into the mod's folder, or into the draft (saved with the mod).</param>
     /// <param name="keptWithDraft">True for a mod being created or edited (the post is saved with it).</param>
     public PostForm(PostWriter.Source source, string modFolder, (string? Nexus, string? Discord, List<string> Images) saved,
-                    Action<string?, string?, List<string>> save, bool keptWithDraft = false)
+                    Action<string?, string?, List<string>> save, bool keptWithDraft = false, StockCatalog? catalog = null)
     {
+        this.catalog = catalog;
         this.source = source; this.modFolder = modFolder; this.save = save;
         images = [.. saved.Images];
         modName = string.IsNullOrWhiteSpace(source.Manifest.Name) ? "Mod" : source.Manifest.Name;
@@ -69,6 +71,7 @@ sealed class PostForm : Form
         imgHead.Controls.Add(Ui.FlatButton("Add Screenshots", AddScreenshots, tip: "Add pictures (.PNG, .JPG) to the post, e.g. in-game screenshots of the mod."));
         imgHead.Controls.Add(Ui.FlatButton("Add Mod Images", AddModImages, tip: "Add the mod's own store image, costume icons and hero portraits as .PNG."));
         imgHead.Controls.Add(Ui.FlatButton("Make Showcase Image", MakeShowcase, tip: "A 1920 x 1080 picture for the Nexus page: the Marvel Heroes Omega backdrop with the mod's store image on the left and room on the right for a comic cover (pick one, or drop it in with your image editor)."));
+        imgHead.Controls.Add(Ui.FlatButton("Make Visual Update Image", MakeVisualUpdate, tip: "A 1920 x 1080 picture for the Nexus page: the game's store image under LAUNCH and the mod's under VISUAL UPDATE (pick others if you like), with room on the right for a comic cover."));
         imgHead.Controls.Add(Ui.FlatButton("Open in Image Editor", () => EditImage(selectedImage), tip: "Open the selected picture in your image editor (Settings ▾ → Model → Choose Image Editor). Each save there comes back into the post."));
         imgHead.Controls.Add(Ui.FlatButton("Remove", RemoveImage, tip: "Remove the selected picture from the post (click a picture to select it)."));
         t.Controls.Add(imgHead, 0, 3);
@@ -160,7 +163,7 @@ sealed class PostForm : Form
             Ui.ForgetOnDispose(pic);
             strip.Controls.Add(pic);
         }
-        if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots, Add Mod Images or Make Showcase Image.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });
+        if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots, Add Mod Images, Make Showcase Image or Make Visual Update Image.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });
     }
 
     void AddScreenshots()
@@ -217,18 +220,46 @@ sealed class PostForm : Form
     void MakeShowcase()
     {
         Directory.CreateDirectory(tempImages);
-        string stem = ModInstaller.Sanitise(modName) + " showcase";
-        string file = Path.Combine(tempImages, stem + ".png");
-        for (int i = 2; File.Exists(file) || images.Contains(file, StringComparer.OrdinalIgnoreCase); i++) file = Path.Combine(tempImages, $"{stem} ({i}).png");
+        string file = NewFile(PostWriter.ShowcaseSuffix);
         string? made;
         try { made = PostWriter.Showcase(source, modFolder, file); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
         { Dialog.Show(this, ex.Message, "Showcase Image Not Made", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (made == null) { Dialog.Show(this, "The showcase image is made from the mod's store image, and this mod has none.\n\nAdd one on the Editor's Icons → Store Images tab.", "No Store Image"); return; }
+        Added(made, "The showcase image is made: the mod's store image on the left, room on the right for a comic cover.", "Showcase Image");
+    }
+
+    /// <summary>A new file in the post's own folder whose name ends in the picture kind's suffix.</summary>
+    string NewFile(string suffix)
+    {
+        Directory.CreateDirectory(tempImages);
+        string stem = ModInstaller.Sanitise(modName) + suffix;
+        string file = Path.Combine(tempImages, stem + ".png");
+        // (a number goes before the suffix, so the name still ends in it)
+        for (int i = 2; File.Exists(file) || images.Contains(file, StringComparer.OrdinalIgnoreCase); i++) file = Path.Combine(tempImages, $"{ModInstaller.Sanitise(modName)} ({i}){suffix}.png");
+        return file;
+    }
+
+    void MakeVisualUpdate()
+    {
+        string? made;
+        try
+        {
+            using var f = new VisualUpdateForm(source, modFolder, catalog, NewFile(PostWriter.VisualUpdateSuffix));
+            if (f.ShowDialog(this) != DialogResult.OK) return;
+            made = f.Made;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
+        { Dialog.Show(this, ex.Message, "Visual Update Image Not Made", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (made != null) Added(made, "The visual update image is made: the two looks side by side, room on the right for a comic cover.", "Visual Update Image");
+    }
+
+    /// <summary>A made picture into the post (first), then the cover question.</summary>
+    void Added(string made, string text, string caption)
+    {
         images.Insert(0, made); selectedImage = made; dirty = true;
         ShowImages();
-        int a = Dialog.Choose(this, "The showcase image is made: the mod's store image on the left, room on the right for a comic cover.\n\nAdd the cover now?",
-                              "Showcase Image", "Pick a Cover Image", "Open in Image Editor", "Later");
+        int a = Dialog.Choose(this, text + "\n\nAdd the cover now?", caption, "Pick a Cover Image", "Open in Image Editor", "Later");
         if (a == 0)
         {
             using var d = new OpenFileDialog { Title = "Comic Cover", Filter = "Images (*.PNG;*.JPG;*.JPEG;*.BMP;*.WEBP;*.GIF)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif" };
