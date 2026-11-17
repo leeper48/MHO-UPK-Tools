@@ -1,6 +1,22 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.528
+- Power buttons: the Mods and Model tabs' power buttons show the mod's own power names and icons, as the Powers tab does (a borrowed power's icon and your own icons too). Pointing at a power shows its name, whose look it borrows and its original name in the game.
+- Right-click a power (a power button on the Mods or Model tab, after the shortcut items, or a tile on the Powers tab): Rename Power, Replace Icon, Make Icon From 3D View, Change Its Animations and Borrow Power. Rename and the icons work on any power, borrowed or not. From the Mods tab the Editor opens on the power; Change Its Animations opens the Animations tab found to that power's animations.
+- Make Icon From 3D View: a snapshot of the 3D view playing the power (with its effects, never the ground) as the power's icon, over a background color, a soft light or a two-color radial gradient. Mouse wheel and drag zoom and move the character in the icon. Effects: hue, saturation, brightness, contrast, gamma, glow, an outline and a shadow. Character Only (Transparent) opens it in your image editor for streaks and blurs (each save comes back, the background and effects applied), or Whole Icon (With Background). Use as Icon converts it to the power bar's 40 x 40 and the large 128 x 128 icon.
+- Animations tab: Bone Lengths and Shape Keys. Keep Bone Lengths keeps the model's own bone lengths where an animation slides bones (Carnage's Vicious Lunge stretches his fingers into claws); Shape Keys leaves out the morph targets an animation drives (Carnage's blades, mace and hand scale). Only the costume's copy of the animation changes.
+- Powers tab → Parts: Weapon rows, for a power that brings out the hero's weapons while it runs (Carnage's arm scythes in Reaping Time and Slaying Swipes). Untick one and the power shows none; the 3D view follows.
+- 3D preview: Idle, Combat Idle, Fidget 1 and Fidget 2 buttons after the power buttons; click the one playing again to pause it.
+- Model tab, a game character onto another one (Medusa on Carnage): Use the Source's Animations copies the source's animations of the same names (idle, fidgets, run, emotes); the source's own animations are fitted to the model's skeleton (knees, ankles, toes); Add Rigs → Medusa's Hair gives her model the team-up's own mane with its motion; the model no longer floats when Feet is left at 0; the preview shows the hair's textures as the package has them.
+- Feet (Model tab): measured from the model's feet and lower legs, so long hair, a cape or a skirt hanging below the soles no longer counts as the floor.
+- Pictures: a mod whose model came from another game character offers that character's portrait, costume icon and store image for its card and its preview.
+- Animations tab: an animation a borrowed travel power plays (a run borrowed onto a swing or a flight) can be changed and is lowered for the flying height like the borrow's own. The lowering is kept when the borrows are rebuilt (a borrowed run over a swing sat too high after Save).
+- Voice: a team-up's voice used on a costume no longer lets the hero's own lines through where the team-up has none (Carnage's lines on Medusa when she loads in).
+- Powers tab → Parts: effects a character's parts take from their class (Carnage's ambient tendrils) are listed and can be switched off.
+- Closing the app with unsaved changes in the Editor asks first.
+- Create Post: the Discord tab was blank (its text was there, hidden under the Nexus tab's box).
+
 0.60.498
 - Audio → Voice: Use Another Voice and lines turned off are kept in a mod with borrowed powers. Save rebuilt the packages a borrow changes (the hero's other costumes it adds) and dropped the voice.
 - Powers tab: with the hero's base package in the mod (beside a costume, as a borrow adds it), the hero's powers were listed twice and Borrow Power refused every one ("Only a hero's own powers can borrow a look"). Each power is listed once again and can borrow a look.

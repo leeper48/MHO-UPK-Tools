@@ -55,8 +55,11 @@ sealed class PostForm : Form
         };
         t.Controls.Add(hint, 0, 1);
         Resize += (_, _) => hint.MaximumSize = new Size(Math.Max(200, ClientSize.Width - Padding.Horizontal - 10), 0);   // wraps
-        tabs.Add("Nexus", nexus);
-        tabs.Add("Discord", discord);
+        // each box on a page of its own (Kurt, 2026-11-17: the Discord tab showed nothing): the tabs show and hide their page,
+        // and a box's rounded frame (Modern.Modernize) only follows its own parent
+        static Panel PageOf(TextBox box) { var page = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0) }; page.Controls.Add(box); return page; }
+        tabs.Add("Nexus", PageOf(nexus));
+        tabs.Add("Discord", PageOf(discord));
         t.Controls.Add(tabs, 0, 2);
 
         // Images: the post's pictures, in the order they'll be uploaded.

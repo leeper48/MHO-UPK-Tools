@@ -141,6 +141,8 @@ static partial class Program
         ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
         ("--card-pictures", "--card-pictures [mod]", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to. With a mod: the pictures its preview offers, and those of the characters its models came from. Changes nothing."),
+        ("--power-icon-snapshot", "--power-icon-snapshot <character.png> <out.png>", "The manual's screenshot of Make Icon From 3D View, with a picture in place of the 3D view (off-screen)."),
+        ("--anim-body-snapshot", "--anim-body-snapshot <out.png>", "The manual's screenshot of Bone Lengths and Shape Keys (Carnage's Vicious Lunge; off-screen)."),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
 

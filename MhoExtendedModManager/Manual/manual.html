@@ -159,7 +159,9 @@ function mhoNext(dir) {
 <li><a href="#w-parts">Switch Off a Power's Sound, Effect or a Character's Hover</a></li>
 <li><a href="#w-decals">Change a Power's Mark on the Ground (Luke Cage's "CAGE")</a></li>
 <li><a href="#w-borrow">Borrow Another Hero's Power</a></li>
+<li><a href="#w-powericon">Rename a Power or Make Its Icon from the 3D View</a></li>
 <li><a href="#w-anims">Give a Costume Another Character's Animations</a></li>
+<li><a href="#w-body">Stop an Animation Stretching or Reshaping the Model</a></li>
 <li><a href="#w-height">Raise or Lower the Body During an Animation</a></li>
 <li><a href="#w-voice">Give a Costume Another Voice, Shift It or Add Effects</a></li>
 <li><a href="#w-lines">Replace Voice Lines with Your Own Audio</a></li>
@@ -280,6 +282,8 @@ function mhoNext(dir) {
 <li>Press <kbd>P</kbd> to pause. The <b>Frame</b> slider takes the focus, so the arrow keys step through the animation one frame at a time; <kbd>P</kbd> again plays on from there.</li>
 <li>Under the view, <b>Chain</b> (the link, beside Loop) plays a power's start, loop and end one after another, as the game plays them; right-click it for how many times the loop repeats. <b>◀</b> and <b>▶</b> beside the Frame slider step to the previous or next part; with Chain off they step through the animation list instead (from the last back to the first), each from its start. Right-click <b>Head</b>, <b>Bust</b> or <b>Full Body</b> (or Shift+click) to lock the camera to that part while the animation plays; do it again to unlock.</li>
 <li>Turn the effects off and on with <b>Power FXs</b> above the buttons. Click the power again to see all the hero's animations.</li>
+<li>After the power buttons, <b>Idle</b>, <b>Combat Idle</b>, <b>Fidget 1</b> and <b>Fidget 2</b> (standing figures) play those animations; click the one playing again to pause it.</li>
+<li>The buttons show the mod's own power names and icons (a borrowed look's too). Point at one for its name, whose look it borrows and its original name; right-click one to rename it, change its icon or animations, or borrow another power's look (<a href="#w-powericon">Rename a Power or Make Its Icon</a>).</li>
 <li>An effect too faint to see? Open <b>Look ▾</b> (the eye) and raise <b>Effects</b> (10 % by default; remembered for every 3D preview).</li>
 <li>Powers with effects but no animation (procs, passives, Doctor Doom's The Will of Doom) have buttons too: their effects play over the idle (with Power FXs on). A power that changes the character's materials for a moment (Doom's force field) shows it on the model.</li>
 </ol>
@@ -391,6 +395,7 @@ function mhoNext(dir) {
 <li>Make a mod with one of the hero's packages (<b>Packages</b> tab → <b>Add .UPK Files</b>, from the game's CookedPCConsole folder: a costume, or the hero's own <i>UC__MarvelPlayer_&lt;Hero&gt;_SF.upk</i>), and save it once.</li>
 <li>Open it in the Editor and go to <b>Powers</b>. Pick a power, or <b>&lt;Hero&gt;: Character</b> (the <b>Char</b> tile) for the hero's own parts (hover, dodge, and the trails its animations draw, such as Magik's sword glow). Its <b>Color</b> tab recolors those parts' effects, such as the dodge's ghosts or the sword trails, as for a power. (The 3D view doesn't draw animation trails; check them in game. A trail's texture stored uncompressed keeps its own pixels, so the color tints it.)</li>
 <li>The <b>Parts</b> tab lists what it shows and plays: <b>Settings</b> (such as <b>Can Transition to Hover</b>), <b>Attachments</b> (props such as Invisible Woman's disc), <b>Weapon</b> (a weapon slot the power shows while it runs, such as Carnage's arm scythes in Reaping Time and Slaying Swipes: off, the power shows no props for that slot, in the 3D view too), <b>Effects</b> (▶ shows one in the 3D view over the idle: <b>Dodge Effect</b> shows the dodge's ghosts) and <b>Sounds</b> (▶ plays one), including the parts of the missiles the power fires (Storm's Elusive Shock: its bolt's trail). Untick the ones to switch off; the 3D view follows the boxes at once, before you save.</li>
+<li>A power that brings out the hero's weapons while it runs has a <b>Weapon</b> row (<i>Shows Weapon Slot "scythes"</i>: Carnage's arm scythes in Reaping Time and Slaying Swipes). Untick it so the power shows none of them, on a new model that doesn't hold them; the 3D view hides them at once.</li>
 <li>A power's own effects play alone with ▶, on the character as the power shows it (Unleash the Phoenix: on her Phoenix form, with the wings). Pick the power again for all of them.</li>
 <li>Save Changes, then Apply Changes.</li>
 <li>On a hero's <b>Character</b> entry (the <b>Char</b> tile), the list also has an <b>Anim Trail</b> row for each trail its animations draw (Magik's sword glows: Soul Sword, Dark Reaping, Soul Shockwave …), with how many animations play it. Untick one to switch that trail off in all of them.</li>
@@ -430,16 +435,50 @@ function mhoNext(dir) {
 </div>
 
 <div class="walk">
+<h3 id="w-powericon">Rename a Power or Make Its Icon from the 3D View</h3>
+<ol class="steps">
+<li>Right-click the power: its button under the 3D view on the Mods or Model tab, or its tile on the Editor's Powers tab. (From the Mods tab, the Editor opens on the power.)</li>
+<li><b>Rename Power</b>: type its new name in game (English). Clearing the box, or typing the game's own name, takes the rename off.</li>
+<li><b>Replace Icon</b>: pick your own image (PNG, JPG, BMP or .DDS); it's converted to the power's icon sizes.</li>
+<li><b>Make Icon From 3D View</b>: the power plays in the 3D view. Pause on a good frame (<kbd>P</kbd>), turn and zoom the view, then work in the window that opens beside it:
+<ul><li>Pick a <b>background</b>: a color (Pick Color or a quick color), <b>Soft Light in the Middle</b>, or a <b>Two-Color Radial Gradient</b> into an <b>Edge Color</b> (<b>Size</b>: how far the middle color reaches).</li>
+<li>In the large preview, the mouse wheel zooms, dragging moves the character, a double-click shows the whole snapshot again.</li>
+<li><b>Effects</b>: Hue, Saturation, Brightness, Contrast, Gamma, <b>Glow</b> around the bright parts, an <b>Outline</b> in a color of your choice and a <b>Shadow</b>.</li>
+<li>For streaks or blurs, <b>Character Only (Transparent)</b> opens the character in your image editor (Settings ▾ → Model → Choose Image Editor); save it there as PNG over the same file (GIMP: Ctrl+E) and it comes back with the background and effects applied. <b>Whole Icon (With Background)</b> opens the finished icon, used as you save it.</li>
+<li><b>Take Snapshot</b> (F5) takes the view again after you change it; <b>Use as Icon</b> puts it in.</li></ul></li>
+<li><b>Change Its Animations</b> opens the Animations tab found to the power's animations; <b>Borrow Power</b> opens Borrow Power on it.</li>
+<li>Save Changes, then Apply Changes. The name goes into the Strings tab and the icons into the Icons tab, so the old manager installs them too.</li>
+</ol>
+<figure><img src="img/power-icon-maker.jpg" alt="Make Icon From 3D View: the icon large and at the power bar's size, the background (a two-color gradient here), the image editor buttons and the effects."><figcaption>Make Icon From 3D View: the icon large and at the power bar's size, the background (a two-color gradient here), the image editor buttons and the effects.</figcaption></figure>
+<p>See <a href="#powers">Power Colors</a>.</p>
+</div>
+
+<div class="walk">
 <h3 id="w-anims">Give a Costume Another Character's Animations</h3>
 <ol class="steps">
 <li>Open the mod in the Editor and go to <b>Animations</b>. Click a row to play that animation on the costume.</li>
 <li>Select the animation to change (the idle, say) and click <b>Change Animation</b>, or double-click the row.</li>
 <li>Pick a character and one of its animations; it plays on the costume's model so you see it before you use it. Click to use it. The row turns amber.</li>
 <li>To take many at once, <b>Copy From a Character</b> lists every animation with the same name as one of the costume's, ticked; <b>Use Ticked</b> puts them all in.</li>
-<li><b>Bone Lengths and Shape Keys</b> (for the selected animation): <b>Keep Bone Lengths</b> lists the bones the animation slides, not only turns (Carnage's Vicious Lunge stretches his finger bones into claws). Tick them (<b>Fingers</b> ticks both hands' fingers and thumbs) so they keep the model's own length and only turn. <b>Shape Keys</b> lists the morph targets the animation drives (Carnage's blades, mace and hand scale); untick one to leave it out. Only this costume's copy changes; an animation not changed yet becomes a copy of itself (listed as changed; Back to the Original takes it off). The 3D preview shows kept bone lengths but not shape keys, so check those in game.</li>
+<li>An animation that stretches or reshapes the new model (Carnage's claws on Medusa): <b>Bone Lengths and Shape Keys</b>, see <a href="#w-body">Stop an Animation Stretching or Reshaping the Model</a>.</li>
 <li>Save Changes, then Apply Changes. Only this costume changes; the hero's other costumes keep their animations.</li>
 </ol>
 <figure><img src="img/editor-animations.jpg" alt="The Animations tab: every animation the costume plays, what power it belongs to and where it comes from, with the 3D view."><figcaption>The Animations tab: every animation the costume plays, what power it belongs to and where it comes from, with the 3D view.</figcaption></figure>
+<p>See <a href="#animations">Animations</a>.</p>
+</div>
+
+<div class="walk">
+<h3 id="w-body">Stop an Animation Stretching or Reshaping the Model</h3>
+<p>Some characters' animations do more than turn the bones: Carnage's Vicious Lunge slides his finger bones out into claws, and many of his attacks drive <b>shape keys</b> (morph targets: blades, a mace, a bigger hand). On another model those stretch its fingers or swell its hand. You can keep them out of a costume's copy of the animation.</p>
+<ol class="steps">
+<li>Open the mod in the Editor and go to <b>Animations</b>. Select the animation (type part of its name in <b>Find</b>: <i>lunge</i>).</li>
+<li>Click <b>Bone Lengths and Shape Keys</b>.</li>
+<li>Under <b>Keep Bone Lengths</b>, tick the bones that stretch (<b>Moves Up To</b> says how far each one slides; <b>Fingers</b> ticks both hands' fingers and thumbs). They keep the model's own lengths and only turn.</li>
+<li>Under <b>Shape Keys</b>, untick the ones not to play (<i>r_handscale3_fix</i>: Carnage's bigger hand).</li>
+<li>Click OK. The row turns amber (an animation not changed before becomes a copy of itself); the 3D view shows the kept lengths at once. Shape keys aren't drawn in the 3D view: check those in game.</li>
+<li>Save Changes, then Apply Changes. Only this costume changes; <b>Back to the Original</b> takes it all off.</li>
+</ol>
+<figure><img src="img/anim-body.jpg" alt="Bone Lengths and Shape Keys for Vicious Lunge: the right hand's finger bones kept at the model's lengths, the hand-scale shape key off."><figcaption>Bone Lengths and Shape Keys for Vicious Lunge: the right hand's finger bones kept at the model's lengths, the hand-scale shape key off.</figcaption></figure>
 <p>See <a href="#animations">Animations</a>.</p>
 </div>
 

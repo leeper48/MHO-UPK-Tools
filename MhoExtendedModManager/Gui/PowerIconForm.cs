@@ -22,7 +22,10 @@ sealed class PowerIconForm : Form
 {
     /// <summary>The game's large power icons (ICO__MarvelUIIcons_HD_SF) are 128 × 128; the bar's are 40 × 40.</summary>
     const int Size128 = 128;
-    readonly Preview3D view;
+    /// <summary>The snapshot (a size in pixels, square) and the animation playing, from the 3D view (or a picture: the manual's
+    /// screenshot).</summary>
+    readonly Func<int, Bitmap?> shoot;
+    readonly Func<string?> playing;
     readonly string powerName;
     readonly PictureBox big = new() { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(28, 28, 32) };
     readonly PictureBox bar = new() { SizeMode = PictureBoxSizeMode.Normal, BackColor = Color.FromArgb(28, 28, 32) };
@@ -72,9 +75,11 @@ sealed class PowerIconForm : Form
     /// <summary>The PNG made (Use as Icon): the host puts it in as the power's icon.</summary>
     public event Action<string>? Use;
 
-    public PowerIconForm(Preview3D view, string powerName)
+    public PowerIconForm(Preview3D view, string powerName) : this(size => view.IconSnapshot(size, 2), () => view.CurrentAnimation, powerName) { }
+
+    public PowerIconForm(Func<int, Bitmap?> shoot, Func<string?> playing, string powerName)
     {
-        this.view = view;
+        this.shoot = shoot; this.playing = playing;
         this.powerName = powerName;
         Text = $"Make Icon From 3D View: {powerName}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -233,6 +238,13 @@ sealed class PowerIconForm : Form
         Shown += (_, _) => Snap();
     }
 
+    /// <summary>The manual's screenshot: a two-color gradient, a little glow and an outline.</summary>
+    internal static void ShowcaseLook()
+    {
+        radial = true; backColor = Color.FromArgb(48, 20, 70); edgeColor = Color.FromArgb(6, 4, 12); gradientSize = 1f;
+        glow = 0.6f; outlineWidth = 1.5f; outlineColor = Color.FromArgb(10, 10, 12); shadow = 0.4f;
+    }
+
     /// <summary>Beside the view, on its screen.</summary>
     public void PlaceBeside(Control anchor)
     {
@@ -312,7 +324,7 @@ sealed class PowerIconForm : Form
 
     void Snap()
     {
-        var shot = view.IconSnapshot(SnapSize, 2);
+        var shot = shoot(SnapSize);
         if (shot == null) { status.Text = "Nothing to Snapshot: the 3D View Shows No Model Yet"; return; }
         StopEditing();
         if (layer != null && layer.Width != SnapSize) (zoom, panX, panY) = snapFraming;   // (after an image editor's save: the snapshot's framing again)
@@ -320,7 +332,7 @@ sealed class PowerIconForm : Form
         layer?.Dispose(); layer = new Bitmap(shot);
         flat?.Dispose(); flat = null;
         if (backToSnap != null) backToSnap.Enabled = false;
-        status.Text = $"Snapshot Taken {DateTime.Now:HH:mm:ss}" + (view.CurrentAnimation is string a ? $"  ·  {a}" : "");
+        status.Text = $"Snapshot Taken {DateTime.Now:HH:mm:ss}" + (playing() is string a ? $"  ·  {a}" : "");
         Compose();
     }
 

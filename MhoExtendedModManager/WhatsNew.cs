@@ -46,11 +46,29 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
     /// Parts, game materials in This Material for a costume's own, Rename Material, Copy Setup and crash fixes.</summary>
+    /// <summary>0.60.528 (Kurt, 2026-11-17): power looks on every tab, the power menu, Make Icon From 3D View, Bone Lengths
+    /// and Shape Keys, Weapon parts, idle buttons, game characters onto others (Medusa on Carnage).</summary>
+    static Notice PowerIcons() => new(
+        "0.60.528-power-icons", "0.60.528",
+        "[!]New: make power icons from the 3D view" + nl +
+        "  • Right-click a power (its button under the 3D view, or its tile on the Powers tab) → Make Icon From 3D View: a snapshot of the power playing, over a color or a two-color gradient, with glow, an outline and a shadow. Zoom and move the character with the mouse, or open it in your image editor for streaks and blurs." + nl +
+        "  • The same menu renames a power, replaces its icon with your own image, opens its animations or borrows another power's look." + nl +
+        "  • The power buttons on every tab show the mod's own names and icons; pointing at one shows its original name too." + nl + nl +
+        "[!]New for models taken from other characters" + nl +
+        "  • Animations → Bone Lengths and Shape Keys: stop an animation stretching the model's bones (Carnage's claws) or playing shape keys it doesn't have." + nl +
+        "  • Powers → Parts: Weapon rows switch off the weapons a power brings out (Carnage's arm scythes)." + nl +
+        "  • Model tab: Use the Source's Animations, Medusa's Hair in Add Rigs, the source's pictures for the card, and feet that stay on the floor." + nl + nl +
+        "[!]Also" + nl +
+        "  • Idle, Combat Idle and Fidget buttons after the power buttons in the 3D preview." + nl +
+        "  • Closing the app with unsaved Editor changes asks first." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-powericon");
+
     static Notice SnapOnAttack() => new(
         "0.60.498-snap-on-attack", "0.60.498",
         "[!]New on the FreeCam Options tab" + nl +

@@ -219,6 +219,62 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--power-icon-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // The manual's screenshot: Make Icon From 3D View with a picture (a transparent PNG of a character, cropped square from
+            // its middle) in place of the 3D view, a gradient, glow and outline, to a PNG (off-screen).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            using var src = Model.ImagePixels.Open(args[1]);
+            Bitmap? Shot(int size)
+            {
+                int side = Math.Min(src.Width, src.Height);
+                var b = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using var g = Graphics.FromImage(b);
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(src, new Rectangle(0, 0, size, size), new Rectangle((src.Width - side) / 2, (src.Height - side) / 2, side, side), GraphicsUnit.Pixel);
+                return b;
+            }
+            Gui.PowerIconForm.ShowcaseLook();
+            using var f = new Gui.PowerIconForm(Shot, () => Environment.GetEnvironmentVariable("MHO_ICON_ANIM"), Environment.GetEnvironmentVariable("MHO_ICON_POWER") ?? "Example Power") { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(800);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[2]);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
+        if (args.Length == 2 && args[0].Equals("--anim-body-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // The manual's screenshot: Bone Lengths and Shape Keys for Carnage's Vicious Lunge (its own bones and curve, from
+            // --dump), fingers ticked, the hand-scale shape key off, to a PNG (off-screen).
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            var rows = new List<Gui.AnimBodyForm.Bone>
+            {
+                new("g_armikbase", 15f, false, true), new("g_l_armikeffector", 68.7f, false, true), new("g_l_hip", 8.9f, false, true),
+                new("g_pelvis", 0.7f, false, true), new("g_r_armikeffector", 35.2f, false, true),
+            };
+            foreach (string b0 in new[] { "birdy1", "birdy2", "birdy3", "index1", "index2", "index3", "pinky1", "pinky2", "pinky3", "ring1", "ring2", "ring3", "thumb2", "thumb3" })
+                rows.Add(new("g_r_" + b0, b0.EndsWith('1') ? 13.3f : b0.EndsWith('2') ? 5.7f : 3.8f, true, true));
+            using var f = new Gui.AnimBodyForm("absattack_lunge", rows, [("r_handscale3_fix", true)]) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(500);
+                using var b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height));
+                b.Save(args[1]);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
         if (args.Length == 2 && args[0].Equals("--apply-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
