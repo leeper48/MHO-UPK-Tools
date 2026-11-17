@@ -393,6 +393,8 @@ static class ModPost
         string imgDir = Path.Combine(dir, "Images");
         if (images.Count > 0) { Directory.CreateDirectory(imgDir); foreach (string f in images) File.Copy(f, Path.Combine(imgDir, Path.GetFileName(f)), true); }
         else PostWriter.SaveImages(src, mod.Folder, imgDir);
+        Directory.CreateDirectory(imgDir);
+        PostWriter.AddBanner(imgDir);   // (the Marvel Heroes Omega banner for the top of the Nexus page)
         return dir;
     }
 }

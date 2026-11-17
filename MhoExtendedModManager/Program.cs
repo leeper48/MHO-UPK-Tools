@@ -138,9 +138,10 @@ static partial class Program
         ("--mesh-probe", "--mesh-probe <mod>", "List a mod's skeletal meshes and whether each loads with its textures (the preview's 3D view). Changes nothing."),
         ("--nexus-check", "--nexus-check", "Check the linked mods against Nexus (public data, no account) and list those with an update. Changes nothing."),
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
-        ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
+        ("--post", "--post <mod> [nexus|discord | images <dir> | showcase <out.png> [cover]]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown); save its images, or make its showcase image."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
         ("--card-pictures", "--card-pictures [mod]", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to. With a mod: the pictures its preview offers, and those of the characters its models came from. Changes nothing."),
+        ("--spell-test", "--spell-test <text>", "The spell checker on a text: each misspelled word with its suggestions (read only)."),
         ("--power-icon-snapshot", "--power-icon-snapshot <character.png> <out.png>", "The manual's screenshot of Make Icon From 3D View, with a picture in place of the 3D view (off-screen)."),
         ("--anim-body-snapshot", "--anim-body-snapshot <out.png>", "The manual's screenshot of Bone Lengths and Shape Keys (Carnage's Vicious Lunge; off-screen)."),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
@@ -364,6 +365,15 @@ static partial class Program
                 Console.WriteLine(bsum);
                 return 0;
             }
+            case "--webp-test":
+            {
+                // --webp-test <in.webp> <out.png>: a WebP through Windows' codec (ImageFiles), as the pickers read it
+                if (rest.Count < 3) { Console.WriteLine("--webp-test <in.webp> <out.png>"); return 1; }
+                using var wb = ImageFiles.Load(rest[1]);
+                wb.Save(rest[2], System.Drawing.Imaging.ImageFormat.Png);
+                Console.WriteLine($"{wb.Width} x {wb.Height}  ->  {rest[2]}");
+                return 0;
+            }
             case "--post":
             {
                 // --post <mod> [nexus|discord]: the mod's release post (what Create Post fills in).
@@ -375,6 +385,14 @@ static partial class Program
                     files.ForEach(Console.WriteLine);
                     Console.WriteLine($"{files.Count} image(s) saved.");
                     return files.Count > 0 ? 0 : 1;
+                }
+                if (rest.Count > 3 && rest[2].Equals("showcase", StringComparison.OrdinalIgnoreCase))
+                {
+                    // --post <mod> showcase <out.png> [cover image]: Create Post's Make Showcase Image
+                    string? made = PostWriter.Showcase(src, pm.Folder, Path.GetFullPath(rest[3]));
+                    if (made != null && rest.Count > 4) PostWriter.PutCover(made, rest[4]);
+                    Console.WriteLine(made ?? "No store image in this mod.");
+                    return made != null ? 0 : 1;
                 }
                 bool discord = rest.Count > 2 && rest[2].Equals("discord", StringComparison.OrdinalIgnoreCase);
                 string text = discord ? PostWriter.Discord(src) : PostWriter.Nexus(src);

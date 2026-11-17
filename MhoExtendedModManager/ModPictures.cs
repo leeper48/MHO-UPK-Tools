@@ -11,7 +11,7 @@ static class ModPictures
     public const string Folder = "Pictures";
     public const string Prefix = "file:";
     public static readonly string[] Extensions = [".png", ".jpg", ".jpeg", ".bmp", ".dds"];
-    public const string DialogFilter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.dds";
+    public const string DialogFilter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.dds";
 
     public static bool IsFile(string? key) => key != null && key.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase);
 

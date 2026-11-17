@@ -329,9 +329,10 @@ sealed partial class ModelPage
             string? chosen = presetImage;
             if (chosen == null)
             {
-                using var d = new OpenFileDialog { Title = "Add from Image", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
+                using var d = new OpenFileDialog { Title = "Add from Image", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" };
                 if (d.ShowDialog(this) != DialogResult.OK) return null;
-                chosen = d.FileName;
+                try { chosen = ImageFiles.Usable(d.FileName); }
+                catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return null; }
             }
             try
             {

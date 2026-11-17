@@ -89,44 +89,52 @@ static class PostWriter
 
     // ---- Nexus (BBCode)
 
+    /// <summary>Nexus's own "Full description" template (Kurt, 2026-11-17): Description, Installation instructions, Main
+    /// features, Requirements, Shout outs; then the changelog (a spoiler) and the tags.</summary>
     public static string Nexus(Source s)
     {
         var f = Gather(s);
         var b = new StringBuilder();
-        b.AppendLine($"[size=5][b]{f.Name}[/b][/size]" + (f.Version.Length > 0 ? $"  [size=3]v{f.Version.TrimStart('v', 'V')}[/size]" : ""));
-        if (f.Author.Length > 0) b.AppendLine($"by [b]{f.Author}[/b]");
-        if (Heroes(f).Length > 0) b.AppendLine($"[b]Hero:[/b] {Heroes(f)}");
-        b.AppendLine();
-        if (f.Description.Length > 0) { b.AppendLine(f.Description); b.AppendLine(); }
-        if (f.Replaces.Count > 0)
+        void Heading(string t) { if (b.Length > 0) b.AppendLine(); b.AppendLine($"[b]{t}[/b]"); }
+
+        Heading("Description");
+        b.AppendLine(f.Description.Length > 0 ? f.Description
+            : $"{f.Name}" + (f.Version.Length > 0 ? $" v{f.Version.TrimStart('v', 'V')}" : "") + (f.Author.Length > 0 ? $" by {f.Author}." : "."));
+        if (Heroes(f).Length > 0) b.AppendLine($"Hero: {Heroes(f)}");
+
+        Heading("Installation instructions");
+        // one manager or the other, not two steps (Kurt)
+        b.AppendLine("Close the game, then install it with either manager:");
+        b.AppendLine("[list]");
+        b.AppendLine("[*][b]MHO Extended Mod Manager:[/b] Install Mod (or drop the zip on the window), tick the mod, then Apply Changes (Ctrl+Enter).");
+        b.AppendLine("[*][b]or MHModManager 1.0.1:[/b] Install the zip, enable the mod, then Apply.");
+        b.AppendLine("[/list]");
+        if (f.Replaces.Count > 0 || f.Changes.Count > 0)
+            b.AppendLine("If another mod changes the same costume or files, the one higher in the mod list wins.");
+
+        if (f.Replaces.Count > 0 || f.Changes.Count > 0 || f.Latest != null)
         {
-            b.AppendLine("[b]Replaces[/b]");
-            b.AppendLine("[list]"); foreach (var r in f.Replaces) b.AppendLine($"[*]{r}"); b.AppendLine("[/list]");
+            Heading("Main features");
+            b.AppendLine("[list]");
+            foreach (var r in f.Replaces) b.AppendLine($"[*]Replaces {r}");
+            foreach (var c in f.Changes) b.AppendLine($"[*]{char.ToUpperInvariant(c[0])}{c[1..]}");
+            b.AppendLine("[/list]");
+            if (f.Latest != null)
+            {
+                b.AppendLine($"[b]What's new in v{f.Latest.Version.TrimStart('v', 'V')}[/b]");
+                b.AppendLine(f.Latest.Changes.Trim());
+            }
         }
-        if (f.Changes.Count > 0)
-        {
-            b.AppendLine("[b]What It Changes[/b]");
-            b.AppendLine("[list]"); foreach (var c in f.Changes) b.AppendLine($"[*]{c}"); b.AppendLine("[/list]");
-        }
-        if (f.Latest != null)
-        {
-            b.AppendLine($"[b]What's New in v{f.Latest.Version.TrimStart('v', 'V')}[/b]");
-            b.AppendLine(f.Latest.Changes.Trim());
-            b.AppendLine();
-        }
-        b.AppendLine("[b]Requirements[/b]");
+
+        Heading("Requirements");
         b.AppendLine("[list]");
         b.AppendLine($"[*][url={ManagerUrl}]MHO Extended Mod Manager[/url] (recommended), or MHModManager 1.0.1");
         if (f.UsesExtension) b.AppendLine("[*]The images in other icon packages need MHO Extended Mod Manager (MHModManager installs the rest and skips those)");
         b.AppendLine("[/list]");
-        b.AppendLine("[b]Installation[/b]");
-        b.AppendLine("[list=1]");
-        b.AppendLine("[*]Close the game.");
-        b.AppendLine("[*][b]MHO Extended Mod Manager:[/b] Install Mod (or drop the zip on the window), tick the mod, then Apply Changes (Ctrl+Enter).");
-        b.AppendLine("[*][b]MHModManager:[/b] Install the zip, enable the mod, then Apply.");
-        b.AppendLine("[/list]");
-        if (f.Replaces.Count > 0 || f.Changes.Count > 0)
-            b.AppendLine("If another mod changes the same costume or files, the one higher in the mod list wins.");
+
+        Heading("Shout outs");
+        b.AppendLine($"Made with [url={ManagerUrl}]MHO Extended Mod Manager[/url]. Thanks to everyone who inspired or helped with this mod.");
+
         if (f.Older.Count > 0)
         {
             b.AppendLine();
@@ -173,6 +181,79 @@ static class PostWriter
         }
         text = Build("", false);
         return text.Length <= DiscordLimit ? text : text[..(DiscordLimit - 1)] + "…";
+    }
+
+    // ---- Nexus images (Kurt's templates, 2026-11-17: Assets\Post)
+
+    /// <summary>The Marvel Heroes Omega banner for the top of a Nexus page (Assets\Post\nexus_banner.png, 1300 x 372).</summary>
+    public static string BannerFile => Path.Combine(AppContext.BaseDirectory, "Assets", "Post", "nexus_banner.png");
+    public const string BannerName = "Marvel Heroes Omega Banner.png";
+    static string BlankFile => Path.Combine(AppContext.BaseDirectory, "Assets", "Post", "showcase_blank.jpg");
+
+    /// <summary>Where the comic cover goes on the 1920 x 1080 showcase image (right of the middle, nearly full height).</summary>
+    public static readonly System.Drawing.Rectangle CoverSlot = new(935, 40, 650, 1000);
+
+    /// <summary>Copies the banner into a folder of exported images (Export Images, Export ZIP's post folder).</summary>
+    public static void AddBanner(string folder)
+    {
+        if (File.Exists(BannerFile)) File.Copy(BannerFile, Path.Combine(folder, BannerName), true);
+    }
+
+    /// <summary>
+    /// A 1920 x 1080 showcase image (Kurt's blank Marvel Heroes Omega backdrop): the mod's store image on the left, the
+    /// right side left for a comic cover (<paramref name="cover"/>, or dropped in later in an image editor). Null when the
+    /// mod has no store image; else the file written (PNG).
+    /// </summary>
+    public static string? Showcase(Source s, string modFolder, string outFile, string? cover = null)
+    {
+        var store = s.Manifest.StoreReplacements.FirstOrDefault();
+        if (store == null || !File.Exists(BlankFile)) return null;
+        var d = MhoPackageModifier.TextureDecode.ReadDds(Path.Combine(modFolder, store.DdsFileName), out _);
+        var bgra = d is { } x ? MhoPackageModifier.TextureDecode.ToBgra(x.Format, x.W, x.H, x.Data, out _) : null;
+        if (bgra == null) return null;
+        using var art = MhoPackageModifier.TextureDecode.ToBitmap(bgra, d!.Value.W, d.Value.H);
+        using var bmp = new System.Drawing.Bitmap(1920, 1080, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = System.Drawing.Graphics.FromImage(bmp))
+        {
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            using (var back = System.Drawing.Image.FromFile(BlankFile)) g.DrawImage(back, 0, 0, 1920, 1080);
+            // the character: as tall as the cover, centered in the left part (like Kurt's example)
+            int h = 900, w = art.Width * h / Math.Max(1, art.Height);
+            g.DrawImage(art, new System.Drawing.Rectangle(470 - w / 2, 1030 - h, w, h));
+            if (cover != null) DrawCover(g, cover);
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outFile))!);
+        bmp.Save(outFile, System.Drawing.Imaging.ImageFormat.Png);
+        return outFile;
+    }
+
+    /// <summary>Puts a cover picture into an existing showcase image's cover slot (fitted, its own shape kept).</summary>
+    public static void PutCover(string showcaseFile, string cover)
+    {
+        System.Drawing.Bitmap bmp;
+        using (var raw = System.Drawing.Image.FromFile(showcaseFile)) bmp = new System.Drawing.Bitmap(raw);
+        using (bmp)
+        {
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                // the slot scaled to this image's size (the same layout at another size)
+                g.ScaleTransform(bmp.Width / 1920f, bmp.Height / 1080f);
+                DrawCover(g, cover);
+            }
+            bmp.Save(showcaseFile, System.Drawing.Imaging.ImageFormat.Png);
+        }
+    }
+
+    static void DrawCover(System.Drawing.Graphics g, string cover)
+    {
+        using var c = System.Drawing.Image.FromFile(cover);
+        var r = CoverSlot;
+        float k = Math.Min(r.Width / (float)c.Width, r.Height / (float)c.Height);
+        int w = (int)(c.Width * k), h = (int)(c.Height * k);
+        g.DrawImage(c, new System.Drawing.Rectangle(r.X + (r.Width - w) / 2, r.Y + (r.Height - h) / 2, w, h));
     }
 
     /// <summary>The mod's store images, costume icons and hero portraits as PNG, for uploading with the post. Returns the files written.</summary>

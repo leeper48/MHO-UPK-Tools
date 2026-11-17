@@ -496,7 +496,7 @@ sealed class IconCreatorView : UserControl
                 if (ask || customBack == null)
                 {
                     string? path = customBackPath;
-                    if (ask) using (var d = new OpenFileDialog { Title = "Background Picture", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" }) path = d.ShowDialog(this) == DialogResult.OK ? d.FileName : path;
+                    if (ask) using (var d = new OpenFileDialog { Title = "Background Picture", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" }) path = d.ShowDialog(this) == DialogResult.OK ? ImageFiles.Usable(d.FileName) : path;
                     if (path != null && File.Exists(path))
                         try { using var b = Image.FromFile(path); customBack?.Dispose(); customBack = new Bitmap(b); customBackPath = path; }
                         catch (Exception ex) when (ex is OutOfMemoryException or IOException) { Dialog.Show(this, $"{Path.GetFileName(path)} can't be read as a picture.", "Create from 3D"); }

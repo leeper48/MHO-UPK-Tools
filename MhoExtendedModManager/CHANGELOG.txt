@@ -1,7 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
-0.60.528
+0.60.535
+- Create Post: the Nexus post follows Nexus's own Full Description template (Description, Installation instructions, Main features, Requirements, Shout outs). A post saved earlier keeps its layout until Start Over.
+- Create Post: Make Showcase Image (a 1920 x 1080 Nexus picture: the Marvel Heroes Omega backdrop, the mod's store image and a comic cover you pick or drop in with your image editor), Open in Image Editor for any post picture (each save comes back), and Export Images adds the Marvel Heroes Omega banner for the top of the page.
+- Create Post: the Nexus post's install steps offer one manager or the other.
+- Editor → Overview → Details: a Showcase Image section in the right column (make it, pick a cover, open it in your image editor, remove it; click it for a closer look); it goes with the mod's post. The Preview Image and Card Picture lists show a thumbnail of each picture.
+- WebP pictures (.webp) can be picked wherever the app takes a picture (icons, store images, custom pictures, covers, screenshots, the Model tab's maps). Windows' own WebP codec reads them (built into Windows 11; on Windows 10, Microsoft's free WebP Image Extensions).
+- Spell checking in the text boxes (a mod's description, changes and note, Create Post, the Strings tab's replacements, the Mods tab's note): misspelled words get a red wavy line; right-click one for suggestions, Add to Dictionary or Ignore. Uses the Windows spell checker; the game's character and team names, numbers, game markup and links aren't marked. Off in Settings → Spell Check.
 - Power buttons: the Mods and Model tabs' power buttons show the mod's own power names and icons, as the Powers tab does (a borrowed power's icon and your own icons too). Pointing at a power shows its name, whose look it borrows and its original name in the game.
 - Right-click a power (a power button on the Mods or Model tab, after the shortcut items, or a tile on the Powers tab): Rename Power, Replace Icon, Make Icon From 3D View, Change Its Animations and Borrow Power. Rename and the icons work on any power, borrowed or not. From the Mods tab the Editor opens on the power; Change Its Animations opens the Animations tab found to that power's animations.
 - Make Icon From 3D View: a snapshot of the 3D view playing the power (with its effects, never the ground) as the power's icon, over a background color, a soft light or a two-color radial gradient. Mouse wheel and drag zoom and move the character in the icon. Effects: hue, saturation, brightness, contrast, gamma, glow, an outline and a shadow. Character Only (Transparent) opens it in your image editor for streaks and blurs (each save comes back, the background and effects applied), or Whole Icon (With Background). Use as Icon converts it to the power bar's 40 x 40 and the large 128 x 128 icon.

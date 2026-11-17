@@ -219,6 +219,12 @@ static partial class Program
             f.ShowDialog();
             return 0;
         }
+        if (args.Length == 2 && args[0].Equals("--spell-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // Test: the spell checker on a text (the misspelled words, each with its suggestions). Read only.
+            Console.WriteLine(Gui.SpellCheck.Test(args[1]));
+            return 0;
+        }
         if (args.Length == 3 && args[0].Equals("--power-icon-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // The manual's screenshot: Make Icon From 3D View with a picture (a transparent PNG of a character, cropped square from

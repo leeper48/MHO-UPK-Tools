@@ -244,7 +244,7 @@ sealed partial class MainForm
             using var d = new OpenFileDialog { Title = $"Card Picture for {m.Name}", Filter = ModPictures.DialogFilter };
             if (d.ShowDialog(this) != DialogResult.OK || lib == null) return;
             string key;
-            try { key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, d.FileName, "card"); }
+            try { key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, ImageFiles.Usable(d.FileName), "card"); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             Change($"Card picture of \"{m.Name}\": {Path.GetFileName(d.FileName)}", () => { m.LocalCard = key; return true; });
         })

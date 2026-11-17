@@ -58,6 +58,7 @@ sealed class PostForm : Form
         // each box on a page of its own (Kurt, 2026-11-17: the Discord tab showed nothing): the tabs show and hide their page,
         // and a box's rounded frame (Modern.Modernize) only follows its own parent
         static Panel PageOf(TextBox box) { var page = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0) }; page.Controls.Add(box); return page; }
+        SpellCheck.Attach(nexus); SpellCheck.Attach(discord);
         tabs.Add("Nexus", PageOf(nexus));
         tabs.Add("Discord", PageOf(discord));
         t.Controls.Add(tabs, 0, 2);
@@ -67,6 +68,8 @@ sealed class PostForm : Form
         imgHead.Controls.Add(new Label { Text = "IMAGES", AutoSize = true, Font = Ui.Bold(8.5f), Tag = "subtle", Margin = new Padding(0, 6, 8, 0) });
         imgHead.Controls.Add(Ui.FlatButton("Add Screenshots", AddScreenshots, tip: "Add pictures (.PNG, .JPG) to the post, e.g. in-game screenshots of the mod."));
         imgHead.Controls.Add(Ui.FlatButton("Add Mod Images", AddModImages, tip: "Add the mod's own store image, costume icons and hero portraits as .PNG."));
+        imgHead.Controls.Add(Ui.FlatButton("Make Showcase Image", MakeShowcase, tip: "A 1920 x 1080 picture for the Nexus page: the Marvel Heroes Omega backdrop with the mod's store image on the left and room on the right for a comic cover (pick one, or drop it in with your image editor)."));
+        imgHead.Controls.Add(Ui.FlatButton("Open in Image Editor", () => EditImage(selectedImage), tip: "Open the selected picture in your image editor (Settings ▾ → Model → Choose Image Editor). Each save there comes back into the post."));
         imgHead.Controls.Add(Ui.FlatButton("Remove", RemoveImage, tip: "Remove the selected picture from the post (click a picture to select it)."));
         t.Controls.Add(imgHead, 0, 3);
         var stripCard = new Panel { Dock = DockStyle.Fill, Tag = "card", Padding = new Padding(6) };
@@ -92,6 +95,8 @@ sealed class PostForm : Form
         tabs.SelectedChanged += _ => Count();
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) CloseAsked(); };
+        editDelay.Tick += (_, _) => { editDelay.Stop(); if (!IsDisposed) { dirty = true; ShowImages(); Status($"Edit Taken In {DateTime.Now:HH:mm:ss}", Ui.Enabled); } };
+        FormClosed += (_, _) => { watcher?.Dispose(); editDelay.Dispose(); };
         FormClosed += (_, _) => { try { if (Directory.Exists(tempImages)) Directory.Delete(tempImages, true); } catch (IOException) { } };
         nexus.Text = Crlf(saved.Nexus ?? PostWriter.Nexus(source));
         discord.Text = Crlf(saved.Discord ?? PostWriter.Discord(source));
@@ -155,14 +160,20 @@ sealed class PostForm : Form
             Ui.ForgetOnDispose(pic);
             strip.Controls.Add(pic);
         }
-        if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots or Add Mod Images.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });
+        if (images.Count == 0) strip.Controls.Add(new Label { Text = "No images yet: Add Screenshots, Add Mod Images or Make Showcase Image.", AutoSize = true, Tag = "subtle", ForeColor = Ui.Subtle, Margin = new Padding(4, 8, 0, 0) });
     }
 
     void AddScreenshots()
     {
-        using var d = new OpenFileDialog { Title = "Add Screenshots", Filter = "Images (*.PNG;*.JPG;*.JPEG;*.BMP;*.GIF)|*.png;*.jpg;*.jpeg;*.bmp;*.gif", Multiselect = true };
+        using var d = new OpenFileDialog { Title = "Add Screenshots", Filter = "Images (*.PNG;*.JPG;*.JPEG;*.BMP;*.WEBP;*.GIF)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif", Multiselect = true };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        foreach (string f in d.FileNames) if (!images.Contains(f, StringComparer.OrdinalIgnoreCase)) images.Add(f);
+        foreach (string pick in d.FileNames)
+        {
+            string f;
+            try { f = ImageFiles.Usable(pick); }   // (a .webp: its PNG copy)
+            catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); continue; }
+            if (!images.Contains(f, StringComparer.OrdinalIgnoreCase)) images.Add(f);
+        }
         dirty = true;
         ShowImages();
     }
@@ -196,8 +207,80 @@ sealed class PostForm : Form
         string folder = Path.Combine(d.SelectedPath, ModInstaller.Sanitise(modName) + " images");
         Directory.CreateDirectory(folder);
         foreach (string f in images) File.Copy(f, Path.Combine(folder, Path.GetFileName(f)), true);
+        PostWriter.AddBanner(folder);   // the Marvel Heroes Omega banner for the top of the page (Kurt)
         System.Diagnostics.Process.Start("explorer.exe", $"\"{folder}\"");
         Status($"Exported {images.Count} Image(s)", Ui.Enabled);
+    }
+
+    // ---- showcase image and the image editor
+
+    void MakeShowcase()
+    {
+        Directory.CreateDirectory(tempImages);
+        string stem = ModInstaller.Sanitise(modName) + " showcase";
+        string file = Path.Combine(tempImages, stem + ".png");
+        for (int i = 2; File.Exists(file) || images.Contains(file, StringComparer.OrdinalIgnoreCase); i++) file = Path.Combine(tempImages, $"{stem} ({i}).png");
+        string? made;
+        try { made = PostWriter.Showcase(source, modFolder, file); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
+        { Dialog.Show(this, ex.Message, "Showcase Image Not Made", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (made == null) { Dialog.Show(this, "The showcase image is made from the mod's store image, and this mod has none.\n\nAdd one on the Editor's Icons → Store Images tab.", "No Store Image"); return; }
+        images.Insert(0, made); selectedImage = made; dirty = true;
+        ShowImages();
+        int a = Dialog.Choose(this, "The showcase image is made: the mod's store image on the left, room on the right for a comic cover.\n\nAdd the cover now?",
+                              "Showcase Image", "Pick a Cover Image", "Open in Image Editor", "Later");
+        if (a == 0)
+        {
+            using var d = new OpenFileDialog { Title = "Comic Cover", Filter = "Images (*.PNG;*.JPG;*.JPEG;*.BMP;*.WEBP;*.GIF)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif" };
+            if (d.ShowDialog(this) != DialogResult.OK) return;
+            try { PostWriter.PutCover(made, ImageFiles.Usable(d.FileName)); }
+            catch (Exception ex) when (ex is IOException or OutOfMemoryException or ArgumentException or System.Runtime.InteropServices.ExternalException)
+            { Dialog.Show(this, $"That picture couldn't be read ({ex.Message}). Try a .PNG or .JPG, or drop it in with your image editor.", "Cover Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            ShowImages();
+            Status("Cover Added: Open in Image Editor to Touch It Up", Ui.Enabled);
+        }
+        else if (a == 1) EditImage(made);
+    }
+
+    FileSystemWatcher? watcher;
+    string? editFile;
+    readonly System.Windows.Forms.Timer editDelay = new() { Interval = 600 };
+
+    /// <summary>Opens a post picture in the image editor; each save there shows in the strip. A picture that isn't the post's
+    /// own copy (a screenshot from elsewhere) is copied first, so the original file isn't changed.</summary>
+    void EditImage(string? file)
+    {
+        if (file == null || !File.Exists(file)) { Status("Click a Picture to Select It First", Ui.Subtle); return; }
+        string? exe = MhoExtendedModManager.Model.ImageEditor.Find();
+        if (exe == null)
+        {
+            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (!Path.GetFullPath(file).StartsWith(Path.GetFullPath(tempImages) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.CreateDirectory(tempImages);
+            string copy = Path.Combine(tempImages, Path.GetFileName(file));
+            for (int i = 2; File.Exists(copy); i++) copy = Path.Combine(tempImages, $"{Path.GetFileNameWithoutExtension(file)} ({i}){Path.GetExtension(file)}");
+            File.Copy(file, copy);
+            int at = images.IndexOf(file);
+            if (at >= 0) images[at] = copy; else images.Add(copy);
+            file = copy; selectedImage = copy; dirty = true;
+            ShowImages();
+        }
+        watcher?.Dispose();
+        editFile = file;
+        watcher = new FileSystemWatcher(tempImages, "*.*") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size, EnableRaisingEvents = true };
+        void Changed(object? _, FileSystemEventArgs e)
+        {
+            if (!string.Equals(e.FullPath, editFile, StringComparison.OrdinalIgnoreCase)) return;
+            try { BeginInvoke(() => { editDelay.Stop(); editDelay.Start(); }); } catch (InvalidOperationException) { }
+        }
+        watcher.Changed += Changed; watcher.Created += Changed; watcher.Renamed += (o, e) => Changed(o, e);
+        string name = MhoExtendedModManager.Model.ImageEditor.Describe(exe);
+        if (MhoExtendedModManager.Model.ImageEditor.Open(exe, file) is string failed) { Status($"{name} Didn't Start: {failed}", Ui.Subtle); return; }
+        bool gimp = name.StartsWith("GIMP", StringComparison.OrdinalIgnoreCase);
+        Status($"Editing in {name}: Save There Over the Same File{(gimp ? " (GIMP: Ctrl+E)" : "")}", Ui.Subtle);
     }
 
     // ---- keeping it

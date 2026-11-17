@@ -215,9 +215,12 @@ sealed partial class ModEditorView
             // The texture selected on the left, else the replacement selected on the right (Kurt: loading a new file for
             // an existing replacement was refused).
             if (Selected() is not TexEntry e) { Dialog.Show(this, "Select the stock texture to replace on the left, or a replacement on the right to change it.", "Textures"); return; }
-            using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "Textures and images (*.dds;*.png;*.jpg;*.jpeg;*.bmp)|*.dds;*.png;*.jpg;*.jpeg;*.bmp|DDS textures (*.dds)|*.dds|Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
+            using var d = new OpenFileDialog { Title = $"Replacement for {e.Name}", Filter = "Textures and images (*.dds;*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.dds;*.png;*.jpg;*.jpeg;*.bmp;*.webp|DDS textures (*.dds)|*.dds|Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
-            UseFile(e, d.FileName);
+            string picked;
+            try { picked = ImageFiles.Usable(d.FileName); }
+            catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+            UseFile(e, picked);
         }
 
         /// <summary>

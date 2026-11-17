@@ -129,6 +129,8 @@ static class AutoTags
     static readonly string[] Kinds = ["Costume", "Team-Up", "NPC", "Power Effects", "Power Icons", "Pet", "Zone", "Sounds"];
     static readonly HashSet<string> CharacterNames = new(Heroes.Values.Select(h => h.Name), StringComparer.OrdinalIgnoreCase);
     static readonly HashSet<string> TeamNames = new(Heroes.Values.SelectMany(h => h.Teams), StringComparer.OrdinalIgnoreCase);
+    /// <summary>The words of every character's and team's name (the spell checker leaves them alone).</summary>
+    internal static IEnumerable<string> NameWords => CharacterNames.Concat(TeamNames).SelectMany(n => n.Split([' ', '-', '.', '\'', '(', ')', '/'], StringSplitOptions.RemoveEmptyEntries)).Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What a tag names, whoever set it: a character, a team, a kind of content, or something else (tag colours).</summary>
     public static TagClass Classify(string tag) =>

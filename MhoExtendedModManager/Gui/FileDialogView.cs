@@ -91,7 +91,7 @@ static class FileDialogView
             GetWindowText(w, sb, sb.Capacity);
             string t = sb.ToString().ToLowerInvariant();
             if (!t.Contains("*.")) return true;   // (the file name box)
-            if (new[] { "*.png", "*.dds", "*.jpg", "*.jpeg", "*.bmp", "*.tga", "*.gif" }.Any(t.Contains)) kind = Kind.Images;
+            if (new[] { "*.png", "*.dds", "*.jpg", "*.jpeg", "*.bmp", "*.tga", "*.gif", "*.webp" }.Any(t.Contains)) kind = Kind.Images;
             else if (new[] { "*.fbx", "*.obj", "*.dae", "*.stl", "*.blend", "*.xps", "*.mesh", "*.ascii", "*.glb", "*.gltf", "*.psk", "*.mff" }.Any(t.Contains)) kind = Kind.Models;
             return false;
         }, IntPtr.Zero);

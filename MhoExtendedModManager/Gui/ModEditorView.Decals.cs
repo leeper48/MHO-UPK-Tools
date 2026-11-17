@@ -165,9 +165,9 @@ sealed partial class ModEditorView
 
     void ReplaceDecal(PowerParts.Switch s, string tex)
     {
-        using var dlg = new OpenFileDialog { Title = $"An Image for {TexLeaf(tex)}", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
+        using var dlg = new OpenFileDialog { Title = $"An Image for {TexLeaf(tex)}", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        try { TakeDecal(s, tex, dlg.FileName); partsNote.Text = $"{TexLeaf(tex)} ← {Path.GetFileName(dlg.FileName)}. Save puts it into the mod."; }
+        try { TakeDecal(s, tex, ImageFiles.Usable(dlg.FileName)); partsNote.Text = $"{TexLeaf(tex)} ← {Path.GetFileName(dlg.FileName)}. Save puts it into the mod."; }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException) { Dialog.Show(this, ex.Message, "Image Not Used", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 

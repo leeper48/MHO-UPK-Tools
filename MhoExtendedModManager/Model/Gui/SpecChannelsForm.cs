@@ -40,9 +40,12 @@ sealed class SpecChannelsForm : Form
             var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             buttons.Controls.Add(Ui.FlatButton("Choose", () =>
             {
-                using var d = new OpenFileDialog { Title = label, Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
+                using var d = new OpenFileDialog { Title = label, Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" };
                 if (d.ShowDialog(this) != DialogResult.OK) return;
-                set(d.FileName); shown.Text = Path.GetFileName(d.FileName);
+                string picked;
+                try { picked = ImageFiles.Usable(d.FileName); }
+                catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+                set(picked); shown.Text = Path.GetFileName(d.FileName);
             }, tip));
             buttons.Controls.Add(Ui.FlatButton("Clear", () => { set(null); shown.Text = "Not picked"; }, "Leave this one out."));
             t.Controls.Add(name, 0, row); t.Controls.Add(shown, 1, row); t.Controls.Add(buttons, 2, row);

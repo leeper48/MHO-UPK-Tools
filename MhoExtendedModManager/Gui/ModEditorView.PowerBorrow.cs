@@ -572,8 +572,10 @@ sealed partial class ModEditorView
     /// <summary>The user's image for Custom Icon (null: cancelled).</summary>
     string? PickIconImage()
     {
-        using var dlg = new OpenFileDialog { Title = "Your Icon for This Power", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.dds" };
-        return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
+        using var dlg = new OpenFileDialog { Title = "Your Icon for This Power", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.dds)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.dds" };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return null;
+        try { return ImageFiles.Usable(dlg.FileName); }
+        catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return null; }
     }
 
     /// <summary>The name and icons a borrow put in, taken off (Reset Power, or another borrow for the power).</summary>

@@ -400,9 +400,10 @@ sealed partial class ModelPage
         if (SelectedMap() is not { } sel || OverridesPath() is not string path) return;
         if (file == null)
         {
-            using var d = new OpenFileDialog { Title = $"{sel.Kind} map for {sel.Material}", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
+            using var d = new OpenFileDialog { Title = $"{sel.Kind} map for {sel.Material}", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" };
             if (d.ShowDialog(this) != DialogResult.OK) return;
-            file = d.FileName;
+            try { file = ImageFiles.Usable(d.FileName); }
+            catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         }
         var dlg = (FileName: file, _: 0);
         string dir = Path.Combine(Path.GetDirectoryName(path)!, Path.GetFileNameWithoutExtension(path));

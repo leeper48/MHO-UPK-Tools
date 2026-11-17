@@ -252,6 +252,8 @@ sealed class DropDown : Control
     /// <summary>The closed box's text in place of the chosen item's (null: the item's).</summary>
     public Func<string?>? ClosedText { get; set; }
     public int MaxDropDownItems { get; set; } = 18;
+    /// <summary>A picture per row (by index; null: none yet or none): the list shows thumbnails and redraws until they're in.</summary>
+    public Func<int, Image?>? Thumb { get; set; }
     /// <summary>False: a menu of choices that always shows <see cref="Placeholder"/> (e.g. "Found ▾" beside a text field).</summary>
     public bool ShowsSelection { get => showsSelection; set { showsSelection = value; FitHeight(); } }
     bool showsSelection = true;
@@ -341,7 +343,7 @@ sealed class DropDown : Control
         if (Items.Count == 0) return;
         open = true; Invalidate();
         var texts = Items.Select(TextOf).ToList();
-        var list = DropList.Show(this, RectangleToScreen(ClientRectangle), texts, sel, i => { SelectedIndex = i; Focus(); }, ItemColor, MaxDropDownItems);
+        var list = DropList.Show(this, RectangleToScreen(ClientRectangle), texts, sel, i => { SelectedIndex = i; Focus(); }, ItemColor, MaxDropDownItems, Thumb);
         list.Closed += (_, _) => { open = false; if (!IsDisposed) Invalidate(); };
     }
 
@@ -389,6 +391,7 @@ sealed class DropList : ToolStripDropDown
     readonly Action<int> pick;
     readonly int selected;
     List<int> shown;
+    readonly HashSet<int> waiting = [];   // rows drawn before their thumbnail was in
 
     DropList(Control owner, Rectangle anchor, List<string> texts, int selected, Action<int> pick, Func<int, Color?>? color, int maxRows, Func<int, Image?>? thumb = null)
     {
@@ -401,7 +404,18 @@ sealed class DropList : ToolStripDropDown
         {
             // (pictures are made in the background: the rows are drawn again until the list closes)
             thumbTimer = new System.Windows.Forms.Timer { Interval = 300 };
-            thumbTimer.Tick += (_, _) => { if (!list!.IsDisposed) list.Invalidate(); };
+            // only the rows whose picture has come in since they were drawn (redrawing the whole list made the text flicker, Kurt)
+            thumbTimer.Tick += (_, _) =>
+            {
+                if (list!.IsDisposed) return;
+                foreach (int i in waiting.ToList())
+                {
+                    if (thumb(i) == null) continue;
+                    waiting.Remove(i);
+                    int at = shown.IndexOf(i);
+                    if (at >= 0 && at < list.Items.Count) list.Invalidate(list.GetItemRectangle(at));
+                }
+            };
             thumbTimer.Start();
             Closed += (_, _) => thumbTimer.Dispose();
         }
@@ -548,7 +562,9 @@ sealed class DropList : ToolStripDropDown
         {
             int side = e.Bounds.Height - (int)(6 * s);
             var box = new Rectangle(e.Bounds.X + check, e.Bounds.Y + (e.Bounds.Height - side) / 2, side, side);
-            if (thumb(i) is { } img)
+            var img = thumb(i);
+            if (img == null) waiting.Add(i);   // (drawn again once it's in)
+            else
             {
                 float k = Math.Min((float)box.Width / img.Width, (float)box.Height / img.Height);
                 int w = (int)(img.Width * k), h = (int)(img.Height * k);

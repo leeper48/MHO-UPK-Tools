@@ -6,7 +6,7 @@
     <!-- Microsoft.VisualBasic.FileIO: removing a mod sends its folder to the Recycle Bin. -->
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.60.528</Version>
+    <Version>0.60.535</Version>
     <AssemblyName>MHO_Ext_ModManager</AssemblyName>
     <Product>MHO Extended Mod Manager</Product>
     <AssemblyTitle>MHO Extended Mod Manager</AssemblyTitle>
@@ -43,6 +43,8 @@
     <None Include="Manual\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- The hero portrait backdrop (Kurt's blue hex grid, 180x136) behind icon-creator portraits. -->
     <None Include="Assets\herohor_bluebackdrop.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Nexus post images (Kurt's templates, 2026-11-17): the banner for exported images, the showcase backdrop (1920x1080). -->
+    <None Include="Assets\Post\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- Wwise Vorbis codebooks for WwiseVorbis.cs (from ww2ogg, BSD; voice playback in the Editor). -->
     <None Include="Assets\packed_codebooks_aoTuV_603.bin" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- The Model tab (MFF importer engine, 2026-10-03): MFF folder ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ character name and the folders without a character rig,

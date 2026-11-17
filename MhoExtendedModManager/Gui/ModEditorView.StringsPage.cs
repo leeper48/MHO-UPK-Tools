@@ -34,6 +34,8 @@ sealed partial class ModEditorView
             grid.Columns[4].Name = ReplacementCol; grid.Columns[5].Name = UsedByCol;
             grid.ReadOnly = false;
             foreach (DataGridViewColumn c in grid.Columns) c.ReadOnly = c.Name != ReplacementCol;
+            // the replacement's edit box is spell checked (it's the grid's one editing text box, reused for every cell)
+            grid.EditingControlShowing += (_, e) => { if (e.Control is TextBox etb) SpellCheck.Attach(etb); };
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             Ui.StyleGrid(grid);
             foreach (var st in f.draft.Strings) grid.Rows[grid.Rows.Add(st.Language, st.File, st.Id.ToString(), "", st.Text)].Tag = st;

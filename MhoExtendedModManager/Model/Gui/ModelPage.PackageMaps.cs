@@ -240,8 +240,11 @@ sealed partial class ModelPage
     /// <summary>Replace File in package mode: the picked image replaces the texture.</summary>
     void UsePackageMapFile(PackageMap m)
     {
-        using var d = new OpenFileDialog { Title = $"{m.Kind} map for {m.Material} ({m.Texture})", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp" };
+        using var d = new OpenFileDialog { Title = $"{m.Kind} map for {m.Material} ({m.Texture})", Filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.webp" };
         if (d.ShowDialog(this) != DialogResult.OK) return;
-        ReplacePackageMap(m, d.FileName);
+        string picked;
+        try { picked = ImageFiles.Usable(d.FileName); }
+        catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        ReplacePackageMap(m, picked);
     }
 }

@@ -51,10 +51,10 @@ static class WhatsNew
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
     /// Parts, game materials in This Material for a costume's own, Rename Material, Copy Setup and crash fixes.</summary>
-    /// <summary>0.60.528 (Kurt, 2026-11-17): power looks on every tab, the power menu, Make Icon From 3D View, Bone Lengths
+    /// <summary>0.60.535 (Kurt, 2026-11-17): power looks on every tab, the power menu, Make Icon From 3D View, Bone Lengths
     /// and Shape Keys, Weapon parts, idle buttons, game characters onto others (Medusa on Carnage).</summary>
     static Notice PowerIcons() => new(
-        "0.60.528-power-icons", "0.60.528",
+        "0.60.535-power-icons", "0.60.535",
         "[!]New: make power icons from the 3D view" + nl +
         "  • Right-click a power (its button under the 3D view, or its tile on the Powers tab) → Make Icon From 3D View: a snapshot of the power playing, over a color or a two-color gradient, with glow, an outline and a shadow. Zoom and move the character with the mouse, or open it in your image editor for streaks and blurs." + nl +
         "  • The same menu renames a power, replaces its icon with your own image, opens its animations or borrows another power's look." + nl +
@@ -64,6 +64,9 @@ static class WhatsNew
         "  • Powers → Parts: Weapon rows switch off the weapons a power brings out (Carnage's arm scythes)." + nl +
         "  • Model tab: Use the Source's Animations, Medusa's Hair in Add Rigs, the source's pictures for the card, and feet that stay on the floor." + nl + nl +
         "[!]Also" + nl +
+        "  • Create Post: the Nexus post follows Nexus's own template, Make Showcase Image builds a Nexus picture (the mod's store image beside a comic cover you pick or drop in with your image editor; also on the Editor's Details page), and Export Images adds a Marvel Heroes Omega banner." + nl +
+        "  • WebP pictures (.webp) can be picked anywhere the app takes a picture; the Preview Image and Card Picture lists show thumbnails." + nl +
+        "  • Spell checking in the text boxes (descriptions, notes, posts, strings): right-click a red-lined word for suggestions." + nl +
         "  • Idle, Combat Idle and Fidget buttons after the power buttons in the 3D preview." + nl +
         "  • Closing the app with unsaved Editor changes asks first." + nl + nl +
         "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",

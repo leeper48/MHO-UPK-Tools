@@ -43,15 +43,135 @@ sealed partial class ModEditorView : UserControl
     const string CustomChoice = "Custom Image (Choose a File)";
     int previewWas, cardWas;
 
+    // ---- showcase image (Kurt, 2026-11-17): PostWriter.Showcase on the draft, kept in draft.PostImages (saved with the post)
+
+    PictureBox? showPic;
+    Label? showNote;
+    ImageEditWatch? showEdit;
+
+    /// <summary>The showcase among the post's images ("… showcase.png"), if there is one.</summary>
+    string? ShowcaseFile => draft.PostImages.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).EndsWith(" showcase", StringComparison.OrdinalIgnoreCase));
+
+    Control ShowcaseRow()
+    {
+        var row = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, RowCount = 1, Dock = DockStyle.Fill, Margin = new Padding(0) };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        showPic = new PictureBox { Size = new Size((int)(240 * S), (int)(135 * S)), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(22, 22, 24), Margin = new Padding(0, 0, (int)(10 * S), 0), Cursor = Cursors.Hand };
+        // a click opens the app's picture viewer (fit, 1:1, zoom, full screen), as the other pictures do (Kurt)
+        ImageViewerForm.Attach(showPic, () =>
+        {
+            if (ShowcaseFile is not string f || !File.Exists(f)) return (null, "", "");
+            try { return (ImageFiles.Load(f), "Showcase Image", Path.GetFileNameWithoutExtension(f)); }
+            catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException) { return (null, "", ""); }
+        });
+        showPic.Paint += (_, e) =>
+        {
+            // an empty frame until there's one (the theme leaves the box transparent)
+            if (showPic.Image != null) return;
+            var r = new Rectangle(0, 0, showPic.Width - 1, showPic.Height - 1);
+            using (var b = new SolidBrush(Color.FromArgb(70, 0, 0, 0))) e.Graphics.FillRectangle(b, r);
+            using (var pen = new Pen(Color.FromArgb(90, 255, 255, 255)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) e.Graphics.DrawRectangle(pen, r);
+            TextRenderer.DrawText(e.Graphics, "No Showcase Image Yet", Font, r, Ui.Subtle, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+        row.Controls.Add(showPic, 0, 0);
+        var col = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
+        col.Controls.Add(Ui.FlatButton("Make Showcase Image", MakeShowcase, tip: "A 1920 x 1080 picture for the Nexus page: the Marvel Heroes Omega backdrop with the mod's store image on the left and room on the right for a comic cover. It goes with the mod's post (Create Post), saved with the mod."));
+        col.Controls.Add(Ui.FlatButton("Pick a Cover Image", PickShowcaseCover, tip: "Put a comic cover picture (.PNG, .JPG, .WEBP …) into the showcase image's cover slot."));
+        col.Controls.Add(Ui.FlatButton("Open in Image Editor", EditShowcase, tip: "Open the showcase image in your image editor (Settings ▾ → Model → Choose Image Editor) to drop in a cover or touch it up. Each save there comes back here."));
+        col.Controls.Add(Ui.FlatButton("Remove", RemoveShowcase, tip: "Take the showcase image out of the mod's post."));
+        showNote = new Label { AutoSize = true, Tag = "subtle", MaximumSize = new Size((int)(320 * S), 0), Margin = new Padding(0, (int)(4 * S), 0, 0) };
+        col.Controls.Add(showNote);
+        row.Controls.Add(col, 1, 0);
+        Disposed += (_, _) => showEdit?.Dispose();
+        ShowShowcase();
+        return row;
+    }
+
+    void ShowShowcase(string? note = null)
+    {
+        if (showPic == null) return;
+        var old = showPic.Image; showPic.Image = null; old?.Dispose();
+        string? f = ShowcaseFile;
+        if (f != null && File.Exists(f))
+            try { using var full = ImageFiles.Load(f); showPic.Image = new Bitmap(full, showPic.Width, showPic.Width * full.Height / Math.Max(1, full.Width)); }
+            catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException) { }
+        if (showNote != null) showNote.Text = note ?? (f == null ? "None yet: Make Showcase Image (needs a store image)." : "In the mod's post: Create Post shows it with the other images.");
+    }
+
+    /// <summary>A copy of the showcase to work on (never the one in the mod's folder: that changes only on Save).</summary>
+    string WorkCopy(string? from)
+    {
+        string dir = Path.Combine(Settings.Home, "post-edit");
+        Directory.CreateDirectory(dir);
+        string file = Path.Combine(dir, $"{ModInstaller.Sanitise(string.IsNullOrWhiteSpace(nameBox.Text) ? "Mod" : nameBox.Text.Trim())} showcase.png");
+        if (from != null && !from.Equals(file, StringComparison.OrdinalIgnoreCase)) File.Copy(from, file, true);
+        return file;
+    }
+
+    void PutShowcase(string file)
+    {
+        int at = draft.PostImages.FindIndex(f => Path.GetFileNameWithoutExtension(f).EndsWith(" showcase", StringComparison.OrdinalIgnoreCase));
+        if (at >= 0) draft.PostImages[at] = file; else draft.PostImages.Insert(0, file);
+        draft.PostImages = [.. draft.PostImages];   // (a new list: the unsaved-changes check sees it)
+    }
+
+    void MakeShowcase()
+    {
+        Collect();
+        if (ShowcaseFile != null && Dialog.Show(this, "Make a new showcase image? The one the post has now is replaced.", "Showcase Image", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+        showEdit?.Dispose(); showEdit = null;
+        string? made;
+        try { made = PostWriter.Showcase(PostWriter.From(draft), "", WorkCopy(null)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
+        { Dialog.Show(this, ex.Message, "Showcase Image Not Made", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (made == null) { Dialog.Show(this, "The showcase image is made from the mod's store image, and this mod has none.\n\nAdd one on Icons → Store Images.", "No Store Image"); return; }
+        PutShowcase(made);
+        ShowShowcase("Made. Pick a Cover Image, or Open in Image Editor to drop one in. Save Changes keeps it with the mod.");
+    }
+
+    void PickShowcaseCover()
+    {
+        if (ShowcaseFile is not string f || !File.Exists(f)) { ShowShowcase("Make Showcase Image first."); return; }
+        using var d = new OpenFileDialog { Title = "Comic Cover", Filter = "Images (*.PNG;*.JPG;*.JPEG;*.BMP;*.WEBP;*.GIF)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif" };
+        if (d.ShowDialog(this) != DialogResult.OK) return;
+        try { string work = WorkCopy(f); PostWriter.PutCover(work, ImageFiles.Usable(d.FileName)); PutShowcase(work); }
+        catch (Exception ex) when (ex is IOException or OutOfMemoryException or ArgumentException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException)
+        { Dialog.Show(this, $"That picture couldn't be used ({ex.Message}).", "Cover Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        ShowShowcase("Cover added. Open in Image Editor to touch it up.");
+    }
+
+    void EditShowcase()
+    {
+        if (ShowcaseFile is not string f || !File.Exists(f)) { ShowShowcase("Make Showcase Image first."); return; }
+        string work;
+        try { work = WorkCopy(f); }
+        catch (IOException ex) { ShowShowcase(ex.Message); return; }
+        PutShowcase(work);
+        showEdit?.Dispose();
+        showEdit = ImageEditWatch.Start(this, work, () => { draft.PostImages = [.. draft.PostImages]; ShowShowcase($"Edit taken in at {DateTime.Now:HH:mm:ss}."); }, out string note);
+        ShowShowcase(note);
+    }
+
+    void RemoveShowcase()
+    {
+        if (ShowcaseFile is not string f) return;
+        showEdit?.Dispose(); showEdit = null;
+        draft.PostImages = [.. draft.PostImages.Where(x => x != f)];
+        ShowShowcase();
+    }
+
     /// <summary>"Custom Image" picked in one of the two picture drop-downs: a file becomes one of the mod's own pictures.</summary>
     string? ChooseCustomPicture(string what)
     {
         using var d = new OpenFileDialog { Title = $"{what} for {draft.Name}", Filter = ModPictures.DialogFilter };
         if (d.ShowDialog(this) != DialogResult.OK) return null;
-        string stem = ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(d.FileName)), ext = Path.GetExtension(d.FileName).ToLowerInvariant();
+        string pickedFile;
+        try { pickedFile = ImageFiles.Usable(d.FileName); }
+        catch (IOException ex) { Dialog.Show(this, ex.Message, "Picture Not Read", MessageBoxButtons.OK, MessageBoxIcon.Error); return null; }
+        string stem = ModInstaller.Sanitise(Path.GetFileNameWithoutExtension(d.FileName)), ext = Path.GetExtension(pickedFile).ToLowerInvariant();
         string file = $"{ModPictures.Folder}/{stem}{ext}";
-        for (int n = 2; draft.Pictures.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase) && !p.Source.Equals(d.FileName, StringComparison.OrdinalIgnoreCase)); n++) file = $"{ModPictures.Folder}/{stem}_{n}{ext}";
-        if (!draft.Pictures.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase))) draft.Pictures.Add((file, d.FileName));
+        for (int n = 2; draft.Pictures.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase) && !p.Source.Equals(pickedFile, StringComparison.OrdinalIgnoreCase)); n++) file = $"{ModPictures.Folder}/{stem}_{n}{ext}";
+        if (!draft.Pictures.Any(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase))) draft.Pictures.Add((file, pickedFile));
         return ModPictures.Prefix + file;
     }
 
@@ -66,6 +186,7 @@ sealed partial class ModEditorView : UserControl
         cardBox.Items.Add("Automatic (hero portrait, costume icon, store image)");
         foreach (string k in cardKeys) cardBox.Items.Add(ModPictures.IsFile(k) ? ModPictures.Label(k) + "  ·  Custom Image" : k);
         cardBox.Items.Add(CustomChoice);
+        cardThumbs = [null, .. cardKeys.Select(k => ModPictures.IsFile(k) ? PictureFile(k) : DraftTextureFile(k)), null];
         int i = keep == null ? -1 : cardKeys.FindIndex(k => k.Equals(keep, StringComparison.OrdinalIgnoreCase));
         cardBox.SelectedIndex = cardWas = i + 1;
         cardBox.EndUpdate();
@@ -90,6 +211,7 @@ sealed partial class ModEditorView : UserControl
 
     public ModEditorView(ModLibrary lib, GameState? game, Mod? editing)
     {
+        foreach (var tb in new[] { descriptionBox, changesBox, notesBox }) SpellCheck.Attach(tb);   // (spell checking)
         this.lib = lib; this.game = game; this.editing = editing;
         catalog = game == null ? null : new StockCatalog(lib, game);
         draft = editing == null ? new ModDraft { Author = Settings.Load().AuthorName?.Trim() ?? "" } : ModDraft.From(editing);
@@ -425,6 +547,39 @@ sealed partial class ModEditorView : UserControl
         settings.Save();
     }
 
+    // ---- thumbnails in the Preview Image / Card Picture lists (Kurt, 2026-11-17): per row a file (.dds / picture), a game
+    // picture (PreviewCandidate) or nothing; decoded in the background, the list redraws until they're in
+    List<object?> previewThumbs = [], cardThumbs = [];
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, Image?> pickThumbs = new(StringComparer.OrdinalIgnoreCase);
+
+    Image? PickThumb(List<object?> rows, int i)
+    {
+        if (i < 0 || i >= rows.Count || rows[i] is not { } what) return null;
+        string key = what is PreviewCandidate c ? "game:" + c.Package + "|" + c.Texture : (string)what + "|" + Ui.FileStamp((string)what);
+        if (pickThumbs.TryGetValue(key, out var img)) return img;
+        pickThumbs[key] = null;
+        int size = (int)(64 * S);
+        Task.Run(() =>
+        {
+            Image? made = null;
+            try
+            {
+                if (what is PreviewCandidate pc) { lock (Ui.StockLock) made = catalog?.Preview(pc.Package, pc.Texture) is { } pv ? Ui.Thumb(pv.Bgra, pv.W, pv.H, size) : null; }
+                else if (File.Exists((string)what)) made = Ui.DdsThumb(ImageFiles.Usable((string)what), size);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or OutOfMemoryException or UnauthorizedAccessException) { }
+            pickThumbs[key] = made;
+        });
+        return null;
+    }
+
+    /// <summary>A texture's file in the draft (any of its texture lists), for its thumbnail.</summary>
+    string? DraftTextureFile(string texture) =>
+        draft.Textures.SelectMany(l => l).Concat(draft.Extra.Select(t => (t.Texture, t.Source))).FirstOrDefault(t => t.Texture.Equals(texture, StringComparison.OrdinalIgnoreCase)).Source;
+
+    /// <summary>A custom picture key's file (the draft's own picture).</summary>
+    string? PictureFile(string key) => draft.Pictures.FirstOrDefault(p => (ModPictures.Prefix + p.File).Equals(key, StringComparison.OrdinalIgnoreCase)).Source;
+
     /// <summary>The Preview Image choices from the draft's images now (they may have changed on the texture tabs).</summary>
     void FillPreviewChoices()
     {
@@ -444,6 +599,7 @@ sealed partial class ModEditorView : UserControl
         foreach (var m in meshes) previewBox.Items.Add($"3D: {m.Name}  ·  {m.Package.Replace(".upk", "", StringComparison.OrdinalIgnoreCase)}");
         int i = keep == null ? -1 : previewKeys.FindIndex(k => k.Equals(keep, StringComparison.OrdinalIgnoreCase));
         previewBox.Items.Add(CustomChoice);
+        previewThumbs = [null, .. draft.Pictures.Select(pic => (object?)pic.Source), .. pics.Select(c => c.FromMod ? (object?)c.File : c), .. meshes.Select(_ => (object?)null), null];
         previewBox.SelectedIndex = previewWas = i + 1;
         previewBox.EndUpdate();
     }
@@ -467,7 +623,7 @@ sealed partial class ModEditorView : UserControl
         Collect();
         draft.Strings = stringsPage.Collect();
         using var f = new PostForm(PostWriter.From(draft), "", (draft.PostNexus, draft.PostDiscord, draft.PostImages),
-            (n, d, imgs) => { draft.PostNexus = n; draft.PostDiscord = d; draft.PostImages = imgs; }, keptWithDraft: true);
+            (n, d, imgs) => { draft.PostNexus = n; draft.PostDiscord = d; draft.PostImages = imgs; ShowShowcase(); }, keptWithDraft: true);
         f.ShowDialog(this);
     }
 
@@ -535,6 +691,7 @@ sealed partial class ModEditorView : UserControl
         nexusBox.Text = draft.NexusModId is int nid ? Nexus.SiteMods + nid : "";
         Add(side, FieldCaption("PREVIEW IMAGE  ·  shown big in the manager (users can pick their own)"));
         previewBox.Margin = new Padding(0);
+        previewBox.Thumb = i => PickThumb(previewThumbs, i);
         Add(side, previewBox);
         Ui.Tip(previewBox, "What the manager shows big for this mod: one of its own images, the game's original, or a 3D view of one of its meshes. Automatic: the mod's first store image, else the game's store image.");
         FillPreviewChoices();
@@ -547,6 +704,7 @@ sealed partial class ModEditorView : UserControl
         };
         Add(side, FieldCaption("CARD PICTURE  ·  the mod's picture in the list (users can pick their own)"));
         cardBox.Margin = new Padding(0);
+        cardBox.Thumb = i => PickThumb(cardThumbs, i);
         Add(side, cardBox);
         Ui.Tip(cardBox, "Which of the mod's images its card in the mod list shows (handy when it has many), or a custom picture of your own. Automatic: its hero portrait, else costume icon, else store image.");
         FillCardChoices();
@@ -557,6 +715,11 @@ sealed partial class ModEditorView : UserControl
             if (ChooseCustomPicture("Card Picture") is string key) FillCardChoices(key);
             else cardBox.SelectedIndex = cardWas;
         };
+        // Showcase image (Kurt, 2026-11-17): the Nexus picture Create Post makes, here too; it's one of the post's images
+        var showCap = FieldCaption("SHOWCASE IMAGE  ·  a picture for the Nexus page (kept with the mod's post)");
+        showCap.Margin = new Padding(0, (int)(10 * S), 0, (int)(3 * S));
+        Add(side, showCap);
+        Add(side, ShowcaseRow());
         // Keep Shared Paths (a user, 2026-10-13): some mods want the stock path shared (a modded S.H.I.E.L.D. agent package
         // also changed Nick Fury's summoned agents, whose copy is in his own package; Make Unique took that away).
         var keepShared = new CheckBox { Text = "Keep Shared Paths  ·  don't make this mod's models unique", AutoSize = true, Checked = draft.KeepShared, Margin = new Padding(0, (int)(16 * S), 0, 0) };

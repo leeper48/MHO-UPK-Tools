@@ -149,6 +149,7 @@ sealed partial class MainForm : Form
     public MainForm()
     {
         MhoExtendedModManager.Model.Settings.App = settings;   // the Model tab's settings are changed on this copy (it's saved again on exit)
+        SpellCheck.Enabled = settings.SpellCheck; SpellCheck.Attach(noteBox);   // (spell checking: Settings → Spell Check)
         ShortcutsUi.AppSettings = settings; Shortcuts.Load(settings.Shortcuts); ShortcutsUi.Install();   // (keyboard shortcuts: the user's, right-click on buttons)
         current = this;
         Text = $"MHO Extended Mod Manager v{Program.Version}";
@@ -209,6 +210,10 @@ sealed partial class MainForm : Form
         rememberWindow.CheckedChanged += (_, _) => { if (settings.RememberWindow != rememberWindow.Checked) { settings.RememberWindow = rememberWindow.Checked; settings.Save(); } };
         menu.Opening += (_, _) => rememberWindow.Checked = settings.RememberWindow;
         menu.Items.Add(rememberWindow);
+        var spell = new ToolStripMenuItem("Spell Check") { CheckOnClick = true, ToolTipText = "Misspelled words in the text boxes (descriptions, changes, notes, posts, the Strings tab) get a red wavy line; right-click one for suggestions, Add to Dictionary or Ignore. Uses the Windows spell checker." };
+        spell.CheckedChanged += (_, _) => { if (settings.SpellCheck != spell.Checked) { settings.SpellCheck = spell.Checked; settings.Save(); SpellCheck.SetEnabled(spell.Checked); } };
+        menu.Opening += (_, _) => spell.Checked = settings.SpellCheck;
+        menu.Items.Add(spell);
         var askApply = new ToolStripMenuItem("Ask Before Applying") { CheckOnClick = true, ToolTipText = "Apply Changes shows what it will write and asks first. Off: it writes right away; anything the checks find is noted in the status line (click it to see), and only an apply that stops shows a window. FreeCam Options' Apply to Game works the same way: off, it shows no window when it succeeds." };
         askApply.CheckedChanged += (_, _) => { if (settings.ApplyWithoutAsking == askApply.Checked) { settings.ApplyWithoutAsking = !askApply.Checked; settings.Save(); } };
         menu.Opening += (_, _) => askApply.Checked = !settings.ApplyWithoutAsking;
@@ -441,7 +446,7 @@ sealed partial class MainForm : Form
             using var d = new OpenFileDialog { Title = $"Preview Picture for {m.Name}", Filter = ModPictures.DialogFilter };
             if (d.ShowDialog(this) != DialogResult.OK) return;
             string key;
-            try { key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, d.FileName, "preview"); }
+            try { key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, ImageFiles.Usable(d.FileName), "preview"); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Dialog.Show(this, ex.Message, "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             if (lib.Find(m.FolderName) is Mod mm && mm.LocalPreview == key) mm.LocalPreview = null;   // the same file name again: still a change
             storePreview.RaisePicked(m, key);
