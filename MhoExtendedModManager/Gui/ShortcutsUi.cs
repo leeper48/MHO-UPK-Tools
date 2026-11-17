@@ -98,6 +98,9 @@ static class ShortcutsUi
 
     /// <summary>A button's own right-click items, shown above the shortcut items (the 3D views' framing buttons: Lock View).</summary>
     public static readonly ConditionalWeakTable<Button, Func<IEnumerable<ToolStripItem>>> MenuItems = new();
+    /// <summary>A button's own right-click items shown under the shortcut items (Kurt, 2026-11-17: the power buttons' menu, with
+    /// the shortcut options kept at the top).</summary>
+    public static readonly ConditionalWeakTable<Button, Func<IEnumerable<ToolStripItem>>> MenuItemsAfter = new();
 
     static void ShowMenu(Button b, Form owner)
     {
@@ -119,6 +122,11 @@ static class ShortcutsUi
         else if (now.Length > 0 && Shortcuts.Find(id) == null)
             menu.Items.Add("Clear Shortcut", null, (_, _) => Store(id, null));
         menu.Items.Add("Keyboard Shortcuts", null, (_, _) => { using var f = new ShortcutsForm(); f.ShowDialog(owner); });
+        if (MenuItemsAfter.TryGetValue(b, out var after))
+        {
+            var items = after().ToList();
+            if (items.Count > 0) { menu.Items.Add(new ToolStripSeparator()); foreach (var item in items) menu.Items.Add(item); }
+        }
         Ui.ShowAt(menu, Cursor.Position);
     }
 

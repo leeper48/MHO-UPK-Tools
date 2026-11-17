@@ -124,6 +124,7 @@ sealed partial class ModEditorView
             g.Rows[e.RowIndex].DefaultCellStyle.ForeColor = off ? Ui.Subtle : Ui.Text;
             partsNote.Text = PartsSummary();
             if (s.Kind is "Effect" or "Decal") powerPreview?.ReloadEffects();   // (shown or hidden at once)
+            if (s.Kind == "Weapon") { HookWeaponSlots(); powerPreview?.ReloadProps(); }
             RefreshPartsPreview();
         };
         Ui.Tip(g, "The parts of the selected power or character in the game's files. Untick a part to switch it off (Save writes it into the mod's packages; tick it again for the game's own). Effect: a particle effect (▶ shows it in the 3D view, such as the dodge's ghosts); Sound: its sound events (▶ plays it); Attachment: a prop the power shows (Invisible Woman's disc); Decal: a mark on the ground (Luke Cage's CAGE; ✎ edits its image in your image editor, replaces or exports it); Setting: a switch such as Can Transition to Hover.");
@@ -275,7 +276,7 @@ sealed partial class ModEditorView
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    static int KindOrder(string kind) => kind switch { "Setting" => 0, "Attachment" => 1, "Effect" => 2, "Decal" => 3, "Sound" => 4, _ => 5 };
+    static int KindOrder(string kind) => kind switch { "Setting" => 0, "Weapon" => 1, "Attachment" => 1, "Effect" => 2, "Decal" => 3, "Sound" => 4, _ => 5 };
 
     /// <summary>▶ on an effect: that one effect in the 3D view, on the character over its idle, again with each loop (the
     /// dodge's ghosts, a hover's glow); the package as this mod has it (a rebuilt dodge ghost shows as built). ▶ on a sound:

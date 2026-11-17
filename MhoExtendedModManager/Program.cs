@@ -140,7 +140,7 @@ static partial class Program
         ("--nexus-scan", "--nexus-scan", "List likely Nexus pages for every mod that isn't linked yet (what Find My Mods shows). Changes nothing."),
         ("--post", "--post <mod> [nexus|discord]", "Print the mod's release post: a Nexus description (BBCode) or a Discord message (Markdown)."),
         ("--auto-tags", "--auto-tags", "List every mod's automatic tags (characters, teams, costume, powers ...)."),
-        ("--card-pictures", "--card-pictures", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to."),
+        ("--card-pictures", "--card-pictures [mod]", "Each mod's card picture: its own image (hero portrait, costume icon, store image, inventory icon), else the stock one it falls back to. With a mod: the pictures its preview offers, and those of the characters its models came from. Changes nothing."),
         ("--gui-snapshot", "--gui-snapshot <dir>", "Render the window to <dir>\\main.png (layout check)."),
     ];
 
@@ -450,6 +450,12 @@ static partial class Program
                 foreach (var m in lib.Mods)
                     Console.WriteLine($"{m.Name}: " + (m.CostumeIconFile() is string own ? "own " + Path.GetFileName(own) : "stock " + (cat?.DefaultIconFor(m) ?? "(none)")) +
                         (m.Manifest.StoreReplacements.Count > 0 ? "" : "  ·  store: stock " + (cat?.DefaultStoreFor(m) ?? "(none)")));
+                // with a mod named: every picture its preview offers, and the model's source character's pictures
+                if (rest.Count > 1 && lib.Find(rest[1]) is { } pm && cat != null)
+                {
+                    foreach (var (t, who) in cat.SourcePictures(pm)) Console.WriteLine($"  source picture: {t} ({who})");
+                    foreach (var c in PreviewImages.For(pm, cat)) Console.WriteLine($"  preview: {c.Key} · {c.Source}");
+                }
                 return 0;
             }
             case "--list":

@@ -49,7 +49,7 @@ sealed partial class ModelPage
     static string KindTip(BorrowedRig.Kind k) => k switch
     {
         BorrowedRig.Kind.Cape => "Cape 1-3 move like Thor's, Doctor Strange's and Vision's capes.",
-        BorrowedRig.Kind.Hair => "Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (manes such as Scream's or Medusa's).",
+        BorrowedRig.Kind.Hair => "Hair 1 is short, Hair 3 the longest; Mega Hair stretches Hair 3's strands to the model's own hair length (manes such as Scream's); Medusa's Hair is the Medusa team-up's own 80-bone mane with her motion (made for her model).",
         BorrowedRig.Kind.Coat => "Long coat tails: Coat 1 and 2 move like Blade's and Nick Fury's coats.",
         BorrowedRig.Kind.Dress => "A dress or long skirt, front and back panels at each leg: Dress 1-3 move like Angela's, Emma Frost's and Black Cat's.",
         BorrowedRig.Kind.Loincloth => "Loincloth or sash strips that hang front and back: Loincloth 1-3 move like Iron Fist's, Scarlet Witch's and Doctor Strange's.",
@@ -98,10 +98,10 @@ sealed partial class ModelPage
             { ToolTipText = own ? $"This hero has {KindName(kind).ToLowerInvariant()} bones of its own: they're always kept, with their hand-animated motion, so nothing is added." : KindTip(kind), Enabled = !own, Checked = now > 0 && !own };
             void Pick(int n) { rigs[kind] = n; UpdateRigsButton(); SchedulePreview(); }
             head.DropDownItems.Add(new ToolStripMenuItem("None", null, (_, _) => Pick(0)) { Checked = now == 0, ToolTipText = $"No added {KindName(kind).ToLowerInvariant()} (it removes nothing the model has)." });
-            int count = BorrowedRig.Donors(kind).Length + (kind == BorrowedRig.Kind.Hair ? 1 : 0);
+            int count = BorrowedRig.Donors(kind).Length + (kind == BorrowedRig.Kind.Hair ? 2 : 0);   // (+ Mega Hair, Medusa's Hair)
             for (int n = 1; n <= count; n++)
             {
-                int pick = kind == BorrowedRig.Kind.Hair && n > BorrowedRig.Donors(kind).Length ? BorrowedRig.MegaHair : n;
+                int pick = kind == BorrowedRig.Kind.Hair && n > BorrowedRig.Donors(kind).Length ? BorrowedRig.MegaHair + (n - BorrowedRig.Donors(kind).Length - 1) : n;
                 head.DropDownItems.Add(new ToolStripMenuItem(BorrowedRig.Title(kind, pick), null, (_, _) => Pick(pick)) { Checked = now == pick, ToolTipText = KindTip(kind) });
             }
             menu.Items.Add(head);

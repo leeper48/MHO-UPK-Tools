@@ -114,6 +114,7 @@ static partial class PowerBorrow
             e.VehicleAuto = crossHeroNow && spawn.Any(x => x.Vehicle) && HeroHeight(StockFiles.For(game.Cooked, heroFile)) is float hh && HeroHeight(donorHero) is float dhh && dhh > 1 ? hh / dhh : null;
             var spawned = new List<SpawnedProp>();
             var slots = new List<string>();
+            var lowering = new Dictionary<string, SlotLowering>(StringComparer.OrdinalIgnoreCase);
             // the game's lift for this power (FlightLift) and the hero's climb speed: his own, or the user's (Climb Speed)
             var flightNow = lift != 0 ? FlightLift(db, e.Power) : null;
             var (ownSpeed, fallSpeed) = Gui.PowerPreview.FlyingSpeeds(StockFiles.For(game.Cooked, heroFile), th);
@@ -148,7 +149,7 @@ static partial class PowerBorrow
                 e.VehicleScale, spawn.Any(x => x.Vehicle) && !rider.IsNone ? rider : null, ownTracks: travel, props: e.Props, spawnedOut: spawned, ownClassCostumes: ownClass, keepWeapons: e.KeepWeapons,
                 held: (draft.AddedProps.Select(a => a.Class).ToHashSet(StringComparer.OrdinalIgnoreCase), draft.AddedProps.Where(a => a.Slot != null).Select(a => a.Slot!).ToHashSet(StringComparer.OrdinalIgnoreCase)),
                 heldBy: [.. draft.AddedProps.Select(a => CostumeClassOf(a.Package)).Distinct()],
-                heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots,
+                heights: e.Heights?.Keys.ToDictionary(k => k, e.HeightKeys, StringComparer.OrdinalIgnoreCase), slotsOut: slots, loweringOut: lowering,
                 flight: flightNow is { } fn ? (fn.ApplyAt, climbSpeed, fn.ChannelStart, fallSpeed) : null, endFromLoop: e.End == PowerBorrowEntry.EndLoop, canChooseEnd: v => e.EndChoosable = v, conditionStart: condStart,
                 takeoff: takeoffNow,
                 // costume packages a costume mod (one without borrows) replaces: the borrow doesn't ship them (AddBorrowedSockets)
@@ -160,6 +161,7 @@ static partial class PowerBorrow
                 anims: !e.NoAnimations, effects: !e.NoEffects, takeProps: !e.NoProps);
             e.Spawned = spawned;
             e.Slots = slots.Count > 0 ? slots : null;
+            e.Lowering = lowering;   // (empty when nothing is lowered: a borrow from before this kept none, and is built again once)
             if (!e.KeepTiming && !e.NoAnimations && CostumeListsNote(CostumeListsHiding(lib, editing?.Folder, th, game.Cooked), th) is { } hidden) log.Add("warning: " + hidden);
             // the hero's own animated attachments (Kitty Pryde's Lockheed) play the power's animation names too: their own
             // travel animations also under the borrowed names (Lockheed hung still, no wing flaps, under Hawkeye's
@@ -1065,7 +1067,7 @@ static partial class PowerBorrow
         IReadOnlyList<PropFit>? props = null, List<SpawnedProp>? spawnedOut = null, IReadOnlyList<string>? ownClassCostumes = null, bool keepWeapons = false,
         (IReadOnlySet<string> Classes, IReadOnlySet<string> Slots)? held = null, IReadOnlyList<string>? heldBy = null,
         IReadOnlyDictionary<string, List<(float At, float Z)>>? heights = null, List<string>? slotsOut = null, (float ApplyAt, float Rise, float ChannelStart, float Fall)? flight = null, bool endFromLoop = false, Action<bool>? canChooseEnd = null,
-        bool conditionStart = false,
+        bool conditionStart = false, Dictionary<string, SlotLowering>? loweringOut = null,
         ((float ApplyAt, float Height, float ChannelStart) Target, float Rise, float DonorApplyAt, float DonorChannelStart)? takeoff = null,
         IReadOnlyDictionary<string, string>? costumeModPackages = null, IReadOnlySet<string>? modPackages = null,
         bool anims = true, bool effects = true, bool takeProps = true)
@@ -1298,6 +1300,10 @@ static partial class PowerBorrow
             for (int i = 0; i < swaps.Count; i++)
                 if (heights.TryGetValue(swaps[i].Slot.EndsWith(ConditionStartSuffix, StringComparison.OrdinalIgnoreCase) ? swaps[i].Slot[..^ConditionStartSuffix.Length] : swaps[i].Slot, out var hk) && hk.Count > 0) { swaps[i] = swaps[i] with { Heights = hk }; log.Add($"anims: {swaps[i].Slot}: {hk.Count} height key(s)"); }
         slotsOut?.AddRange(swaps.Select(s => s.Slot).Where(s => !s.EndsWith(ConditionStartSuffix, StringComparison.OrdinalIgnoreCase)));
+        // how each slot is lowered for the flying height (an Animations-tab swap of that slot gets the same: SlotLowering)
+        if (loweringOut != null)
+            foreach (var s in swaps.Where(s => !s.Slot.EndsWith(ConditionStartSuffix, StringComparison.OrdinalIgnoreCase)))
+                if (SlotLowering.Of(s) is { } low) loweringOut[s.Slot] = low;
         if (swaps.Count > 0)
         {
             string hf = Path.GetFileName(targetHeroPackage);

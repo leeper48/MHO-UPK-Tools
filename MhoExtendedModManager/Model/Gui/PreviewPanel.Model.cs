@@ -156,11 +156,16 @@ sealed partial class PreviewPanel
     public static PropAdjust? PropAdjustNow { get; set; }
 
     /// <summary>An FBX as the source (0.11.3): its skeleton proportions, meshes (<paramref name="meshes"/>, null = all) and textures.</summary>
-    public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null, float lean = float.NaN)
+    public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null, float lean = float.NaN,
+        int cape = 0, int hair = 0, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
         Stage("skeleton");
+        // added rigs on an FBX source (Kurt, 2026-11-16, Medusa on Carnage): grafted first, so the FBX's bones of the same
+        // name (Medusa's g_*_basehair) carry its hair, and the rig's matched motion moves them
+        var notes = new List<string>();
+        (sk, var rigs) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(cape, hair, rigsMore), null, notes.Add);
         var r = FbxReimport.LoadAny(fbx, sk, meshes, _ => { }, PropAsIsNow);   // (a prop target: laid over the prop, or its own model as it is)
         if (!PropFit.IsProp(sk)) FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });   // the mesh edited in Blender (Ctrl+S)
@@ -176,7 +181,20 @@ sealed partial class PreviewPanel
         if (p.Map != null && file != null) p.Map.Smooth = file.Smooth;
         p = WithHeld(p with { Unpainted = unpainted }, sk, packagePath);   // (a prop in the hero's hand; a body with its props as built)
         if (paintNote != null) p = p with { Note = p.Note + " · " + paintNote };
+        if (notes.Count > 0)
+        {
+            foreach (var rig in rigs) { rig.Paired = RiddenBy(r, rig); rig.MeasureBody(p.Bones, r); }
+            p = p with { Rigs = rigs, Note = p.Note + " · " + string.Join(" · ", notes) + " · " + string.Join(", ", rigs.Select(x => $"{x.Paired} of the model's bones ride {x.Label}")) };
+        }
         return p;
+    }
+
+    /// <summary>How many of an FBX source's own bones carry skin on a rig's grafted bones (they share its bones' names).</summary>
+    internal static int RiddenBy(Retargeted r, BorrowedRig rig)
+    {
+        var used = new HashSet<int>();
+        foreach (var s in r.Sections) foreach (var w in s.Weights) foreach (var (b, wt) in w) if (wt > 0 && b >= 0 && b < r.Bones.Count) used.Add(b);
+        return used.Count(b => r.Bones[b].Mapped && rig.Bones.IsMatch(r.Bones[b].Name));
     }
 
     /// <summary>
@@ -339,11 +357,29 @@ sealed partial class PreviewPanel
         {
             if (ModAnimations.Load(idle) is not { } ba) return null;
             var an = new MeshAnimator(bones, mesh.Positions, mesh.Normals, mesh.Influences, mesh.Tangents);
+            // only the vertices the feet and lower legs drive (Kurt, 2026-11-16: Medusa's hair hangs 8-11 units below her soles
+            // in her idle, and the lowest point of the whole model lifted her 9 units off the floor); all of them when the
+            // skeleton has no such bones
+            var footBones = new HashSet<int>(Enumerable.Range(0, bones.Count).Where(i => FootBone.IsMatch(bones[i].Name)));
+            int[] feetVerts = footBones.Count == 0 ? [] : [.. Enumerable.Range(0, mesh.Positions.Length).Where(v => v < mesh.Influences.Count && Main(mesh.Influences[v]) is int b && footBones.Contains(b))];
+            float Lowest(IReadOnlyList<Vector3> pos) => feetVerts.Length > 20 ? feetVerts.Min(v => pos[v].Z) : pos.Min(v => v.Z);
             float frames = MeshAnimator.Span(ba).Frames, sum = 0; int n = 0;
-            for (float f = 0; f <= frames; f += Math.Max(1, frames / 8)) { an.Pose(ba, f); sum += an.Positions.Min(v => v.Z); n++; if (Environment.GetEnvironmentVariable("MHO_FEETDEBUG") == "1") Console.WriteLine($"feet: {idle.Name} f{f:0} min {an.Positions.Min(v => v.Z):0.0} rest {mesh.Positions.Min(v => v.Z):0.0}"); }
+            for (float f = 0; f <= frames; f += Math.Max(1, frames / 8)) { an.Pose(ba, f); sum += Lowest(an.Positions); n++; if (Environment.GetEnvironmentVariable("MHO_FEETDEBUG") == "1") Console.WriteLine($"feet: {idle.Name} f{f:0} feet {Lowest(an.Positions):0.0} (all {an.Positions.Min(v => v.Z):0.0}, {feetVerts.Length} foot vertices) rest {mesh.Positions.Min(v => v.Z):0.0}"); }
             return n == 0 ? null : -sum / n;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or IndexOutOfRangeException) { return null; }
+    }
+
+    /// <summary>Bones of the feet and lower legs (g_l_ankle, g_l_ball, g_l_lwrlegend, g_r_knee, toes, Bip feet / calves).</summary>
+    static readonly System.Text.RegularExpressions.Regex FootBone = new(@"ankle|ball|toe|foot|lwrleg|calf|knee", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>A vertex's strongest bone, or -1.</summary>
+    static int Main(VertexInfluence vi)
+    {
+        if (vi.Bones == null || vi.Bones.Count == 0) return -1;
+        int best = 0;
+        for (int k = 1; k < vi.Bones.Count && k < vi.Weights.Count; k++) if (vi.Weights[k] > vi.Weights[best]) best = k;
+        return vi.Bones[best];
     }
 
     static List<VertexInfluence> Unpainted(Retargeted r) =>

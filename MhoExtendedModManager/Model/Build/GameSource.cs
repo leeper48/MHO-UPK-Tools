@@ -57,7 +57,7 @@ static class GameSource
         string? pickName = null;
         if (meshName != null) pickName = meshName;
         else try { pickName = MhoSkeleton.Load(meshPath).Mesh.Name; } catch (InvalidDataException) { }
-        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|4";   // (3: no glow from a DXT1 map's missing alpha; 4: prop bones' pieces apart)
+        string stamp = $"{meshPath}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}|{pickName}|6";   // (3: no glow from a DXT1 map's missing alpha; 4: prop bones' pieces apart; 6: maps a shader samples directly)
         if (File.Exists(fbx) && File.Exists(stampFile) && File.ReadAllText(stampFile) == stamp) return fbx;
 
         Protected.CheckWrite(outDir);

@@ -127,6 +127,7 @@ sealed partial class ModEditorView
         {
             if (!host.Visible || powerPreview != null || editing == null || game == null) return;
             powerPreview = new StorePreview { Dock = DockStyle.Fill, CookedFolder = game.Cooked, Catalog = catalog, ForceEffects = true, PowerStrip = false, Always3D = true };
+            HookWeaponSlots();   // (weapon slots switched off on Parts are left out of the 3D view, saved or not)
             powerPreview.AnimationShown += () => { if (powerAnimBlock?.Root.Visible == true) powerAnimBlock.Show(); };
             powerPreview.ColorFor = proto => draft.PowerColors.FirstOrDefault(e => e.Power.Equals(proto, StringComparison.OrdinalIgnoreCase)) is { } e ? e.Color : null;
             // Packages built for colors before are left out of the preview: the color shown is the one being set, on the stock files.
@@ -152,6 +153,7 @@ sealed partial class ModEditorView
         powerList.Padding = new Padding(0, (int)(6 * S), 0, 0);
         powerList.DrawTile = DrawPowerTile;
         powerList.TipFor = o => o is Fx.PowerList.Power p ? PowerTip(p) : "";
+        powerList.ItemRightClicked += PowerTileMenu;
         powerList.StartsGroup = i => i == heroPowerCount && i > 0;
         powerList.SelectedIndexChanged += (_, _) => { ShowPowerTitle(); if (!refillSame) PowerSelected(); };
         left.Controls.Add(host);
@@ -604,19 +606,11 @@ sealed partial class ModEditorView
     /// "ObliteratorCane"): the list reads the game's strings as they are in the game folder, where an applied mod's earlier
     /// rename is; the draft's English string for the power's DisplayName, else the game's original, else the list's.
     /// </summary>
-    string ShownName(Fx.PowerList.Power p)
-    {
-        if (p.Part != null || powerDb is not { } db || db.Find(p.Prototype) is not { } pe
-            || Fx.PowerList.Field(db, pe.Id, "DisplayName", 'S', true) is not { Found: true, Raw: var id and not 0 }) return p.Name;
-        if (draft.Strings.LastOrDefault(x => x.Language == "eng" && x.Id == id) is { } s && s.Text.Length > 0) return s.Text;
-        if (catalog != null)
-        {
-            stockEnglish ??= catalog.Strings("eng").GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Text);
-            if (stockEnglish.TryGetValue(id, out var t) && t.Length > 0) return t;
-        }
-        return p.Name;
-    }
-    Dictionary<ulong, string>? stockEnglish;
+    string ShownName(Fx.PowerList.Power p) => Looks.Name(p, powerDb);
+
+    /// <summary>The draft's look of the powers (names, icons, borrowed looks), as every preview's power buttons show it.</summary>
+    PowerLooks Looks => looks ??= PowerLooks.Of(() => draft, catalog);
+    PowerLooks? looks;
 
     void PowerSelected()
     {
@@ -768,37 +762,7 @@ sealed partial class ModEditorView
     /// Storm's own icon after a click: the tile read the game's icon package, sometimes the live copy, where the applied mod's
     /// icon is, sometimes the stock original); null when the mod doesn't replace it. Scaled once per file and size.
     /// </summary>
-    Bitmap? ModIcon(string iconPath, int w, int h)
-    {
-        if (w <= 0 || h <= 0) return null;
-        string full = iconPath.Contains('.') ? iconPath : "MarvelUIIcons." + iconPath;
-        int dot = full.IndexOf('.');
-        string pkg = $"ICO__{full[..dot]}_SF.upk", tex = full[(dot + 1)..];
-        int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
-        string? src = view >= 0 && view < draft.Textures.Length
-            ? draft.Textures[view].LastOrDefault(t => t.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase)).Source
-            : draft.Extra.LastOrDefault(x => x.Package.Equals(pkg, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase)).Source;
-        if (src == null || !File.Exists(src)) return null;
-        var key = (src + "|" + Ui.FileStamp(src), w, h);
-        if (modIcons.TryGetValue(key, out var hit)) return hit;
-        Bitmap? bmp = null;
-        try
-        {
-            if (Ui.DdsThumb(src, Math.Max(w, h) * 4) is { } thumb)
-                using (thumb)
-                {
-                    bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-                    using var gg = Graphics.FromImage(bmp);
-                    gg.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    gg.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                    gg.DrawImage(thumb, new Rectangle(0, 0, w, h));
-                }
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or UnauthorizedAccessException) { bmp = null; }
-        modIcons[key] = bmp;
-        return bmp;
-    }
-    readonly Dictionary<(string, int, int), Bitmap?> modIcons = [];
+    Bitmap? ModIcon(string iconPath, int w, int h) => Looks.Icon(iconPath, w, h);
 
     static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int rad)
     {
@@ -813,14 +777,14 @@ sealed partial class ModEditorView
     /// <summary>A tile's tooltip: the name, whose look it borrows, its color.</summary>
     string PowerTip(Fx.PowerList.Power p)
     {
-        var lines = new List<string> { ShownName(p) };
-        if (BorrowOf(p.Prototype) is { } borrow) lines.Add("Looks like " + borrow.DonorName);
+        var lines = Looks.TipLines(p, powerDb);
         if (EntryOf(p.Prototype) is { } e && !e.Color.IsNone) lines.Add("Recolored");
         if (PowerColorBuild.IsOwn(p.Prototype)) lines.Add("The character's own effects (glows, trails)");
         else if (p.Part != null) lines.Add("One of the character's own effects: shows it in the 3D view (Parts), recolored with the character's Color");
         else if (IsCharacterEntry(p.Prototype)) lines.Add("The character's own parts (dodge, hover, its animations' trails …): switch them off on Parts, recolor their effects on Color");
         else if (PowerColorBuild.IsPackage(p.Prototype)) lines.Add("A whole package, added with Add Package");
         else if (p.Animations.Count == 0) lines.Add("No animation of its own: its effects play over the idle");
+        if (p.Part == null && powerList.Items.IndexOf(p) is int at && at >= 0 && at < heroPowerCount) lines.Add("Right-click: rename, replace its icon, make one from the 3D view, or change its animations");
         return string.Join("\n", lines);
     }
 

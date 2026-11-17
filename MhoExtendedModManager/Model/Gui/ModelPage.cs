@@ -24,6 +24,9 @@ sealed partial class ModelPage : UserControl
     readonly CharacterList characters = new() { Dock = DockStyle.Fill };
 
     readonly PreviewPanel preview = new() { Dock = DockStyle.Fill };
+    /// <summary>The hero's powers on the preview's buttons, and those buttons redrawn with the draft's names and icons.</summary>
+    public IReadOnlyList<MhoExtendedModManager.Fx.PowerList.Power> HeroPowers => preview.HeroPowers;
+    public void RefreshPowerLooks() => preview.View3D.RefreshLooks();
     /// <summary>Waits a moment after a change before the preview is rebuilt (several quick clicks = one rebuild).</summary>
     readonly System.Windows.Forms.Timer previewDelay = new() { Interval = 350 };
     int previewId;
@@ -68,7 +71,7 @@ sealed partial class ModelPage : UserControl
     BoneMapFile? shownMap;
     List<string> mhoBones = [];
     readonly Button defaultParts;
-    readonly Button buildButton, openButton, fbxButton;
+    readonly Button buildButton, openButton, fbxButton, animsButton;
     /// <summary>Where models come from (0.11.3, Kurt: "MFF or FBX as the source"; MSF / MCoC may follow).</summary>
     readonly DropDown sourceKind = new() { Width = 220 };
     /// <summary>Where the target comes from (Kurt, 2026-10-26: as Source's): the mod's packages, From the Game, or Browse for a
@@ -132,6 +135,11 @@ sealed partial class ModelPage : UserControl
     public ModelPage(IModelHost host)
     {
         this.host = host;
+        // the package's animations changed after a build (the swaps put back on): the preview reads them again
+        // the power buttons show the mod's power names and icons (Borrow Power, Replace Icon); right-click changes them
+        preview.Looks = host.PowerLooks;
+        preview.PowerMenu += (pw, a) => host.PowerAction(pw.Prototype, a, preview.View3D);
+        host.PackageChanged += f => { if (!IsDisposed && ChosenPackage?.Key.Equals(f, StringComparison.OrdinalIgnoreCase) == true) SchedulePreview(); };
         mapSmooth = Ui.FlatButton("Smooth Weights", SmoothSelected, "Smooths the weights of the bone in the selected row (a chain row: all its bones), as Blender's Weight Paint Smooth (0.5, 5 times) per click: its border with the next bones softens. Saved in your bone map; Undo (Ctrl+Z) takes it back.");
         mapSmooth.Enabled = false;
         mapBones = Ui.FlatButton("Bones", () => preview.ShowBones = !preview.ShowBones, "Draw the skeleton over the model; the selected row's bones in orange (as Look ▾ → Bones).");
@@ -168,6 +176,10 @@ sealed partial class ModelPage : UserControl
         openButton.Enabled = false;
         Icons.Make(openButton, "Open Folder", Icons.Folder, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         Icons.Make(buildButton, "Build into Mod", Icons.Build, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        // Use the Source's Animations (Kurt, 2026-11-16: Medusa on Carnage plays Medusa's idle, fidgets …)
+        animsButton = Ui.FlatButton("Use the Source's Animations", UseSourceAnims, "For a character from the game built onto another: opens the Animations tab's Copy From a Character on the source character, with each of its animations that has the same name as one of the target's ticked (idle, fidgets, run, emotes …; powers have their own names). Untick what to leave, then Use Ticked. Back to the Original undoes any of them.");
+        Icons.Make(animsButton, "Use the Source's Animations", Icons.Film, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        animsButton.Enabled = false;
         // Full Export ▾ (0.16.5, Kurt): the model and every animation, as FBX files or straight into Blender (one animation:
         // the Single Animation ▾ menu under the preview)
         fbxButton = Ui.FlatButton("Full Export ▾", ShowFullExportMenu, "The model and all of the base hero's animations: Export FBX (one FBX each, the folder opens) or Open in Blender (a new Blender scene, every animation an Action on the NLA; Ctrl+S there sends your changes back). For one animation: Single Animation ▾ under the preview.");
@@ -322,7 +334,7 @@ sealed partial class ModelPage : UserControl
         sizeCaption = FindCaption(sizeColumn, "SIZE IN GAME");
         right.Controls.Add(sizeColumn, 0, 4);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
-        actions.Controls.AddRange([buildButton, blenderButton, fbxButton, openButton, modelSpinner, status]);
+        actions.Controls.AddRange([buildButton, animsButton, blenderButton, fbxButton, openButton, modelSpinner, status]);
         modelSpinner.Margin = new Padding(8, 6, 0, 0);
         right.Controls.Add(actions, 0, 5);
         var blenderLine = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0, 2, 0, 0) };
@@ -1309,12 +1321,32 @@ sealed partial class ModelPage : UserControl
         UpdateStatus();
     }
 
+    /// <summary>A character from the game as the source and a character package as the target (Use the Source's Animations),
+    /// else null.</summary>
+    (string Source, string Target)? SourceAnimsPair()
+    {
+        if (chosenKey?.StartsWith(GameSrc) != true || ChosenPackage is not { } pkg) return null;
+        var (src, mesh) = SplitGameKey(chosenKey);
+        static bool Character(string f) => f.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) && !f.StartsWith("UC__MarvelPlayerAudio", StringComparison.OrdinalIgnoreCase)
+            || f.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
+        if (mesh != null || !Character(src) || !Character(pkg.Key) || src.Equals(pkg.Key, StringComparison.OrdinalIgnoreCase)) return null;
+        return (src, pkg.Key);
+    }
+
+    async void UseSourceAnims()
+    {
+        if (SourceAnimsPair() is not var (src, target)) return;
+        string? why = await host.CopyAnimationsFrom(target, src);
+        if (why != null && !IsDisposed) { Log("Use the Source's Animations: " + why); Dialog.Show(FindForm(), why[..1].ToUpperInvariant() + why[1..] + ".", "Animations Not Opened", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+    }
+
     void UpdateStatus()
     {
         bool ready = HasSource && ChosenPackage != null && !building;
         buildButton.Enabled = ready || (ChosenPackage != null && !building);   // no source: the size only
         fbxButton.Enabled = ready;
         blenderButton.Enabled = ChosenPackage != null && !building;
+        animsButton.Enabled = SourceAnimsPair() != null && !building;
         UpdateBlenderStatus();
         status.Text = building ? "Building…" : !HasSource ? (ChosenPackage != null ? "No source: Build into Mod writes only the size." : FbxMode ? "Pick an FBX or an MFF folder." : GameMode ? "Pick a character from the game." : "Pick an MFF character.") : ChosenPackage == null ? "Pick the package to build onto." : "Ready to build.";
         // an added prop picked: its fit goes in as the sliders are let go; a build is the character's
@@ -1428,7 +1460,7 @@ sealed partial class ModelPage : UserControl
             string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
             string? paintFile = PaintPath() is string pp && File.Exists(pp) ? pp : null;
             var prepared = await Task.Run(() => sfbx != null
-                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile, lean)
+                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile, lean, capeChoice, hairChoice, moreRigs)
                 : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs, keepSize, lean, joints, paintFile));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);

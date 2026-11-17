@@ -41,6 +41,24 @@ static class PowerParts
     };
 
     static readonly string[] SoundProps = ["activateevent", "deactivateevent"];
+    /// <summary>A power's weapon slot shown while it runs or when it starts (PowerFxMeshAttachment).</summary>
+    static readonly string[] WeaponSlotProps = ["whileactivatedshowweaponslot", "weaponslottoshowonactivate"];
+
+    /// <summary>The slot a weapon-slot part shows in the game's own copy of the package (for its label once it's off), or null.</summary>
+    static string? StockSlot(string packageFile, string part, string prop)
+    {
+        try
+        {
+            if (StockFiles.Cooked is not string cooked || StockFiles.For(cooked, packageFile) is not string sp || !File.Exists(sp)) return null;
+            var stock = Package.Open(sp);
+            int i = Array.FindIndex(stock.Exports, x => stock.PathOf(x).Equals(part, StringComparison.OrdinalIgnoreCase));
+            if (i < 0) return null;
+            byte[] d = stock.ReadExportBytes(stock.Exports[i]).ToArray();
+            var t = Walk(stock, d, x => x.Name.Equals(prop, StringComparison.OrdinalIgnoreCase))?.FirstOrDefault(x => x.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && x.Size == 8);
+            return t == null ? null : TagWalker.NameAt(stock, d, t.ValueAt);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return null; }
+    }
 
     /// <summary>The switches of a package's class default (the one named after the package's class, else every class default
     /// in marvelgamecontent with parts). Read only.</summary>
@@ -70,8 +88,16 @@ static class PowerParts
                 string part = pkg.PathOf(e), cname = pkg.ClassOf(e);
                 var walk = Walk(pkg, d, t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase) || SoundProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase)
                     || t.Name.Equals("whileactivatedattachmentclass", StringComparison.OrdinalIgnoreCase) || Settings.ContainsKey(t.Name)
-                    || t.Name.Equals("decalmat", StringComparison.OrdinalIgnoreCase));
-                if (walk == null) continue;
+                    || t.Name.Equals("decalmat", StringComparison.OrdinalIgnoreCase) || WeaponSlotProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase));
+                if (walk == null || !walk.Any(t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // an effect whose system comes from its class's default, in this package (Kurt, 2026-11-16: Carnage's
+                    // ambientlargevfx is an EntityFxParticle_CarnageAmbientTendrils naming no system of its own; the
+                    // tendrils weren't in the list): switched there, so every costume of the hero loses them, as the others
+                    if (ClassDefaultEffect(pkg, cname) is var (cdPath, cdRef) && !list.Any(x => x.Part.Equals(cdPath, StringComparison.OrdinalIgnoreCase)))
+                        list.Add(new(packageFile, cdPath, e.ObjectName, cname, "Effect", "effect", Words(e.ObjectName), Leaf(cdRef), cdRef));
+                    if (walk == null) continue;
+                }
                 string Ref(TagWalker.Tag t) { int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt)); return r == 0 ? "" : RefPath(pkg, r); }
                 if (walk.FirstOrDefault(t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } pt)
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Effect", "effect", Words(e.ObjectName), Leaf(Ref(pt)), Ref(pt)));
@@ -87,6 +113,15 @@ static class PowerParts
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Decal", "decal", Words(e.ObjectName), Leaf(Ref(dm)), Ref(dm)));
                 if (walk.FirstOrDefault(t => t.Name.Equals("whileactivatedattachmentclass", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } at)
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Attachment", "attachment", Words(e.ObjectName), Leaf(Ref(at)), Ref(at)));
+                // a weapon slot the power shows (Kurt, 2026-11-17: Carnage's Reaping Time shows his arm scythes, slot "scythes", on
+                // whatever model the costume has): off = the slot's name set to None, so no prop is shown for it
+                foreach (var t in walk.Where(t => WeaponSlotProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase) && t.Type.Equals("nameproperty", StringComparison.OrdinalIgnoreCase) && t.Size == 8))
+                {
+                    string slot = TagWalker.NameAt(pkg, d, t.ValueAt);
+                    string orig = slot.Equals("None", StringComparison.OrdinalIgnoreCase) ? "" : slot;
+                    string shown = orig.Length > 0 ? orig : StockSlot(packageFile, part, t.Name) ?? "";
+                    list.Add(new(packageFile, part, e.ObjectName, cname, "Weapon", t.Name.ToLowerInvariant(), $"Shows Weapon Slot \"{shown}\"", shown.Length > 0 ? $"the {shown} props" : "a weapon slot", orig));
+                }
                 foreach (var t in walk.Where(t => Settings.ContainsKey(t.Name) && t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase) && t.Start + 24 < d.Length))
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Setting", t.Name.ToLowerInvariant(), Settings[t.Name].Label, Settings[t.Name].Off, d[t.Start + 24] != 0 ? "true" : ""));
             }
@@ -294,6 +329,16 @@ static class PowerParts
                 {
                     if (walk.FirstOrDefault(t => t.Name.Equals(props[k], StringComparison.OrdinalIgnoreCase)) is not { } t) continue;
                     if (t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase)) d[t.Start + 24] = (byte)(off ? 0 : 1);
+                    else if (t.Type.Equals("nameproperty", StringComparison.OrdinalIgnoreCase) && t.Size == 8)
+                    {
+                        // a weapon slot: None (no slot shown), or its name back (both are in the package's name table)
+                        string o = k < origs.Length ? origs[k] : "";
+                        string name = off || o.Length == 0 ? "None" : o;
+                        int ni = Array.FindIndex(pkg.Names, x => x.Equals(name, StringComparison.OrdinalIgnoreCase));
+                        if (ni < 0) throw new InvalidDataException($"{g.Key}: the name {name} isn't in the package");
+                        BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), ni);
+                        BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 4), 0);
+                    }
                     else if (t.Type.Equals("arrayproperty", StringComparison.OrdinalIgnoreCase) && t.Size >= 4
                         && BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt)) is int n && t.Size == 4 + 4 * n)
                     {
@@ -370,6 +415,19 @@ static class PowerParts
             if (k >= 0) draft.Packages[k] = (f, file); else draft.Packages.Add((f, file));
         }
         return work;
+    }
+
+    /// <summary>The class default of a component's class in this package (default__&lt;class&gt;) when it names a particle system:
+    /// its path and the system's (empty when the default's own is none: switched off already).</summary>
+    static (string Path, string Ref)? ClassDefaultEffect(Package pkg, string cname)
+    {
+        int cd = Array.FindIndex(pkg.Exports, x => x.ObjectName.Equals("default__" + cname, StringComparison.OrdinalIgnoreCase));
+        if (cd < 0) return null;
+        byte[] d;
+        try { d = pkg.ReadExportBytes(pkg.Exports[cd]).ToArray(); } catch (PackageFormatException) { return null; }
+        if (Walk(pkg, d, t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase))?.FirstOrDefault(t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is not { } pt) return null;
+        int r = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(pt.ValueAt));
+        return (pkg.PathOf(pkg.Exports[cd]), r == 0 ? "" : RefPath(pkg, r));
     }
 
     /// <summary>The properties a switch changes.</summary>

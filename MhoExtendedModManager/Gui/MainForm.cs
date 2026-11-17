@@ -427,6 +427,14 @@ sealed partial class MainForm : Form
             UpdateUndo();
             storePreview.ChoiceChanged();
         };
+        // A power button's right-click (Kurt, 2026-11-17): renaming, icons and animations are made in the Editor, on its
+        // Powers tab (the Animations tab for animations)
+        storePreview.PowerMenu += (m, pw, a) =>
+        {
+            if (readOnly || lib?.Find(m.FolderName) is not Mod mm) return;
+            EditMod(mm);
+            if (editor?.Editing?.FolderName == mm.FolderName) editor.PowerAction(pw.Prototype, a);
+        };
         storePreview.CustomRequested += m =>
         {
             if (readOnly || lib == null) return;
@@ -624,6 +632,14 @@ sealed partial class MainForm : Form
             float fr = settings.ListWidth is float f && f > 0.1f && f < 0.8f ? f : 0.30f;
             split.SplitterDistance = (int)(split.Width * fr);
             split.SplitterMoved += (_, _) => { if (split.Width > 0) { settings.ListWidth = (float)Math.Round((double)split.SplitterDistance / split.Width, 3); settings.Save(); } };
+        };
+        // unsaved editor work: ask before it's lost (Kurt, 2026-11-16: the window closed with an unsaved Model build and the
+        // editor's work folder went with it)
+        FormClosing += (_, e) =>
+        {
+            if (e.Cancel || editor == null || !editor.IsDirty || e.CloseReason is CloseReason.WindowsShutDown or CloseReason.TaskManagerClosing) return;
+            if (Dialog.Show(this, $"{editor.Title} has changes that aren't saved.\n\nClose anyway (those changes are lost)? Cancel keeps the window open so you can Save Changes first.", "Unsaved Changes", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK)
+            { e.Cancel = true; pages.Select(1); }
         };
         FormClosing += (_, _) => SaveNote();
         FormClosing += (_, _) => SaveWindowPlace();

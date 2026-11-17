@@ -3,7 +3,9 @@ namespace MhoExtendedModManager;
 /// <summary>A picture that can be shown big for a mod: one of its own images, or the game's original.</summary>
 sealed record PreviewCandidate(string Key, string Texture, bool FromMod, string? File, string Package)
 {
-    public string Source => Package.Length == 0 ? "Custom Image" : FromMod ? "From the Mod" : "The Game's Image";
+    public string Source => Package.Length == 0 ? "Custom Image" : FromMod ? "From the Mod" : From != null ? $"From the Model's Source: {From}" : "The Game's Image";
+    /// <summary>A game picture of the character the mod's model came from (StockCatalog.SourcePictures): that character.</summary>
+    public string? From { get; init; }
 }
 
 /// <summary>
@@ -47,7 +49,11 @@ static class PreviewImages
         var images = man.StoreReplacements.Select(r => (r.TextureName ?? "", Path.Combine(m.Folder, r.DdsFileName ?? ""), Applier.IconPackages[2].File))
             .Concat(man.Replacements.Select(r => (r.TextureName ?? "", Path.Combine(m.Folder, r.DdsFileName ?? ""), Applier.IconPackages[0].File)))
             .Concat(man.Extra.Select(r => (r.TextureName ?? "", Path.Combine(m.Folder, r.DdsFileName ?? ""), r.Package)));
-        var list = For(images, [cat?.DefaultStoreFor(m), cat?.DefaultIconFor(m)], cat);
+        // the model's source character's pictures (a game character built onto this one) after the mod's own defaults
+        var src = cat?.SourcePictures(m) ?? [];
+        var list = For(images, [cat?.DefaultStoreFor(m), cat?.DefaultIconFor(m), .. src.Select(x => x.Texture)], cat);
+        foreach (var (tex, who) in src)
+            if (list.FindIndex(c => !c.FromMod && c.Texture.Equals(tex, StringComparison.OrdinalIgnoreCase)) is int k and >= 0) list[k] = list[k] with { From = who };
         // Custom pictures (ModPictures): the user's own pick on this PC first, then the mod's own (Pictures\).
         var custom = new List<PreviewCandidate>();
         if (ModPictures.Resolve(m.Folder, m.LocalPreview) is string mine) custom.Add(new PreviewCandidate(m.LocalPreview!, ModPictures.Label(m.LocalPreview!), true, mine, ""));

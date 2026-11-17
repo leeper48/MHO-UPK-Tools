@@ -43,6 +43,8 @@ sealed partial class StorePreview
         p3.PlaybackMoved += SaveAnim;
         p3.HeroPowersLoaded += () => { HeroPowersLoaded?.Invoke(); Invalidate(); };
         p3.CaptionChanged += Invalidate;
+        p3.Looks = looksOverride ?? (mod == null ? null : PowerLooks.Of(mod, Catalog));
+        if (PowerMenu != null) p3.PowerMenu += (pw, a) => { if (mod != null) PowerMenu?.Invoke(mod, pw, a); };
         powerArea = new Panel { BackColor = Color.Transparent, Visible = false };
         Controls.Add(p3);
         Controls.Add(powerArea);

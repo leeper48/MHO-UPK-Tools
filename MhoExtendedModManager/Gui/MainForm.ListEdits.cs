@@ -251,6 +251,48 @@ sealed partial class MainForm
         { Checked = ModPictures.IsFile(m.LocalCard) && !candidates.Any(c => c.Texture.Equals(m.LocalCard, StringComparison.OrdinalIgnoreCase)) };
         if (ModPictures.Resolve(m.Folder, m.LocalCard) is string ownFile && own.Checked) try { own.Image = Ui.DdsThumb(ownFile, (int)(32 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi))); own.ImageScaling = ToolStripItemImageScaling.None; } catch (Exception ex) when (ex is IOException or ArgumentException or OutOfMemoryException) { }
         item.DropDownItems.Add(own);
+        // the model's source character's pictures (Kurt, 2026-11-16: Medusa built onto Carnage): the game's image, saved as this
+        // PC's card picture (data\pictures, as Custom Image; Export can put it into the mod)
+        if (list.Catalog is { } cat && lib != null)
+        {
+            List<(string Texture, string Character)> src;
+            try { lock (Ui.StockLock) src = cat.SourcePictures(m); } catch (Exception ex) when (ex is IOException or InvalidDataException) { src = []; }
+            if (src.Count > 0) item.DropDownItems.Add(new ToolStripSeparator());
+            int spx = (int)(32 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+            foreach (var (tex, who) in src)
+            {
+                string t = tex, pkgFile = PreviewImages.PackageFor(tex);
+                var pick = new ToolStripMenuItem($"{tex}  ·  {who}, the Model's Source", null, (_, _) =>
+                {
+                    string tmp = Path.Combine(Path.GetTempPath(), $"mhoextmm_card_{Guid.NewGuid():N}", t + ".png");
+                    string key;
+                    try
+                    {
+                        string? why; lock (Ui.StockLock) why = cat.ExportImage(pkgFile, t, tmp);
+                        if (why != null) throw new IOException(why);
+                        key = ModPictures.KeepLocal(lib.DataFolder, m.FolderName, tmp, "card");
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { Dialog.Show(this, ex.Message, "Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+                    finally { try { Directory.Delete(Path.GetDirectoryName(tmp)!, true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } }
+                    Change($"Card picture of \"{m.Name}\": {who}'s {t}", () => { m.LocalCard = key; return true; });
+                })
+                { ImageScaling = ToolStripItemImageScaling.None };
+                try
+                {
+                    (byte[] Bgra, int W, int H, string Format)? pv; lock (Ui.StockLock) pv = cat.Preview(pkgFile, tex);
+                    if (pv is { } p)
+                    {
+                        using var full = MhoPackageModifier.TextureDecode.ToBitmap(p.Bgra, p.W, p.H);
+                        float k = Math.Min((float)spx / p.W, (float)spx / p.H);
+                        var thumb = new Bitmap(Math.Max(1, (int)(p.W * k)), Math.Max(1, (int)(p.H * k)));
+                        using (var g = Graphics.FromImage(thumb)) { g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; g.DrawImage(full, 0, 0, thumb.Width, thumb.Height); }
+                        pick.Image = thumb;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or OutOfMemoryException) { }
+                item.DropDownItems.Add(pick);
+            }
+        }
         if (candidates.Count == 0) return item;
         item.DropDownItems.Add(new ToolStripSeparator());
         int px = (int)(32 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));

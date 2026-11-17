@@ -105,7 +105,7 @@ sealed partial class ModEditorView
             if (animRefilling) return;
             var a = SelectedAnim;
             if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
-            if (animChange != null) animChange.Enabled = a != null;
+            if (animChange != null) animChange.Enabled = a != null; if (animBody != null) animBody.Enabled = a != null && a.From.Alias == null;
             ShowAnimFit();   // (the prop's In This Animation follows the row)
             ShowHeights();
             if (a == null || animPreview == null) return;
@@ -135,7 +135,9 @@ sealed partial class ModEditorView
         animBack = Ui.FlatButton("Back to the Original", BackToOriginal, "Undo the change on the selected animation: the costume plays its own again.");
         animChange.Enabled = animBack.Enabled = false;
         animCopy = Ui.FlatButton("Copy From a Character", CopyFromCharacter, "Use many of another character's animations at once: each one with the same name as one of this costume's (ticked; untick what to leave). The Target undoes the ticked ones.");
-        tools.AddRange([animChange, animBack, animCopy, find, animFind, animCount, animStatus]);
+        animBody = Ui.FlatButton("Bone Lengths and Shape Keys", EditAnimBody, "For the selected animation: Keep Bone Lengths (bones it slides, such as Carnage's fingers stretching into claws in Vicious Lunge, keep the model's own length and only turn) and Shape Keys (the morph targets it drives, such as Carnage's blades and mace: untick to leave them out). Only this costume's copy changes; an animation not changed yet becomes a copy of itself.");
+        animBody.Enabled = false;
+        tools.AddRange([animChange, animBack, animCopy, animBody, find, animFind, animCount, animStatus]);
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 0, 0), ColumnCount = 1, RowCount = 2 };
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -196,7 +198,7 @@ sealed partial class ModEditorView
         try { FillAnimRows(keep); }
         finally { animRefilling = false; }
         var a = SelectedAnim;
-        if (animChange != null) animChange.Enabled = a != null;
+        if (animChange != null) animChange.Enabled = a != null; if (animBody != null) animBody.Enabled = a != null && a.From.Alias == null;
         if (animBack != null) animBack.Enabled = a != null && IsSwapped(a);
         ShowHeights();
     }
@@ -277,12 +279,14 @@ sealed partial class ModEditorView
         if (slot.From.Alias != null) { await ApplyFormChange(slot, donor, pick); return; }
         string src = DraftPath(file)!, cls = animData.Class;
         var inherited = animData.Inherited ? animData.Sets.Select(x => x.Path).ToList() : null;
-        var swap = new AnimSwap.Swap(slot.Name, pick.From.File, pick.From.Export, pick.Export);
+        var swap = Lowered(file, new AnimSwap.Swap(slot.Name, pick.From.File, pick.From.Export, pick.Export));
         var log = new List<string>();
         animStatus.Text = "Copying the Animation…";
         byte[] bytes;
-        var turns = await Task.Run(() => RestTurnsFor(pick.From.File, src));
-        try { bytes = await Task.Run(() => AnimSwap.Build(src, cls, [swap], log, inherited, retarget: turns)); OnBorrowBase(file, b => AnimSwap.Build(b, cls, [swap], log, inherited, retarget: turns)); }
+        bool fromSource = IsModelSource(file, pick.From.File);
+        var turns = await Task.Run(() => RestTurnsFor(pick.From.File, src, fromSource));
+        var dskel = fromSource ? PowerBorrow.HeroSkeleton(pick.From.File) : null;   // (re-parented bones: SourceSkeletons)
+        try { bytes = await Task.Run(() => AnimSwap.Build(src, cls, [swap], log, inherited, retarget: turns, skeleton: dskel != null ? PowerBorrow.HeroSkeleton(src) : null, donorSkeleton: dskel)); OnBorrowBase(file, b => AnimSwap.Build(b, cls, [swap], log, inherited, retarget: turns, skeleton: dskel != null ? PowerBorrow.HeroSkeleton(b) : null, donorSkeleton: dskel)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s \"{pick.Name}\" couldn't be put in: {ex.Message}", "Animation Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (IsDisposed) return;
@@ -324,7 +328,23 @@ sealed partial class ModEditorView
     static string FormName(string alias) => "Form: " + alias;
 
     /// <summary>Copy From a Character: the picker with tick boxes; the ticked animations go in at once (one rebuild).</summary>
-    async void CopyFromCharacter()
+    async void CopyFromCharacter() => await CopyFromCharacterAsync(null);
+
+    /// <summary>The Model tab's Use the Source's Animations (Kurt, 2026-11-16): the Animations tab on <paramref name="target"/>,
+    /// then Copy From a Character opened on <paramref name="donorFile"/> with every animation of the same name ticked.</summary>
+    async Task<string?> CopyAnimationsFrom(string target, string donorFile)
+    {
+        if (editing == null) return "no mod is open";
+        SelectTab(pages.FindIndex(p => p.Title == "Animations"));
+        int at = animPackages.FindIndex(f => f.Equals(target, StringComparison.OrdinalIgnoreCase));
+        if (at < 0) return $"{target} isn't one of the mod's saved packages yet: Save Changes first, then try again";
+        if (animPackage != null && animPackage.SelectedIndex != at) { animData = null; animPackage.SelectedIndex = at; }
+        if (!await WaitAnims()) return "the package's animations didn't load";
+        await CopyFromCharacterAsync(donorFile);
+        return null;
+    }
+
+    async Task CopyFromCharacterAsync(string? startWith)
     {
         if (animData == null || editing == null || game == null || AnimFile is not string file) return;
         if (costumesTask == null || costumesTask.IsFaulted) { string root = game.Root; costumesTask = Task.Run(() => Costume.All(root)); }
@@ -335,7 +355,7 @@ sealed partial class ModEditorView
         animStatus.Text = "";
         if (IsDisposed || animData == null) return;
         AnimPickerForm.Donor? donor; List<CostumeAnims.Anim> picks;
-        using (var f = new AnimPickerForm("", donors, cooked, animData.Anims.Select(a => a.Name), AnimKind) { Try = r => animPreview?.PlayRef(r) })
+        using (var f = new AnimPickerForm("", donors, cooked, animData.Anims.Select(a => a.Name), AnimKind) { Try = r => animPreview?.PlayRef(r), StartWith = startWith })
         {
             if (f.ShowDialog(this) != DialogResult.OK) return;
             donor = f.ChosenDonor; picks = f.ChosenMany;
@@ -350,16 +370,20 @@ sealed partial class ModEditorView
         string cls = animData.Class;
         var inherited = animData.Inherited ? animData.Sets.Select(x => x.Path).ToList() : null;
         bool undo = donor.Kind == "Target";
-        var swaps = undo ? [] : picks.Where(p => p.From.File != null).Select(p => new AnimSwap.Swap(p.Name, p.From.File!, p.From.Export, p.Export)).ToList();
+        var swaps = undo ? [] : picks.Where(p => p.From.File != null).Select(p => Lowered(file, new AnimSwap.Swap(p.Name, p.From.File!, p.From.Export, p.Export))).ToList();
         var slots = picks.Select(p => p.Name).ToList();
         var log = new List<string>();
         animStatus.Text = undo ? "Changing Back…" : $"Copying {swaps.Count} Animations…";
         byte[]? bytes;
         try
         {
-            var turns = undo || swaps.Count == 0 ? null : await Task.Run(() => RestTurnsFor(swaps[0].DonorFile, src));
-            bytes = await Task.Run(() => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, slots, log) : AnimSwap.Build(src, cls, swaps, log, inherited, retarget: turns));
-            OnBorrowBase(file, b => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, slots, log) : AnimSwap.Build(b, cls, swaps, log, inherited, retarget: turns));
+            bool fromSource = !undo && swaps.Count > 0 && IsModelSource(file, swaps[0].DonorFile);
+            var turns = undo || swaps.Count == 0 ? null : await Task.Run(() => RestTurnsFor(swaps[0].DonorFile, src, fromSource));
+            // the model's own character: bones hanging from another parent here (Medusa's knee under g_l_kneeupr, Carnage's under
+            // g_l_hip) are re-keyed to turn as in her body (AnimSwap.Reparent), as borrowed powers do
+            var dskel = fromSource ? PowerBorrow.HeroSkeleton(swaps[0].DonorFile) : null;
+            bytes = await Task.Run(() => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(src), cls, slots, log) : AnimSwap.Build(src, cls, swaps, log, inherited, retarget: turns, skeleton: dskel != null ? PowerBorrow.HeroSkeleton(src) : null, donorSkeleton: dskel));
+            OnBorrowBase(file, b => undo ? AnimSwap.Unswap(MhoPackageModifier.Package.Open(b), cls, slots, log) : AnimSwap.Build(b, cls, swaps, log, inherited, retarget: turns, skeleton: dskel != null ? PowerBorrow.HeroSkeleton(b) : null, donorSkeleton: dskel));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException)
         { animStatus.Text = ""; Dialog.Show(this, $"{donor.Title}'s animations couldn't be put in: {ex.Message}", "Animations Not Changed", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -480,14 +504,52 @@ sealed partial class ModEditorView
     /// America crumpled his right toes: Thor's g_r_ball rests turned 180 degrees from Cap's). Null for the same skeleton or
     /// when a skeleton can't be read.
     /// </summary>
-    static Dictionary<string, System.Numerics.Quaternion>? RestTurnsFor(string donorPackage, string targetPackage)
+    /// <param name="fromModelSource">The target's model was built on the Model tab from the donor itself (Medusa's model on
+    /// Carnage, Medusa's idle): the model keeps the target's rest angles (5-8 degrees off hers at the knees, ankles and balls), so
+    /// every difference is turned, not only flipped bones (Kurt, 2026-11-16: her toes pointed up in her own idle).</param>
+    static Dictionary<string, System.Numerics.Quaternion>? RestTurnsFor(string donorPackage, string targetPackage, bool fromModelSource = false)
     {
         if (Path.GetFullPath(donorPackage).Equals(Path.GetFullPath(targetPackage), StringComparison.OrdinalIgnoreCase)) return null;
         var d = PowerBorrow.HeroSkeleton(donorPackage);
         var t = PowerBorrow.HeroSkeleton(targetPackage);
         if (d == null || t == null) return null;
-        var turns = AnimSwap.RestTurns(d, t);
+        var turns = AnimSwap.RestTurns(d, t, fromModelSource ? 0.5f : 45);
         return turns.Count > 0 ? turns : null;
+    }
+
+    /// <summary>Whether the Model tab built <paramref name="file"/>'s model from the game character in <paramref name="donor"/>
+    /// (a path or file name): the work folder's state.json, TargetSources "&lt;file&gt;|*" or Source with Package.</summary>
+    bool IsModelSource(string file, string donor)
+    {
+        string want = Path.GetFileName(donor);
+        try
+        {
+            string st = Path.Combine(WorkFolder, "state.json");
+            if (!File.Exists(st)) return false;
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(st));
+            var r = doc.RootElement;
+            static string? Src(System.Text.Json.JsonElement e) => e.ValueKind == System.Text.Json.JsonValueKind.String && e.GetString() is string s && s.StartsWith("gamesrc:", StringComparison.OrdinalIgnoreCase) ? s["gamesrc:".Length..].Split('|')[0] : null;
+            if (r.TryGetProperty("TargetSources", out var ts) && ts.ValueKind == System.Text.Json.JsonValueKind.Object && ts.TryGetProperty(file + "|*", out var v) && Src(v) is string a)
+                return a.Equals(want, StringComparison.OrdinalIgnoreCase);
+            return r.TryGetProperty("Package", out var pk) && pk.GetString() is string pf && pf.Equals(file, StringComparison.OrdinalIgnoreCase)
+                && r.TryGetProperty("Source", out var so) && Src(so) is string b && b.Equals(want, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException or InvalidOperationException) { return false; }
+    }
+
+    /// <summary>A swap of an animation a borrowed travel power of this hero plays (its loop, start, end) lowered the way the
+    /// borrow lowers its own for the game's flying height (PowerBorrowEntry.Lowering; Kurt, 2026-11-16: Medusa's run in the
+    /// borrowed swing's loop played 140 units up).</summary>
+    AnimSwap.Swap Lowered(string file, AnimSwap.Swap s) => LoweredBy(draft.PowerBorrows, file, s);
+
+    internal static AnimSwap.Swap LoweredBy(IEnumerable<PowerBorrowEntry> borrows, string file, AnimSwap.Swap s)
+    {
+        string n = Path.GetFileNameWithoutExtension(file);
+        string? hero = n.StartsWith("UC__MarvelPlayer_", StringComparison.OrdinalIgnoreCase) ? n["UC__MarvelPlayer_".Length..].Split('_')[0] : null;
+        if (hero == null) return s;
+        foreach (var e in borrows)
+            if (e.Hero.Equals(hero, StringComparison.OrdinalIgnoreCase) && e.Lowering != null && e.Lowering.TryGetValue(s.Slot, out var low)) return low.On(s);
+        return s;
     }
 
     void OnBorrowBase(string file, Func<string, byte[]?> change)
@@ -519,6 +581,7 @@ sealed partial class ModEditorView
         int k = draft.Packages.FindIndex(p => p.File.Equals(file, StringComparison.OrdinalIgnoreCase));
         if (k >= 0) draft.Packages[k] = (file, path);
         RefreshPackages();
+        PackageChanged?.Invoke(file);
     }
 
     /// <summary>Reads the package again and selects (and plays) <paramref name="name"/>.</summary>

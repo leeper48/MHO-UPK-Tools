@@ -1638,6 +1638,8 @@ sealed partial class ModelView : UserControl
         bool wasFast = fast; fast = false;
         var wasBack = Background;
         Background = Color.Black;   // (over black, an effect's light on the background is its own colour)
+        // the ground plane never goes in a snapshot, shown or not (Kurt, 2026-11-17: power icons)
+        bool wasGround = showGround; showGround = false;
         try
         {
             Render(bw, bh);
@@ -1679,7 +1681,7 @@ sealed partial class ModelView : UserControl
             bmp.UnlockBits(bd);
             return bmp;
         }
-        finally { fast = wasFast; Background = wasBack; Redraw(); }   // back to the view's own size
+        finally { fast = wasFast; Background = wasBack; showGround = wasGround; Redraw(); }   // back to the view's own size
     }
 
     /// <summary>Bloom strength and spread (by eye; UE3 blooms the scene colour past a threshold, blurred, added back).</summary>

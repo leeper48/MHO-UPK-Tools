@@ -705,10 +705,11 @@ sealed partial class ModEditorView
         string work = Path.Combine(lib.DataFolder, "power-borrow-" + Guid.NewGuid().ToString("N")[..8]);
         string model = WorkFolder;
         var log = new List<string>();
+        string lowBefore = LoweringKey();
         Task.Run(() =>
         {
             powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(g.Root, "Data", "Game", "Calligraphy.sip")));
-            try { return PowerBorrow.Rebuild(draft, editing, lib, g, powerDb, work, model, log); }
+            try { var r = PowerBorrow.Rebuild(draft, editing, lib, g, powerDb, work, model, log); LowerSwaps(lowBefore, work, g.Cooked, log); return r; }
             catch (Exception ex) { log.Add("FAILED: " + ex); throw; }   // (tests: where it stopped, in the build's log)
             finally { if (Environment.GetEnvironmentVariable("MHO_BORROW_LOG") is { Length: > 0 } bl) File.WriteAllLines(bl, log); }   // (tests: the build's log)
         }).ContinueWith(t =>
@@ -736,6 +737,47 @@ sealed partial class ModEditorView
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
+    /// <summary>
+    /// Part of a borrow rebuild (same thread, no second rebuild: Kurt, 2026-11-16, a chained one deleted the folders Save was
+    /// using): when the borrows lower their animations another way now (first recorded, a climb speed changed), the
+    /// Animations tab's swaps of those animations go in again with the same lowering, into the draft (a copy in
+    /// <paramref name="work"/>) and into Modelorrow_base, which the next rebuild starts from.
+    /// </summary>
+    void LowerSwaps(string lowBefore, string work, string cooked, List<string> log)
+    {
+        if (LoweringKey() == lowBefore) return;
+        var lowSlots = draft.PowerBorrows.SelectMany(b => (IEnumerable<string>?)b.Lowering?.Keys ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var borrows = draft.PowerBorrows.ToList();
+        foreach (string f in draft.AnimSwaps.Where(x => x.Alias == null && lowSlots.Contains(x.Slot)).Select(x => x.Package).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
+        {
+            var swaps = draft.AnimSwaps.Where(s => s.Package.Equals(f, StringComparison.OrdinalIgnoreCase)).ToList();
+            var sources = swaps.Select(s => s.Donor).Distinct(StringComparer.OrdinalIgnoreCase).Where(d => IsModelSource(f, d)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var mine = draft.Packages.Where(x => !x.File.Equals(f, StringComparison.OrdinalIgnoreCase)).ToDictionary(x => x.File, x => x.Source, StringComparer.OrdinalIgnoreCase);
+            Func<string, string?> modCopy = x => mine.TryGetValue(x, out var mp) && File.Exists(mp) ? mp : null;
+            int k = draft.Packages.FindIndex(p => p.File.Equals(f, StringComparison.OrdinalIgnoreCase));
+            if (k < 0 || !File.Exists(draft.Packages[k].Source)) continue;
+            try
+            {
+                if (ReapplySwaps(f, draft.Packages[k].Source, swaps, editing, cooked, log, modCopy, sources, borrows) is byte[] b)
+                {
+                    string dir = Path.Combine(work, "lowered");
+                    Directory.CreateDirectory(dir);
+                    string path = Path.Combine(dir, f);
+                    File.WriteAllBytes(path, b);
+                    draft.Packages[k] = (f, path);
+                    log.Add($"{f}: the Animations tab's changes of the borrowed animations put in again, lowered as the borrow lowers them");
+                }
+                string kept = Path.Combine(WorkFolder, "borrow_base", f);
+                if (File.Exists(kept) && ReapplySwaps(f, kept, swaps, editing, cooked, log, modCopy, sources, borrows) is byte[] kb) File.WriteAllBytes(kept, kb);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException or ArgumentException)
+            { log.Add($"{f}: the Animations tab's changes couldn't be lowered: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>Every borrow's lowering, as text (to tell when a rebuild changed it).</summary>
+    string LoweringKey() => System.Text.Json.JsonSerializer.Serialize(draft.PowerBorrows.Select(b => b.Lowering));
+
     /// <summary>Before saving: the borrows built again into the draft (before the power colors). The packages they built
     /// (for the colors to start from), and the work folder.</summary>
     (HashSet<string> Built, string? Work) ApplyPowerBorrows(List<string> log)
@@ -745,7 +787,9 @@ sealed partial class ModEditorView
         if (game == null) throw new InvalidDataException("the game folder isn't set");
         powerDb ??= new Fx.GameData(Fx.SipArchive.Load(Path.Combine(game.Root, "Data", "Game", "Calligraphy.sip")));
         string work = Path.Combine(lib.DataFolder, "power-borrow-" + Guid.NewGuid().ToString("N")[..8]);
+        string lowBefore = LoweringKey();
         var built = PowerBorrow.Rebuild(draft, editing, lib, game, powerDb, work, WorkFolder, log);
+        LowerSwaps(lowBefore, work, game.Cooked, log);
         return (built.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), work);
     }
 }

@@ -79,6 +79,16 @@ static partial class Program
                         }
                         catch (Exception ex) { Console.WriteLine($"{kind} {n}: ERROR {ex.GetType().Name}: {ex.Message}"); }
                     }
+                foreach (int n in new[] { MhoExtendedModManager.Model.BorrowedRig.MegaHair, MhoExtendedModManager.Model.BorrowedRig.MedusaHair })
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    try
+                    {
+                        var (sk, rig) = MhoExtendedModManager.Model.BorrowedRig.Graft(baseSk, MhoExtendedModManager.Model.BorrowedRig.Kind.Hair, n, out string note);
+                        Console.WriteLine($"{MhoExtendedModManager.Model.BorrowedRig.Title(MhoExtendedModManager.Model.BorrowedRig.Kind.Hair, n)}: {(rig != null ? "OK" : "NOT USED")} {note} ({sw.ElapsedMilliseconds} ms)");
+                    }
+                    catch (Exception ex) { Console.WriteLine($"Hair {n}: ERROR {ex.GetType().Name}: {ex.Message}"); }
+                }
                 return 0;
             }
             case "--rig-census":

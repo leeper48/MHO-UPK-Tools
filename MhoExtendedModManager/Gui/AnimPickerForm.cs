@@ -24,6 +24,8 @@ sealed class AnimPickerForm : Form
     public List<CostumeAnims.Anim> ChosenMany { get; private set; } = [];
     /// <summary>Called with the picked animation (play it on the costume's model).</summary>
     public Action<AnimRef>? Try { get; init; }
+    /// <summary>The package file of the character to show first (the Model tab's source: Kurt, 2026-11-16), else the first row.</summary>
+    public string? StartWith { get; init; }
 
     readonly string slot;
     readonly string? cooked;
@@ -115,7 +117,18 @@ sealed class AnimPickerForm : Form
         Ui.RestyleButtons(this);
         Ui.FitToScreen(this, 1000, 680);
         FillWho();
-        Shown += (_, _) => { if (who.Rows.Count > 0) { who.ClearSelection(); who.Rows[0].Selected = true; } };
+        Shown += (_, _) =>
+        {
+            if (who.Rows.Count == 0) return;
+            var start = StartWith == null ? null : who.Rows.Cast<DataGridViewRow>().Where(r => r.Tag is Donor d && d.Kind != "Mod" && d.File.Equals(StartWith, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(r => ((Donor)r.Tag!).Kind == "Target" ? 1 : 0).FirstOrDefault()
+                // a costume's package (UC__MarvelPlayer_Storm_Classic_SF): its hero's row (the base package, the default animations)
+                ?? (StartWith == null ? null : who.Rows.Cast<DataGridViewRow>().Where(r => r.Tag is Donor { Kind: "Hero" } d && StartWith.StartsWith(d.File[..^"SF.upk".Length], StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(r => ((Donor)r.Tag!).File.Length).FirstOrDefault());
+            who.ClearSelection();
+            (start ?? who.Rows[0]).Selected = true;
+            if (start != null) who.FirstDisplayedScrollingRowIndex = start.Index;
+        };
     }
 
     /// <summary>The selected animation: Use on and a try in the preview (also called after a refill, see FillWhat).</summary>

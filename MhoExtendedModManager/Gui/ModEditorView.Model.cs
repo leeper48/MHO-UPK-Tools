@@ -12,6 +12,10 @@ namespace MhoExtendedModManager.Gui;
 sealed partial class ModEditorView : IModelHost
 {
     List<PartOffEntry> IModelHost.PartsOff => draft.PartsOff;
+    /// <summary>Raised by UseWorkCopy: the Model tab's preview reads the package's animations again (Kurt, 2026-11-16: after a
+    /// build it kept the pose of the copy made before the Animations tab's changes were put back on, toes up).</summary>
+    public event Action<string>? PackageChanged;
+    Task<string?> IModelHost.CopyAnimationsFrom(string target, string donorFile) => CopyAnimationsFrom(target, donorFile);
     ModelPage? modelPage;
     string? modelWork;
 
@@ -270,7 +274,9 @@ sealed partial class ModEditorView : IModelHost
         string cooked = game.Cooked;
         Mod? mod = editing;
         var mine = draft.Packages.Where(x => !x.File.Equals(file, StringComparison.OrdinalIgnoreCase)).ToDictionary(x => x.File, x => x.Source, StringComparer.OrdinalIgnoreCase);
-        try { bytes = await Task.Run(() => ReapplySwaps(file, path, swaps, mod, cooked, log, f => mine.TryGetValue(f, out var mp) && File.Exists(mp) ? mp : null)); }
+        var sources = swaps.Select(s => s.Donor).Distinct(StringComparer.OrdinalIgnoreCase).Where(d => IsModelSource(file, d)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var borrows = draft.PowerBorrows.ToList();
+        try { bytes = await Task.Run(() => ReapplySwaps(file, path, swaps, mod, cooked, log, f => mine.TryGetValue(f, out var mp) && File.Exists(mp) ? mp : null, sources, borrows)); }
         catch (Exception ex) when (ex is InvalidDataException or IOException or MhoPackageModifier.PackageFormatException or ArgumentException)
         {
             Dialog.Show(this, $"The model is built, but this package's animation changes (Animations tab) couldn't be put back on it: {ex.Message}\n\nChange them again in the Animations tab before saving.", "Animation Changes Not Kept", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -294,7 +300,7 @@ sealed partial class ModEditorView : IModelHost
     /// <paramref name="path"/>: earlier copies of those slots taken out first, then each donor's animations copied in as the
     /// tab does (turned to this skeleton's rest). Null when there's nothing to do.</summary>
     /// <param name="modCopy">The mod's own copy of another package (a source in the mod: its animations as the mod has them).</param>
-    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> allSwaps, Mod? mod, string cooked, List<string> log, Func<string, string?>? modCopy = null)
+    static byte[]? ReapplySwaps(string file, string path, List<AnimSwapEntry> allSwaps, Mod? mod, string cooked, List<string> log, Func<string, string?>? modCopy = null, IReadOnlySet<string>? modelSources = null, IReadOnlyList<PowerBorrowEntry>? borrows = null)
     {
         if (allSwaps.Count == 0) return null;
         // a form's changes (Jean's Phoenix set) go back in after the normal ones: into the costume's copy of the form's set
@@ -326,7 +332,7 @@ sealed partial class ModEditorView : IModelHost
                 {
                     var pick = dca.Anims.FirstOrDefault(a => a.Name.Equals(s.Animation, StringComparison.OrdinalIgnoreCase));
                     if (pick?.From.File == null) { log.Add($"{s.Slot}: {g.Key} has no {s.Animation}, left as the game's"); continue; }
-                    list.Add(new AnimSwap.Swap(s.Slot, pick.From.File, pick.From.Export, pick.Export) { Heights = s.HeightKeys is { Count: > 0 } hk ? hk : null });
+                    list.Add(LoweredBy(borrows ?? [], file, new AnimSwap.Swap(s.Slot, pick.From.File, pick.From.Export, pick.Export) { Heights = s.HeightKeys is { Count: > 0 } hk ? hk : null, KeepLengths = s.KeepLengths, CurvesOff = s.CurvesOff }));
                     from ??= pick.From.File;
                 }
                 if (list.Count == 0) continue;
@@ -338,8 +344,9 @@ sealed partial class ModEditorView : IModelHost
                     var batch = list.GroupBy(x => (x.DonorFile, x.DonorSet, x.DonorSequence)).Select(x => x.First()).ToList();
                     foreach (var x in batch) list.Remove(x);
                     File.WriteAllBytes(tmp, cur);
-                    turns ??= RestTurnsFor(from!, tmp);
-                    cur = AnimSwap.Build(tmp, cls, batch, log, inherited, retarget: turns);
+                    turns ??= RestTurnsFor(from!, tmp, modelSources?.Contains(g.Key) == true);
+                    bool own = modelSources?.Contains(g.Key) == true;
+                    cur = AnimSwap.Build(tmp, cls, batch, log, inherited, retarget: turns, skeleton: own ? PowerBorrow.HeroSkeleton(tmp) : null, donorSkeleton: own ? PowerBorrow.HeroSkeleton(from!) : null);
                     log.Add($"{string.Join(", ", batch.Select(x => x.Slot))}: {Path.GetFileNameWithoutExtension(g.Key)}'s again, on the new build");
                 }
             }

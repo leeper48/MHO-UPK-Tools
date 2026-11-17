@@ -963,7 +963,10 @@ static partial class Program
                     var da = CostumeAnims.Read(dpath, dfile, CostumeAnims.FilesFor(dm, scooked))?.Anims.FirstOrDefault(a => a.Name.Equals(dname, StringComparison.OrdinalIgnoreCase));
                     if (da == null || da.From.File == null) { Console.WriteLine($"{dfile} has no animation '{dname}'"); return 1; }
                     // MHO_HEIGHT=<0..1>:<z>,...: height keys on every swapped animation (a test before the editor has them)
-                    swaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export) { Heights = heightKeys });
+                    // MHO_SWAP_KEEP=<bone,...>: Keep Bone Lengths; MHO_SWAP_CURVES_OFF=<curve,...|*>: shape keys left out
+                    swaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export) { Heights = heightKeys,
+                        KeepLengths = Environment.GetEnvironmentVariable("MHO_SWAP_KEEP") is { Length: > 0 } kv ? kv.Split(',') : null,
+                        CurvesOff = Environment.GetEnvironmentVariable("MHO_SWAP_CURVES_OFF") is { Length: > 0 } cv ? cv.Split(',') : null });
                     donorAnims[slot] = da;
                     Console.WriteLine($"{slot} ← {da.From.PackageName}.upk · {da.From.Path} · {da.Name}");
                 }
@@ -971,7 +974,14 @@ static partial class Program
                 var slog = new List<string>();
                 byte[] built;
                 var skel = heightKeys != null && sm != null && ModMeshes.List(sm).FirstOrDefault() is { } smr ? ModMeshes.Load(smr, scooked, out _)?.Bones : null;
-                try { built = AnimSwap.Build(spath, mine.Class, swaps, slog, mine.Inherited ? [.. mine.Sets.Select(s => s.Path)] : null, skeleton: skel); }
+                // MHO_SWAP_TURNS=<degrees>: the rest turns from the first donor's skeleton, as the Animations tab applies them (45 for
+                // another character, 0.5 for the character the Model tab built the model from)
+                Dictionary<string, System.Numerics.Quaternion>? sturns = null;
+                if (Environment.GetEnvironmentVariable("MHO_SWAP_TURNS") is { Length: > 0 } stv && float.TryParse(stv, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float sdeg)
+                    && swaps.Count > 0 && PowerBorrow.HeroSkeleton(swaps[0].DonorFile) is { } sdk && PowerBorrow.HeroSkeleton(spath) is { } stk)
+                { sturns = AnimSwap.RestTurns(sdk, stk, sdeg); Console.WriteLine($"  rest turns: {sturns.Count} bone(s) ({string.Join(", ", sturns.Keys.Take(12))})"); }
+                try { built = AnimSwap.Build(spath, mine.Class, swaps, slog, mine.Inherited ? [.. mine.Sets.Select(s => s.Path)] : null, retarget: sturns, skeleton: skel ?? (Environment.GetEnvironmentVariable("MHO_SWAP_REPARENT") == "1" ? PowerBorrow.HeroSkeleton(spath) : null),
+                    donorSkeleton: Environment.GetEnvironmentVariable("MHO_SWAP_REPARENT") == "1" && swaps.Count > 0 ? PowerBorrow.HeroSkeleton(swaps[0].DonorFile) : null); }
                 catch (InvalidDataException ex) { foreach (string l in slog) Console.WriteLine("  " + l); Console.WriteLine("can't: " + ex.Message); return 1; }
                 foreach (string l in slog) Console.WriteLine("  " + l);
                 Directory.CreateDirectory(outDir);
@@ -989,6 +999,20 @@ static partial class Program
                     var x = ModAnimations.Load(da.Ref); var y = ModAnimations.Load(a.Ref);
                     bool same = x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t)
                         && (heightKeys != null || t.PositionKeys.SequenceEqual(kv.Value.PositionKeys)) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys));
+                    // kept bone lengths / shape keys left out: the copy's set and curves as the game reads them
+                    bool edited = swaps.Any(w => w.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase) && (w.KeepLengths != null || w.CurvesOff != null));
+                    if (edited)
+                    {
+                        var bp = MhoPackageModifier.Package.Open(outPath);
+                        var setBytes = bp.ReadExportBytes(bp.Exports[a.From.Export]).ToArray();
+                        var tb = AnimSwap.TranslationBones(bp, setBytes);
+                        var cvs = AnimSwap.Curves(bp, bp.ReadExportBytes(bp.Exports[a.Export]).ToArray());
+                        var dp0 = MhoPackageModifier.Package.Open(da.From.File!);
+                        var dcv = AnimSwap.Curves(dp0, dp0.ReadExportBytes(dp0.Exports[da.Export]).ToArray());
+                        Console.WriteLine($"  {slot}: the copy's set takes positions for {tb.Count} bone(s); kept: {string.Join(", ", swaps.First(w => w.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase)).KeepLengths?.Where(k => !tb.Contains(k, StringComparer.OrdinalIgnoreCase)) ?? [])}");
+                        Console.WriteLine($"  {slot}: curves {dcv.Count} in the source ({string.Join(", ", dcv)}), {cvs.Count} in the copy ({string.Join(", ", cvs)})");
+                        same = same || (x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys)));
+                    }
                     if (!same) bad++;
                     Console.WriteLine($"  {(same ? "ok  " : "FAIL")} {slot}: from {a.From.Path} (set {a.From.Order + 1} of {after!.Sets.Count}), {y?.Tracks.Count ?? 0} tracks {(same ? "identical to the donor's" : "differ from the donor's")}");
                 }

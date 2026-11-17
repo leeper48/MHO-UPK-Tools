@@ -131,6 +131,17 @@ sealed class PowerBar : Control
         if (e.Button == MouseButtons.Left && At(e.Location) is int k and >= 0) SelectedIndex = k;
     }
 
+    /// <summary>A tile right-clicked (its index, the screen point): the host's menu. The tile is selected first.</summary>
+    public event Action<int, Point>? ItemRightClicked;
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button != MouseButtons.Right || ItemRightClicked == null || At(e.Location) is not (int k and >= 0)) return;
+        SelectedIndex = k;
+        ItemRightClicked(k, PointToScreen(e.Location));
+    }
+
     protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
     protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
     protected override bool IsInputKey(Keys keyData) => keyData is Keys.Left or Keys.Right or Keys.Up or Keys.Down or Keys.Home or Keys.End || base.IsInputKey(keyData);

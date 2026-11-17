@@ -911,6 +911,9 @@ sealed partial class Preview3D : UserControl
     /// <summary>The material swap drawn now (checks): "n of m section(s)", else "none".</summary>
     public string SwapNote => view.LookOverride is { } lo ? $"{lo.Count(x => x != null)} of {lo.Length} section(s)" : "none";
     /// <summary>The view's picture (checks).</summary>
+    /// <summary>The power icon maker: the view as it shows now, the middle square as tall as the view, <paramref name="size"/>
+    /// pixels, transparent around the character (effects' light kept); null when no model shows.</summary>
+    public Bitmap? IconSnapshot(int size, int supersample = 4) => view.Snapshot(size, size, supersample);
     public Bitmap ViewShot() { var b = new Bitmap(Math.Max(1, view.Width), Math.Max(1, view.Height)); view.DrawToBitmap(b, new Rectangle(0, 0, b.Width, b.Height)); return b; }
 
     protected override void Dispose(bool disposing)

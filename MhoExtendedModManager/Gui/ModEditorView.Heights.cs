@@ -524,7 +524,7 @@ sealed partial class ModEditorView
         {
             int k = draft.AnimSwaps.IndexOf(entry);
             // a new entry (the draft's list shares its entries with the mod's loaded manifest until Save)
-            var fresh = new AnimSwapEntry { Package = entry.Package, Slot = entry.Slot, Alias = entry.Alias, Donor = entry.Donor, Animation = entry.Animation, Title = entry.Title, Heights = saved };
+            var fresh = new AnimSwapEntry { Package = entry.Package, Slot = entry.Slot, Alias = entry.Alias, Donor = entry.Donor, Animation = entry.Animation, Title = entry.Title, Heights = saved, KeepLengths = entry.KeepLengths, CurvesOff = entry.CurvesOff };
             if (k >= 0) draft.AnimSwaps[k] = fresh;
         }
         else if (target.Borrow is { } b)
@@ -736,7 +736,7 @@ sealed partial class ModEditorView
     /// <summary>Test hook: a borrowed power's animation (a loop first), once the borrows are built; null: none.</summary>
     public async Task<string?> BorrowSlotForTest()
     {
-        if (!borrowBuilding && draft.PowerBorrows.Any(b => b.Slots == null)) RebuildBorrows();
+        if (!borrowBuilding && draft.PowerBorrows.Any(b => b.Slots == null || b.Lowering == null && !b.KeepTiming && !b.NoAnimations)) RebuildBorrows();
         for (int i = 0; i < 300 && (borrowBuilding || draft.PowerBorrows.All(b => b.Slots == null)); i++) await Task.Delay(200);
         var slots = draft.PowerBorrows.SelectMany(b => b.Slots ?? []).ToList();
         return slots.FirstOrDefault(s => s.Contains("_loop", StringComparison.OrdinalIgnoreCase)) ?? slots.FirstOrDefault();

@@ -25,6 +25,11 @@ sealed partial class PreviewPanel : UserControl
     readonly Preview3D p3;
     /// <summary>The target's props left out by attachment class (the Parts tab's target props), until Save writes them.</summary>
     public Func<string, bool>? HiddenProps { get => p3.HiddenProps; set => p3.HiddenProps = value; }
+    /// <summary>The mod's look of the powers on the power buttons (the editor's draft), and their right-click menu.</summary>
+    public PowerLooks? Looks { get => p3.Looks; set => p3.Looks = value; }
+    public event Action<MhoExtendedModManager.Fx.PowerList.Power, PowerMenuAction>? PowerMenu { add => p3.PowerMenu += value; remove => p3.PowerMenu -= value; }
+    /// <summary>The 3D preview (the power icon maker snapshots it).</summary>
+    public Preview3D View3D => p3;
     /// <summary>Shows the props again after HiddenProps' answers changed.</summary>
     public void RefreshProps() => p3.RebuildRig();
     /// <summary>The move / turn gizmo (the Model tab: an added prop's fit): what to draw, asked at every paint.</summary>

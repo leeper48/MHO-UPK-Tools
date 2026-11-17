@@ -26,9 +26,16 @@ sealed class CapeMatch
 
     readonly List<float[]> features = new();
     readonly List<Quaternion[]> capes = new();
+    /// <summary>Each frame's local positions of the rig bones (Medusa's mane moves by position too: her idle keys
+    /// g_lf_basehair01 at 67 positions, 2026-11-16).</summary>
+    readonly List<Vector3[]> offsets = new();
     readonly List<string> sources = new();
     readonly string[] capeBones;
+    /// <summary>Per rig bone: the donor's animations move it away from its rest position (then its position is matched too).</summary>
+    bool[] moves = [];
     public int Frames => features.Count;
+    /// <summary>The rig bones whose positions are matched (they need translation tracks where they're written).</summary>
+    public IEnumerable<string> PositionBones => capeBones.Where((_, k) => k < moves.Length && moves[k]);
     /// <summary>Diagnostics (--hair-jitter's trace): when set, Apply adds the library frame it picked for each frame.</summary>
     public List<int>? trace;
     /// <summary>A library frame's source: the donor animation and the frame in it.</summary>
@@ -59,10 +66,21 @@ sealed class CapeMatch
                 lib.features.Add(Feature(dirs, before ?? dirs));
                 before = dirs;
                 var q = new Quaternion[lib.capeBones.Length];
-                for (int k = 0; k < q.Length; k++) q[k] = LocalRotation(poser, donorBones, lib.capeBones[k]);
+                var o = new Vector3[lib.capeBones.Length];
+                for (int k = 0; k < q.Length; k++) (q[k], o[k]) = Local(poser, donorBones, lib.capeBones[k]);
                 lib.capes.Add(q);
+                lib.offsets.Add(o);
                 lib.sources.Add(a.Name);
             }
+        }
+        // a bone moves by position when some frame holds it more than 0.05 units from its rest place (the other donors'
+        // hair and capes turn only: their positions stay the rest ones and nothing changes for them)
+        lib.moves = new bool[lib.capeBones.Length];
+        for (int k = 0; k < lib.capeBones.Length; k++)
+        {
+            var rb = donorBones.FirstOrDefault(b => b.Name.Equals(lib.capeBones[k], StringComparison.OrdinalIgnoreCase));
+            if (rb == null) continue;
+            lib.moves[k] = lib.offsets.Any(o => (o[k] - rb.Position).LengthSquared() > 0.05f * 0.05f);
         }
         return lib;
     }
@@ -90,16 +108,17 @@ sealed class CapeMatch
         return f;
     }
 
-    /// <summary>A bone's local rotation in the pose last made (from the posed matrices: local = global × parent⁻¹).</summary>
-    static Quaternion LocalRotation(MeshAnimator poser, IReadOnlyList<MeshBone> bones, string name)
+    /// <summary>A bone's local rotation and position in the pose last made (from the posed matrices: local = global × parent⁻¹).</summary>
+    static (Quaternion Rotation, Vector3 Position) Local(MeshAnimator poser, IReadOnlyList<MeshBone> bones, string name)
     {
         int b = poser.BoneIndex(name);
-        if (b < 0) return Quaternion.Identity;
+        if (b < 0) return (Quaternion.Identity, Vector3.Zero);
         int p = bones[b].ParentIndex;
         var g = poser.BoneMatrix(b);
         var local = p >= 0 && p != b && Matrix4x4.Invert(poser.BoneMatrix(p), out var inv) ? g * inv : g;
+        var pos = local.Translation;
         local.Translation = Vector3.Zero;
-        return Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(local));
+        return (Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(local)), pos);
     }
 
     /// <summary>
@@ -164,7 +183,22 @@ sealed class CapeMatch
                 if (keys.Count > 0 && Quaternion.Dot(keys[^1].Rotation, avg) < 0) avg = -avg;
                 keys.Add(new BoneRotationKey(Math.Min(f, frames), avg));
             }
-            tracks[capeBones[k]] = new BoneTrack { RotationKeys = keys };
+            // positions, for a bone the donor moves by position (Medusa's mane): the window's average, as the rotations; a group
+            // root carried onto another hero's bone (a correction) keeps its grafted place
+            var posKeys = new List<BonePositionKey>();
+            bool corrected = corrections != null && corrections.TryGetValue(capeBones[k], out var crk) && !crk.IsIdentity || k == 0 && rootCorrection is { IsIdentity: false };
+            if (k < moves.Length && moves[k] && !corrected)
+                for (int f = 0; f <= n; f++)
+                {
+                    var sum = Vector3.Zero; float total = 0;
+                    for (int w = -smooth; w <= smooth; w++)
+                    {
+                        float wt = smooth + 1 - Math.Abs(w);
+                        sum += offsets[path[Math.Clamp(f + w, 0, n)]][k] * wt; total += wt;
+                    }
+                    posKeys.Add(new BonePositionKey(Math.Min(f, frames), sum / total));
+                }
+            tracks[capeBones[k]] = new BoneTrack { RotationKeys = keys, PositionKeys = posKeys };
         }
         return new BoneAnimation { Name = a.Name, DurationSeconds = a.DurationSeconds, Tracks = tracks };
     }

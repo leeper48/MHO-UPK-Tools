@@ -22,6 +22,13 @@ sealed class AnimSwapEntry
     /// <summary>Height keys (the Animations tab's Height strip): [at 0..1 through the animation, game units up]; null = none.</summary>
     public List<float[]>? Heights { get; set; }
 
+    /// <summary>Keep Bone Lengths (Kurt, 2026-11-17: Carnage's Vicious Lunge stretched Medusa's fingers): bones whose animated
+    /// positions this costume's copy doesn't take (they keep the model's own lengths, only turning); null = none.</summary>
+    public List<string>? KeepLengths { get; set; }
+    /// <summary>Shape Keys off: the animation's morph-target curves (CurveData, by curve name) left out of this costume's copy,
+    /// so the game doesn't play them ("*" = all); null = none.</summary>
+    public List<string>? CurvesOff { get; set; }
+
     [System.Text.Json.Serialization.JsonIgnore]
     public List<(float At, float Z)> HeightKeys => Heights?.Where(h => h.Length >= 2).Select(h => (h[0], h[1])).OrderBy(h => h.Item1).ToList() ?? [];
 }
@@ -48,6 +55,57 @@ static class AnimSwap
         /// <summary>The body lowered along this curve ([0..1 through the animation, game units]; the bones under the root, as
         /// height keys): a borrowed start following the game's lift (PowerBorrow.FlightLift). Applied before the height keys.</summary>
         public IReadOnlyList<(float At, float Z)>? Model { get; init; }
+        /// <summary>Bones whose animated positions the copy doesn't take (AnimSwapEntry.KeepLengths).</summary>
+        public IReadOnlyCollection<string>? KeepLengths { get; init; }
+        /// <summary>Morph-target curves left out of the copy (AnimSwapEntry.CurvesOff; "*" = all).</summary>
+        public IReadOnlyCollection<string>? CurvesOff { get; init; }
+        /// <summary>The copy's own set: swaps keeping different bone lengths can't share one (the list is the set's).</summary>
+        public string KeepKey => KeepLengths is { Count: > 0 } k ? string.Join("|", k.Select(x => x.ToLowerInvariant()).Order()) : "";
+    }
+
+    /// <summary>The morph-target curves a sequence plays (its CurveData's curve names; sequence properties at 4).</summary>
+    public static List<string> Curves(Package pkg, byte[] d)
+    {
+        var res = new List<string>();
+        foreach (var (name, _, _) in CurveElements(pkg, d)) res.Add(name);
+        return res;
+    }
+
+    /// <summary>CurveData's elements: curve name, start and end (in <paramref name="d"/>).</summary>
+    static List<(string Name, int Start, int End)> CurveElements(Package pkg, byte[] d)
+    {
+        var res = new List<(string, int, int)>();
+        var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("CurveData", StringComparison.OrdinalIgnoreCase));
+        if (t == null || t.Size < 4) return res;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt)), p = t.ValueAt + 4;
+        for (int k = 0; k < n && p < t.End; k++)
+        {
+            var et = TagWalker.Walk(pkg, d, p);
+            if (et == null) return [];
+            var nt = et.FirstOrDefault(x => x.Name.Equals("CurveName", StringComparison.OrdinalIgnoreCase));
+            string name = nt != null ? TagWalker.NameAt(pkg, d, nt.ValueAt) : "?";
+            int end = et.NoneAt + 8;
+            res.Add((name, p, end));
+            p = end;
+        }
+        return p == t.End ? res : [];   // (an element that doesn't read: nothing listed, nothing removed)
+    }
+
+    /// <summary>The sequence without the curves named in <paramref name="off"/> ("*" = all); null when none of them is there.</summary>
+    internal static byte[]? WithoutCurves(Package pkg, byte[] d, IReadOnlyCollection<string> off, out List<string> removed)
+    {
+        removed = [];
+        var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("CurveData", StringComparison.OrdinalIgnoreCase));
+        var els = CurveElements(pkg, d);
+        if (t == null || els.Count == 0) return null;
+        bool all = off.Contains("*");
+        var keep = els.Where(e => !all && !off.Contains(e.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (keep.Count == els.Count) return null;
+        removed = els.Except(keep).Select(e => e.Name).ToList();
+        byte[] value = [.. BitConverter.GetBytes(keep.Count), .. keep.SelectMany(e => d.AsSpan(e.Start, e.End - e.Start).ToArray())];
+        byte[] o = [.. d.AsSpan(0, t.ValueAt), .. value, .. d.AsSpan(t.End)];
+        BinaryPrimitives.WriteInt32LittleEndian(o.AsSpan(t.Start + 16), value.Length);   // the tag's size
+        return o;
     }
 
     /// <summary>A height curve's value at <paramref name="t"/> (0..1 through the animation): straight lines between its keys
@@ -459,8 +517,8 @@ static class AnimSwap
         var donors = new Dictionary<string, Package>(StringComparer.OrdinalIgnoreCase);
         Package Donor(string f) => donors.TryGetValue(f, out var p) ? p : donors[f] = Package.Open(f);
         // Per donor set: the copied set's reference and its copied sequences (reference, slot).
-        var newSets = new List<(int Set, List<(int Seq, string Slot)> Seqs)>();
-        foreach (var group in swaps.GroupBy(s => (s.DonorFile.ToLowerInvariant(), s.DonorSet)))
+        var newSets = new List<(int Set, List<(int Seq, string Slot)> Seqs, IReadOnlyCollection<string> Keep)>();
+        foreach (var group in swaps.GroupBy(s => (s.DonorFile.ToLowerInvariant(), s.DonorSet, s.KeepKey)))
         {
             var first = group.First();
             var src = Donor(first.DonorFile);
@@ -500,7 +558,7 @@ static class AnimSwap
                 seqs.Add((qc.RootRef, s.Slot));
                 log.Add($"  {s.Slot} ← {src.PathOf(src.Exports[s.DonorSequence])} (#{qc.RootRef})");
             }
-            newSets.Add((sc.RootRef, seqs));
+            newSets.Add((sc.RootRef, seqs, first.KeepLengths ?? []));
         }
 
         // The edit: each copied sequence named after its slot, each copied set listing only its copied sequences, the
@@ -538,7 +596,7 @@ static class AnimSwap
             }
             return outer;
         }
-        foreach (var (set, seqs) in newSets)
+        foreach (var (set, seqs, keepLengths) in newSets)
         {
             byte[] sd = pkg.ReadExportBytes(pkg.Exports[set - 1]).ToArray();
             bool lifted = false, riderMoved = false;
@@ -615,6 +673,11 @@ static class AnimSwap
                     if (fixedBones.Count > 0) log.Add($"  {slot}: turned as in the other hero's body (another parent here): {string.Join(", ", fixedBones)}");
                     if (pwhy.Length > 0) log.Add($"  {slot}: not re-parented: {pwhy}");
                 }
+                if (sw?.CurvesOff is { Count: > 0 } curvesOff)
+                {
+                    if (WithoutCurves(pkg, d, curvesOff, out var gone) is { } nd) { d = nd; log.Add($"  {slot}: shape keys left out: {string.Join(", ", gone)}"); }
+                    else log.Add($"  {slot}: no shape-key curves to leave out");
+                }
                 var t = TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(x => x.Name.Equals("SequenceName", StringComparison.OrdinalIgnoreCase) && x.Size == 8)
                         ?? throw new InvalidDataException($"the copied animation #{seq} has no SequenceName");
                 BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt), NameIdx(slot));
@@ -641,6 +704,9 @@ static class AnimSwap
                 if (kept.Count > 0) log.Add($"  this skeleton's own bone lengths kept (the other body's differ): {string.Join(", ", kept)}");
             }
             foreach (string bm in bodyMoved) sd = WithTranslationBone(pkg, sd, bm, NameIdx);
+            // Keep Bone Lengths: these bones' animated positions aren't taken (they keep the model's own lengths)
+            foreach (string kb in keepLengths)
+                if (WithoutTranslationBone(pkg, sd, kb) is { } keptSet) { sd = keptSet; log.Add($"  {kb}: keeps the model's own length (its animated positions aren't taken)"); }
             // Pivot on the Hand: these bones' positions in the animations aren't taken (they stay where the skeleton has them)
             foreach (string pin in noPositions ?? [])
                 if (WithoutTranslationBone(pkg, sd, pin) is { } pinnedSet) { sd = pinnedSet; log.Add($"  {pin}: not moved by these animations (its pivot stays on the hand)"); }
@@ -789,7 +855,9 @@ static class AnimSwap
     /// key meant for the donor's rest lands wrong on the target's: key x (donor rest^-1 x target rest) keeps the motion and
     /// starts from the target's rest.
     /// </summary>
-    public static Dictionary<string, System.Numerics.Quaternion> RestTurns(IReadOnlyList<AnimExportCli.Meshes.MeshBone> donor, IReadOnlyList<AnimExportCli.Meshes.MeshBone> target)
+    /// <param name="minDegrees">Bones whose rest differs by less are left as they are (45: only another convention, a flipped
+    /// bone; a model built from the donor itself takes every difference, as its mesh is the donor's on the target's rest angles).</param>
+    public static Dictionary<string, System.Numerics.Quaternion> RestTurns(IReadOnlyList<AnimExportCli.Meshes.MeshBone> donor, IReadOnlyList<AnimExportCli.Meshes.MeshBone> target, float minDegrees = 45)
     {
         var turns = new Dictionary<string, System.Numerics.Quaternion>(StringComparer.OrdinalIgnoreCase);
         var t = target.GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Orientation, StringComparer.OrdinalIgnoreCase);
@@ -799,7 +867,7 @@ static class AnimSwap
             var rd = System.Numerics.Quaternion.Normalize(b.Orientation);
             rt = System.Numerics.Quaternion.Normalize(rt);
             float dot = MathF.Abs(System.Numerics.Quaternion.Dot(rd, rt));
-            if (dot > MathF.Cos(MathF.PI / 8)) continue;   // within 45 degrees
+            if (dot > MathF.Cos(minDegrees * MathF.PI / 360)) continue;   // within minDegrees (45 by default)
             turns[b.Name] = System.Numerics.Quaternion.Normalize(Mul(System.Numerics.Quaternion.Conjugate(rd), rt));
         }
         return turns;

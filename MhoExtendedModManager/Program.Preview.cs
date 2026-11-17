@@ -121,6 +121,40 @@ static partial class Program
                 return 0;
                 static string WriteTemp(byte[] b) { string t = Path.Combine(Path.GetTempPath(), "mhoextmm_addprop_" + Guid.NewGuid().ToString("N")[..8] + ".upk"); File.WriteAllBytes(t, b); return t; }
             }
+            case "--prop-show-test":
+            {
+                // --prop-show-test <costume.upk> <prop class> <power.upk> <power class> <out dir> [hide]: the prop shown only while
+                // that power runs (PropOnDemand + SetPowerShows, each applied twice: the second must change nothing), both written
+                // to <out dir> (never into the game). The template component is read from the game's stock copy.
+                if (rest.Count < 6) { Console.WriteLine("--prop-show-test <costume.upk> <prop class> <power.upk> <power class> <out dir> [hide]"); return 1; }
+                string? sgr = settings.ResolvedGameRoot(data);
+                if (sgr == null) { Console.WriteLine("game folder not set"); return 1; }
+                StockFiles.Init(new GameState(sgr, data), settings.CleanGameFiles, Path.Combine(lib.DataFolder, "originals"));
+                var slog = new List<string>();
+                string slot = PowerBorrow.ShowSlot(rest[2]);
+                bool hide = rest.Count > 6 && rest[6].Equals("hide", StringComparison.OrdinalIgnoreCase);
+                try
+                {
+                    byte[] c1 = PowerBorrow.PropOnDemand(File.ReadAllBytes(rest[1]), "marvelgamecontent.default__" + rest[2].ToLowerInvariant(), slot, slog);
+                    byte[] c2 = PowerBorrow.PropOnDemand(c1, "marvelgamecontent.default__" + rest[2].ToLowerInvariant(), slot, slog);
+                    string pd = "marvelgamecontent.default__" + rest[4].ToLowerInvariant();
+                    byte[] p1 = PowerBorrow.SetPowerShows(File.ReadAllBytes(rest[3]), pd, [(slot, hide)], StockFiles.Cooked!, slog);
+                    byte[] p2 = PowerBorrow.SetPowerShows(p1, pd, [(slot, hide)], StockFiles.Cooked!, slog);
+                    byte[] p0 = PowerBorrow.SetPowerShows(p1, pd, [], StockFiles.Cooked!, slog);
+                    slog.ForEach(Console.WriteLine);
+                    Console.WriteLine($"prop again unchanged: {c1.AsSpan().SequenceEqual(c2)}; power again unchanged: {p1.AsSpan().SequenceEqual(p2)}; taken off again: {p0.Length:N0} bytes");
+                    Directory.CreateDirectory(rest[5]);
+                    foreach (var (f, b) in new[] { (rest[1], c2), (rest[3], p2) })
+                    {
+                        string o = Path.Combine(rest[5], Path.GetFileName(f));
+                        Model.Protected.CheckWrite(o);
+                        File.WriteAllBytes(o, b);
+                        Console.WriteLine("wrote " + o);
+                    }
+                    return 0;
+                }
+                catch (InvalidDataException ex) { slog.ForEach(Console.WriteLine); Console.WriteLine("refused: " + ex.Message); return 1; }
+            }
             case "--remove-prop":
             {
                 // --remove-prop <costume.upk> <prop class> <out.upk>: PowerBorrow.RemoveProp, written to <out> (never into the game)
@@ -1086,6 +1120,34 @@ static partial class Program
                     Console.WriteLine($"wrote {Path.Combine(outDir, f)} ({bytes.Length:N0} bytes; GUID {(guid ? "the stock package's" : "CHANGED")})");
                 }
                 return 0;
+            }
+            case "--weapon-slots":
+            {
+                // Read only, or a test into <out folder> (Kurt, 2026-11-17: Reaping Time's arm scythes): a power package's weapon-slot
+                // parts (PowerParts.List, Kind Weapon); with an out folder, all off, read back, then on again, compared with the package.
+                if (rest.Count < 2) { Console.WriteLine("--weapon-slots <package.upk> [out folder]"); return 1; }
+                string wpf = Path.GetFileName(rest[1]);
+                var ws = PowerParts.List(wpf, rest[1]).Where(x => x.Kind == "Weapon").ToList();
+                foreach (var w in ws) Console.WriteLine($"  {w.Label}: {w.Part} · {w.Key} = {(w.Original.Length == 0 ? "(off)" : w.Original)}");
+                if (rest.Count < 3 || ws.Count == 0) return 0;
+                string wdir = Path.GetFullPath(rest[2]);
+                if (wdir.StartsWith(Path.GetFullPath(Settings.Cooked(settings.ResolvedGameRoot(data) ?? "x:\none")), StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("refused: the game folder"); return 1; }
+                Directory.CreateDirectory(wdir);
+                var wentries = ws.Select(c => new PartOffEntry { Package = wpf, Part = c.Part, Switch = c.Key, Original = c.Original }).ToList();
+                var wlog = new List<string>();
+                string woff = Path.Combine(wdir, "off_" + wpf), won = Path.Combine(wdir, "on_" + wpf);
+                File.WriteAllBytes(woff, PowerParts.Apply(rest[1], [.. wentries.Select(e => (e, true))], wlog));
+                var wafter = PowerParts.List(wpf, woff).Where(x => x.Kind == "Weapon").ToList();
+                int wfails = 0;
+                foreach (var c in ws) { bool ok = wafter.Any(a => a.Part == c.Part && a.Key == c.Key && a.Original.Length == 0); if (!ok) wfails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {c.Label} off"); }
+                File.WriteAllBytes(won, PowerParts.Apply(woff, [.. wentries.Select(e => (e, false))], wlog));
+                var w0 = MhoPackageModifier.Package.Open(rest[1]); var w2 = MhoPackageModifier.Package.Open(won);
+                int wdiff = Enumerable.Range(0, w0.Exports.Length).Count(i => !w0.ReadExportBytes(w0.Exports[i]).AsSpan().SequenceEqual(w2.ReadExportBytes(w2.Exports[i])));
+                Console.WriteLine($"  {(wdiff == 0 ? "ok  " : "FAIL")} back on: {wdiff} export(s) differ from the package's own");
+                if (wdiff > 0) wfails++;
+                wlog.ForEach(l => Console.WriteLine("    " + l));
+                Console.WriteLine(wfails == 0 ? "PASS" : $"{wfails} FAILED");
+                return wfails == 0 ? 0 : 1;
             }
             case "--costume-props":
             {
@@ -4406,6 +4468,30 @@ static partial class Program
                     bool keyedPos = ba.Tracks.TryGetValue(rest[2], out var btr) && btr.PositionKeys.Count > 0;
                     Console.WriteLine($"  {a.Name} ({a.Package}): position {(tbs == null ? "applied (not rotation-only)" : tbs.Contains(rest[2]) ? "applied (listed)" : "not applied")}, {(keyedPos ? btr!.PositionKeys.Count + " position key(s)" : "no position keys")}");
                     foreach (string ln in parts) Console.WriteLine("    " + ln);
+                }
+                return 0;
+            }
+            case "--rest-turns":
+            {
+                // Read-only: the turns an animation swap applies from a donor package's skeleton to a target's (AnimSwap.RestTurns:
+                // bones whose rest differs over 45 degrees), with each bone's rest difference in degrees when MHO_TURNS_ALL=1.
+                if (rest.Count < 3) { Console.WriteLine("--rest-turns <donor.upk> <target.upk>"); return 1; }
+                var td = PowerBorrow.HeroSkeleton(rest[1]); var tt = PowerBorrow.HeroSkeleton(rest[2]);
+                if (td == null || tt == null) { Console.WriteLine("a skeleton doesn't read"); return 1; }
+                var turnsFound = AnimSwap.RestTurns(td, tt);
+                Console.WriteLine($"donor {td.Count} bones, target {tt.Count} bones: {turnsFound.Count} turned");
+                var tmap = tt.GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+                foreach (var b in td)
+                {
+                    if (!tmap.TryGetValue(b.Name, out var tb)) continue;
+                    float deg = 2 * MathF.Acos(Math.Clamp(MathF.Abs(System.Numerics.Quaternion.Dot(System.Numerics.Quaternion.Normalize(b.Orientation), System.Numerics.Quaternion.Normalize(tb.Orientation))), 0, 1)) * 180 / MathF.PI;
+                    float move = System.Numerics.Vector3.Distance(b.Position, tb.Position);
+                    if (turnsFound.ContainsKey(b.Name) || Environment.GetEnvironmentVariable("MHO_TURNS_ALL") == "1" && (deg > 1 || move > 0.1f))
+                    {
+                        string Par(IReadOnlyList<AnimExportCli.Meshes.MeshBone> sk, AnimExportCli.Meshes.MeshBone x) => x.ParentIndex >= 0 && x.ParentIndex < sk.Count && sk[x.ParentIndex] != x ? sk[x.ParentIndex].Name : "-";
+                        string pd = Par(td, b), pt = Par(tt, tb);
+                        Console.WriteLine($"  {b.Name,-28} rest differs {deg,6:0.0} deg, position {move,6:0.00}{(turnsFound.ContainsKey(b.Name) ? "  TURNED" : "")}{(pd.Equals(pt, StringComparison.OrdinalIgnoreCase) ? "" : $"  parent {pd} → {pt}")}");
+                    }
                 }
                 return 0;
             }

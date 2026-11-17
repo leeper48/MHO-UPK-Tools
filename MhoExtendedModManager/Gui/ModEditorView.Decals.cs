@@ -32,6 +32,17 @@ sealed partial class ModEditorView
     }
     bool decalHooked;
 
+    /// <summary>The 3D view leaves out weapon slots switched off on the Parts tab, saved or not (ModMeshes.RuleOff asks the draft).</summary>
+    void HookWeaponSlots()
+    {
+        static bool SamePackage(string a, string b) => Path.GetFileNameWithoutExtension(a).Equals(Path.GetFileNameWithoutExtension(b), StringComparison.OrdinalIgnoreCase);
+        if (slotsHooked) return;
+        slotsHooked = true;
+        ModMeshes.RuleOff = (pkg, part, prop) => draft.PartsOff.Any(x => SamePackage(x.Package, pkg) && x.Part.Equals(part, StringComparison.OrdinalIgnoreCase) && x.Switch.Equals(prop, StringComparison.OrdinalIgnoreCase));
+        Disposed += (_, _) => ModMeshes.RuleOff = null;
+    }
+    bool slotsHooked;
+
     string DecalWork() => decalWork ??= Path.Combine(lib.DataFolder, "decal-work-" + Guid.NewGuid().ToString("N")[..8]);
 
     static string TexLeaf(string tex) => tex[(tex.LastIndexOf('.') + 1)..];

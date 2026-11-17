@@ -119,7 +119,12 @@ sealed class BorrowedRig
     /// hair length, so a waist-long mane has strands reaching it (its lone hair bones then find one nearby).</summary>
     public const int MegaHair = 4;
     public const int MegaSmooth = 8;
-    public static string Title(Kind part, int number) => part == Kind.Hair && number == MegaHair ? "Mega Hair" : $"{part} {number}";
+    /// <summary>Medusa's Hair (Hair ▾'s 5th; Kurt, 2026-11-16, Medusa on Carnage): the Medusa team-up's own 80-bone mane
+    /// (g_*_basehair01-12), its motion matched from her animations, which key it in every frame.</summary>
+    public const int MedusaHair = 5;
+    public const string MedusaDonor = "UC__MarvelTeamUp_Medusa_SF.upk";
+    public static string Title(Kind part, int number) => part == Kind.Hair && number == MegaHair ? "Mega Hair"
+        : part == Kind.Hair && number == MedusaHair ? "Medusa's Hair" : $"{part} {number}";
 
     /// <summary>How far an MFF model's hair hangs below its head joint, as a share of its height (its hair bones: named like
     /// hair, or any non-Biped bone under the head that carries skin); 0 without hair bones.</summary>
@@ -214,13 +219,13 @@ sealed class BorrowedRig
     {
         var donors = Donors(part);
         string label = Title(part, number);
-        bool mega = part == Kind.Hair && number == MegaHair;
+        bool mega = part == Kind.Hair && number == MegaHair, medusa = part == Kind.Hair && number == MedusaHair;
         if (mega) number = 3;
         var rigPattern = mega ? BackHair : Pattern(part);
-        if (number < 1 || number > donors.Length) { note = $"no {label}"; return (sk, null); }
+        if (!medusa && (number < 1 || number > donors.Length)) { note = $"no {label}"; return (sk, null); }
         if (sk.Bones.Any(b => Pattern(part).IsMatch(b.Name))) { note = $"{sk.Name} has {part.ToString().ToLowerInvariant()} bones of its own: {label} isn't used"; return (sk, null); }
         if (sk.Find("g_pelvis") < 0) { note = $"{sk.Name} isn't a body (a prop): {label} isn't used"; return (sk, null); }
-        string pkg = BasePackage.Resolve(donors[number - 1], true);
+        string pkg = BasePackage.Resolve(medusa ? MedusaDonor : donors[number - 1], true);
         var donor = MhoSkeleton.Load(pkg, null);
         // Mega Hair: the strands stretched so they reach as far below the head (as a share of the height) as the model's hair
         float stretch = 1;

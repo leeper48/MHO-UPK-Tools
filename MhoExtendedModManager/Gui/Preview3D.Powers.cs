@@ -142,6 +142,7 @@ sealed partial class Preview3D
         heroPowers = []; allHeroPowers = []; powerFilter = null;
         foreach (var b in powerButtons) b.Dispose();   // (disposed while still in the strip, then cleared)
         powerButtons.Clear();
+        idleButtons.Clear();
         powerStrip.Controls.Clear();
         FitPowerRow();
     }
@@ -183,24 +184,85 @@ sealed partial class Preview3D
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
+    /// <summary>
+    /// The mod's look of the powers (Kurt, 2026-11-17: a Borrow Power's icon showed on the Powers tab only): the buttons take the
+    /// mod's icons and names, and their tooltips say whose look a power borrows and its original name. Null: the game's.
+    /// </summary>
+    public PowerLooks? Looks { get => looks; set { looks = value; RefreshLooks(); } }
+    PowerLooks? looks;
+
+    /// <summary>A power button's right-click menu (rename, replace the icon, make one from the 3D view, its animations): the
+    /// host does it. No handler: no menu.</summary>
+    public event Action<Fx.PowerList.Power, PowerMenuAction>? PowerMenu;
+
+    /// <summary>The power buttons again with the mod's current names and icons (a change made in another tab).</summary>
+    public void RefreshLooks()
+    {
+        if (!PowersLoaded || ctx?.Cooked is not string cooked || powerButtons.Count == 0) return;
+        powerStrip.SuspendLayout();
+        foreach (var b in powerButtons) { Ui.IconPainters.Remove(b); b.Dispose(); }
+        powerButtons.Clear();
+        powerStrip.Controls.Clear();
+        powerStrip.ResumeLayout();
+        FillPowerButtons(cooked);
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        if (Visible && looks != null) RefreshLooks();
+    }
+
+    /// <summary>The right-click menu over a power button.</summary>
+    void ShowPowerMenu(Fx.PowerList.Power pw, Point screen)
+    {
+        if (PowerMenu == null) return;
+        var menu = new ContextMenuStrip();
+        PowerMenuItems.Fill(menu, pw, looks?.Borrow(pw.Prototype) != null, a => PowerMenu?.Invoke(pw, a));
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        Ui.ShowAt(menu, screen);
+    }
+
     void FillPowerButtons(string cooked)
     {
         powerStrip.SuspendLayout();
         int side = (int)(38 * S);   // 20 % bigger (Kurt, 2026-10-02)
+        var db = PowerPreview.GameDb(cooked) is { IsCompletedSuccessfully: true } dbt ? dbt.Result : null;
         for (int k = 0; k < heroPowers.Count; k++)
         {
             var pw = heroPowers[k]; int idx = k;
-            var b = Ui.FlatButton("", () => PowerClicked(idx), pw.Name + " (" + pw.Animations.Count + " animation" + (pw.Animations.Count == 1 ? "" : "s") + "): click to show only its animations and play it; click again for all.");
+            string name = looks?.Name(pw, db) ?? pw.Name;
+            var lines = looks?.TipLines(pw, db) ?? [pw.Name];
+            string tip = string.Join("\n", lines) + "\n\n" + pw.Animations.Count + " animation" + (pw.Animations.Count == 1 ? "" : "s") + ": click to show only its animations and play it; click again for all."
+                + (PowerMenu != null ? "\nRight-click: rename, replace its icon, make one from the 3D view, or change its animations." : "");
+            var b = Ui.FlatButton("", () => PowerClicked(idx), tip);
             b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size(side, side); b.Margin = new Padding(0, 0, 3, 3);
+            // the right-click menu: the app's shortcut items first (ShortcutsUi), then the power's
+            if (PowerMenu != null) ShortcutsUi.MenuItemsAfter.AddOrUpdate(b, () => PowerMenuItems.Items(pw, looks?.Borrow(pw.Prototype) != null, a => PowerMenu?.Invoke(pw, a)));
             int inner = side - 2 * (int)(3 * S);
-            var img = pw.Icon != null ? Fx.PowerList.IconSized(pw.Icon, cooked, inner, inner) : null;   // (perf patch: scaled once)
-            string initials = string.Concat(pw.Name.Split(' ').Where(w => w.Length > 0).Take(2).Select(w => w[0]));
+            var img = pw.Icon != null ? looks?.Icon(pw.Icon, inner, inner) ?? Fx.PowerList.IconSized(pw.Icon, cooked, inner, inner) : null;   // (perf patch: scaled once)
+            string initials = string.Concat(name.Split(' ').Where(w => w.Length > 0).Take(2).Select(w => w[0]));
             Ui.IconPainters.AddOrUpdate(b, (g, r, c) =>
             {
                 if (img != null) { var ir = Rectangle.Inflate(r, -(int)(3 * S), -(int)(3 * S)); if (ir.Width == img.Width && ir.Height == img.Height) g.DrawImageUnscaled(img, ir.X, ir.Y); else { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(img, ir); } }
                 else TextRenderer.DrawText(g, initials, Ui.SharedHeavy(10f), r, c, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             });
             powerButtons.Add(b);
+            powerStrip.Controls.Add(b);
+        }
+        // the standing animations after the powers (Kurt, 2026-11-17): Idle, Combat Idle, Fidget 1 and 2, those the character has
+        idleButtons.Clear();
+        foreach (var (label, names) in IdleAnims)
+        {
+            string? anim = names.FirstOrDefault(n => allAnims.Any(a => a.Name.Equals(n, StringComparison.OrdinalIgnoreCase)));
+            if (anim == null) continue;
+            var b = Ui.FlatButton("", () => PlayIdle(anim), $"{label} ({anim}): click to play it (all the animations listed again); click again to pause or play.");
+            b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size(side, side); b.Margin = new Padding(0, 0, 3, 3);
+            b.AccessibleName = label;
+            string kind = label;
+            Ui.IconPainters.AddOrUpdate(b, (g, r, c) => DrawIdleIcon(g, r, c, kind));
+            idleButtons.Add((b, anim));
+            powerButtons.Add(b);   // (disposed and made again with the power buttons)
             powerStrip.Controls.Add(b);
         }
         Ui.RestyleButtons(powerStrip);
@@ -210,9 +272,101 @@ sealed partial class Preview3D
     }
 
     /// <summary>Lit: the power filtering the list, or the one whose animation is playing.</summary>
+    /// <summary>The standing animations' buttons (label, the names to look for, first found).</summary>
+    static readonly (string Label, string[] Names)[] IdleAnims =
+    [
+        ("Idle", ["idle"]),
+        ("Combat Idle", ["idle_combat", "idlecombat", "combat_idle"]),
+        ("Fidget 1", ["fidget01", "fidget_01", "fidget1"]),
+        ("Fidget 2", ["fidget02", "fidget_02", "fidget2"]),
+    ];
+    readonly List<(Button Button, string Anim)> idleButtons = [];
+
+    /// <summary>The idle buttons' icons (Kurt, 2026-11-17: less stick-figure-like): filled silhouettes in the framing buttons'
+    /// style, solid head and torso, thick rounded limbs. Idle stands at ease, Combat Idle in a fighting stance (knees bent, fists
+    /// up), Fidget 1 scratches its head, Fidget 2 has its hands on its hips; the fidgets carry their number.</summary>
+    void DrawIdleIcon(Graphics g, Rectangle r, Color c, string kind)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        float m = r.Width * 0.16f;
+        var box = RectangleF.FromLTRB(r.X + m, r.Y + m, r.Right - m, r.Bottom - m);
+        float u = box.Height / 24f, cx = box.X + box.Width / 2f, top = box.Y;
+        bool fidget = kind.StartsWith("Fidget", StringComparison.Ordinal);
+        if (fidget) cx -= 1.5f * u;
+        using var fill = new SolidBrush(c);
+        using var limb = new Pen(c, 3.2f * u) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+        PointF P(float x, float y) => new(cx + x * u, top + y * u);
+        void Head(float x, float y, float rad) => g.FillEllipse(fill, cx + (x - rad) * u, top + (y - rad) * u, 2 * rad * u, 2 * rad * u);
+        void Torso(params (float X, float Y)[] pts) => g.FillPolygon(fill, pts.Select(q => P(q.X, q.Y)).ToArray());
+        void Limb(params (float X, float Y)[] pts) => g.DrawLines(limb, pts.Select(q => P(q.X, q.Y)).ToArray());
+        switch (kind)
+        {
+            case "Combat Idle":
+                // leaning in, knees bent wide, fists up before the face
+                Head(1.2f, 2.8f, 2.7f);
+                Torso((-2.6f, 6.2f), (3.6f, 6.0f), (2.6f, 13.6f), (-2.8f, 13.6f));
+                Limb((-1.8f, 13.4f), (-5.4f, 17.6f), (-5.2f, 22.4f));
+                Limb((1.8f, 13.4f), (5.4f, 17.2f), (6.4f, 22.4f));
+                Limb((3.0f, 7.4f), (6.4f, 10.6f), (6.2f, 6.4f));
+                Limb((-2.0f, 7.6f), (-1.4f, 11.6f), (2.6f, 9.0f));
+                Head(6.2f, 5.6f, 1.7f);
+                Head(3.0f, 8.8f, 1.7f);
+                break;
+            case "Fidget 1":
+                // one hand up at the head (a scratch), the other down
+                Head(0, 2.8f, 2.7f);
+                Torso((-3.2f, 6.2f), (3.2f, 6.2f), (2.5f, 14f), (-2.5f, 14f));
+                Limb((-1.4f, 13.6f), (-2.0f, 22.4f));
+                Limb((1.4f, 13.6f), (2.0f, 22.4f));
+                Limb((-3.0f, 7.4f), (-4.2f, 13.2f));
+                Limb((3.0f, 7.4f), (5.6f, 6.0f), (3.4f, 2.0f));
+                break;
+            case "Fidget 2":
+                // hands on the hips
+                Head(0, 2.8f, 2.7f);
+                Torso((-3.2f, 6.2f), (3.2f, 6.2f), (2.5f, 14f), (-2.5f, 14f));
+                Limb((-1.4f, 13.6f), (-2.0f, 22.4f));
+                Limb((1.4f, 13.6f), (2.0f, 22.4f));
+                Limb((-3.0f, 7.4f), (-6.4f, 10.4f), (-2.6f, 12.6f));
+                Limb((3.0f, 7.4f), (6.4f, 10.4f), (2.6f, 12.6f));
+                break;
+            default:
+                // standing at ease, arms down
+                Head(0, 2.8f, 2.7f);
+                Torso((-3.2f, 6.2f), (3.2f, 6.2f), (2.5f, 14f), (-2.5f, 14f));
+                Limb((-1.4f, 13.6f), (-1.8f, 22.4f));
+                Limb((1.4f, 13.6f), (1.8f, 22.4f));
+                Limb((-3.0f, 7.4f), (-4.0f, 14.2f));
+                Limb((3.0f, 7.4f), (4.0f, 14.2f));
+                break;
+        }
+        if (fidget)
+        {
+            // the number, small, at the lower right
+            var f = Ui.SharedHeavy(7.5f);   // (shared: not disposed)
+            var nr = new Rectangle((int)(r.Right - 11 * S), (int)(r.Bottom - 13 * S), (int)(10 * S), (int)(12 * S));
+            TextRenderer.DrawText(g, kind[^1..], f, nr, c, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+    }
+
+    /// <summary>An idle button: every animation listed again, that one picked and playing; the one playing again: pause / play.</summary>
+    void PlayIdle(string name)
+    {
+        string? current = anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count ? animList[anims.SelectedIndex - 1].Name : null;
+        if (current != null && current.Equals(name, StringComparison.OrdinalIgnoreCase) && powerFilter == null) { TogglePlayback(); return; }
+        effectOnly = null; powerFilter = null;
+        if (animList != allAnims) { animList = allAnims; FillAnims(); }
+        int i = animList.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (i < 0) return;
+        autoPlay = true;
+        Pick(i + 1, true);
+        RefreshPowerButtons();
+    }
+
     void RefreshPowerButtons()
     {
         string? current = anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count ? animList[anims.SelectedIndex - 1].Name : null;
+        foreach (var (ib, ia) in idleButtons) Ui.Lit(ib, current != null && ia.Equals(current, StringComparison.OrdinalIgnoreCase));
         for (int k = 0; k < powerButtons.Count && k < heroPowers.Count; k++)
             Ui.Lit(powerButtons[k], powerFilter == heroPowers[k].Prototype || (current != null && heroPowers[k].Animations.Contains(current, StringComparer.OrdinalIgnoreCase)));
     }
@@ -393,6 +547,8 @@ sealed partial class Preview3D
 
     /// <summary>The props for the animation picked: the power playing it switches weapon slots, and a prop the hero doesn't
     /// have (a thrown car) comes from the power's own package.</summary>
+    public void ReloadPropSwitches() => LoadPropSwitches();
+
     void LoadPropSwitches()
     {
         int ai = anims.SelectedIndex - 1;

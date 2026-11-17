@@ -8,6 +8,27 @@ namespace MhoExtendedModManager;
 /// the power (its prototype path), its name, the colour, and the packages built for it (recoloured stock power packages, in
 /// the mod's packages).</summary>
 /// <summary>A power's look borrowed from another hero's power (the Powers tab's Borrow Look; PowerBorrow).</summary>
+/// <summary>A borrowed animation's lowering for the flying height (AnimSwap.Swap's Lift / Ramp / Model), kept on the borrow.</summary>
+sealed class SlotLowering
+{
+    public float Lift { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int Ramp { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public float RampBy { get; set; }
+    public float RampPower { get; set; } = 1;
+    /// <summary>The body lowered along this curve: [at 0..1, game units] pairs.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<float[]>? Model { get; set; }
+
+    public static SlotLowering? Of(AnimSwap.Swap s) =>
+        Math.Abs(s.Lift) < 0.01f && s.Ramp == 0 && s.Model is not { Count: > 0 } ? null
+        : new SlotLowering { Lift = s.Lift, Ramp = s.Ramp, RampBy = s.RampBy, RampPower = s.RampPower, Model = s.Model?.Select(k => new[] { k.At, k.Z }).ToList() };
+
+    /// <summary>The swap lowered the same way.</summary>
+    public AnimSwap.Swap On(AnimSwap.Swap s) => s with { Lift = Lift, Ramp = Ramp, RampBy = RampBy, RampPower = RampPower, Model = Model?.Where(k => k.Length >= 2).Select(k => (k[0], k[1])).ToList() };
+}
+
 sealed class PowerBorrowEntry
 {
     /// <summary>The power that takes the look (its prototype), and its name.</summary>
@@ -87,6 +108,11 @@ sealed class PowerBorrowEntry
     /// so the Animations tab knows which borrow an animation belongs to.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Slots { get; set; }
+    /// <summary>How the build lowers each of those animations for the game's flying height (a ground run on a swing or
+    /// flight), set by each build: an Animations-tab swap of one of them on the hero's costumes gets the same (Kurt,
+    /// 2026-11-16: Medusa's run swapped into the borrowed swing's loop played 140 up).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, SlotLowering>? Lowering { get; set; }
     /// <summary>Height keys per animation (the Animations tab's Height strip, Kurt 2026-11-02): [at 0..1, game units up],
     /// applied by every build after the borrow's own lift.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
@@ -746,7 +772,9 @@ static class VoiceSet
         string hero = m.Groups[1].Value;
         return new[] { $"UC__MarvelPlayer_{hero}_SF.upk", $"UC__MarvelPlayerAudio_{hero}_Default_SF.upk" }
             .Select(f => StockFiles.For(cooked, f))
-            .FirstOrDefault(f => { try { return File.Exists(f) && Find(Package.Open(f)) >= 0; } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return false; } });
+            // a set with sound lines (Kurt, 2026-11-16: Carnage's base package has a set holding only a banter target, so
+            // Medusa's voice on Carnage Classic silenced that alone and his Start, Stunned, Taunted … lines still played)
+            .FirstOrDefault(f => { try { return File.Exists(f) && Find(Package.Open(f)) >= 0 && Read(Path.GetFileName(f), f, []).Any(l => l.Sound); } catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException) { return false; } });
     }
 
     /// <summary>

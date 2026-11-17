@@ -91,7 +91,7 @@ sealed record ImportOptions
         {
             MaterialOverrides = Env("MFF_OVERRIDES"),
             NameTag = Env("MFF_NAME_TAG"),   // (the Model tab's per-target tag, MaterialOut.TagFor)   // a Materials tab overrides file (materials\<source>.json), for command-line builds and tests
-            Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation, KeepSourceSize = Env("MFF_KEEPSIZE") == "1", JointFit = Env("MFF_JOINTFIT") == "1",
+            Parts = parts, MapFile = mapFile, CheckAnimation = checkAnimation ?? Env("MFF_CHECK_ANIM"), KeepSourceSize = Env("MFF_KEEPSIZE") == "1", JointFit = Env("MFF_JOINTFIT") == "1",
             Material = Env("MFF_MATERIAL") is { Length: > 0 } m ? m : null,
             ValuesFrom = Env("MFF_VALUES_FROM"),
             Glow = float.TryParse(Env("MFF_GLOW"), NumberStyles.Float, CultureInfo.InvariantCulture, out float g) ? g : 3f,

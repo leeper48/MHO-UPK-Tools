@@ -8,6 +8,11 @@ namespace MhoExtendedModManager.Model.Gui;
 /// <summary>What the Model tab needs from the editor around it.</summary>
 interface IModelHost
 {
+    /// <summary>The draft's look of the powers (names, icons, borrowed looks), for the preview's power buttons.</summary>
+    PowerLooks PowerLooks { get; }
+    /// <summary>A power button's right-click (Kurt, 2026-11-17): rename and icons are made here, animations on the Animations
+    /// tab. <paramref name="view"/>: the 3D view a Make Icon snapshot is taken of.</summary>
+    void PowerAction(string prototype, PowerMenuAction action, MhoExtendedModManager.Gui.Preview3D? view);
     /// <summary>This editing session's work folder (bone maps, FBX edits, the tab's choices, builds): seeded from the mod's
     /// Model folder when the editor opens, copied back into the mod's Model folder on Save.</summary>
     string WorkFolder { get; }
@@ -60,6 +65,12 @@ interface IModelHost
     IReadOnlyList<PropBoneEntry> PropBones(string file);
     /// <summary>One of the package's own props held on <paramref name="bone"/>, or on its own again (null).</summary>
     Task<bool> SetPropBone(string file, string cls, string? bone);
+    /// <summary>The Animations tab on <paramref name="target"/> with Copy From a Character open on <paramref name="donorFile"/>
+    /// (its animations of the same names ticked); null, or why it couldn't.</summary>
+    Task<string?> CopyAnimationsFrom(string target, string donorFile);
+    /// <summary>A draft package's bytes changed after the fact (the Animations tab's changes put back on a new build, a swap):
+    /// the file name.</summary>
+    event Action<string>? PackageChanged;
 }
 
 sealed partial class ModelPage
@@ -963,7 +974,7 @@ sealed partial class ModelPage
         if (smooth.Enabled) smooth.Checked = st.Subdivide;
         if (st.Material < material.Items.Count) material.SelectedIndex = st.Material;
         MaterialForTarget();
-        SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MegaHair ? st.Hair : 0, st.Rigs, preview: false);
+        SetRigs(st.Cape <= BorrowedRig.CapeDonors.Length ? st.Cape : 0, st.Hair <= BorrowedRig.MedusaHair ? st.Hair : 0, st.Rigs, preview: false);
         buildOnSave.Checked = st.BuildOnBlenderSave;
         petWhole.Clear();
         if (st.WholeChoices != null) foreach (var kv in st.WholeChoices) petWhole[kv.Key] = kv.Value;

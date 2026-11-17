@@ -130,6 +130,50 @@ sealed class StockCatalog(ModLibrary lib, GameState game)
         return null;
     }
 
+    /// <summary>
+    /// The pictures of the characters a mod's Model tab took its models from (Kurt, 2026-11-16: Medusa built onto Carnage
+    /// should offer Medusa's portrait, costume icon and store image for the card and the preview): each "gamesrc:" source in
+    /// the mod's Model\state.json, with the pictures the game names for that package (GamePictures), when they're in the
+    /// classic icon or store package. (texture, the character's name), portrait first.
+    /// </summary>
+    public List<(string Texture, string Character)> SourcePictures(Mod m)
+    {
+        var list = new List<(string, string)>();
+        string state = Path.Combine(m.Folder, "Model", "state.json");
+        if (!File.Exists(state)) return list;
+        var sources = new List<string>();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(state));
+            void Add(System.Text.Json.JsonElement e) { if (e.ValueKind == System.Text.Json.JsonValueKind.String && e.GetString() is string s && s.StartsWith("gamesrc:", StringComparison.OrdinalIgnoreCase)) sources.Add(s["gamesrc:".Length..].Split('|')[0]); }
+            if (doc.RootElement.TryGetProperty("Source", out var src)) Add(src);
+            if (doc.RootElement.TryGetProperty("TargetSources", out var ts) && ts.ValueKind == System.Text.Json.JsonValueKind.Object) foreach (var p in ts.EnumerateObject()) Add(p.Value);
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return list; }
+        foreach (string file in sources.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (m.Manifest.UpkReplacements.Contains(file, StringComparer.OrdinalIgnoreCase) || GamePictures.For(game.Root, file) is not { } gp) continue;   // (the mod's own package: its pictures are the usual ones)
+            string who = CharacterName(file);
+            foreach (string? asset in new[] { gp.Portrait, gp.Icon, gp.Store })
+                if (GamePictures.Split(asset) is { } at && (at.Package.Equals(Applier.IconPackages[0].File, StringComparison.OrdinalIgnoreCase) || at.Package.Equals(Applier.IconPackages[2].File, StringComparison.OrdinalIgnoreCase))
+                    && Textures(at.Package) is { } names && names.ContainsKey(at.Texture) && !list.Any(x => x.Item1.Equals(at.Texture, StringComparison.OrdinalIgnoreCase)))
+                    list.Add((at.Texture, who));
+        }
+        return list;
+    }
+
+    /// <summary>"Medusa (Team-Up)", "Storm Classic" from a character package's name.</summary>
+    public static string CharacterName(string file)
+    {
+        string n = Path.GetFileNameWithoutExtension(file);
+        bool teamUp = n.StartsWith("UC__MarvelTeamUp_", StringComparison.OrdinalIgnoreCase);
+        n = System.Text.RegularExpressions.Regex.Replace(n, @"^UC__Marvel(Player|TeamUp|NPC|Agent)_|_SF$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var parts = n.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return n;
+        string hero = AutoTags.DisplayName(parts[0]) ?? parts[0];
+        return teamUp ? hero + " (Team-Up)" : string.Join(" ", [hero, .. parts.Skip(1)]);
+    }
+
     /// <summary>The stock texture's full size (what a replacement should match).</summary>
     public (int W, int H, string Format)? Size(string iconPackage, string texture)
     {

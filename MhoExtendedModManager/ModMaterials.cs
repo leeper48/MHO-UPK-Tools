@@ -48,6 +48,7 @@ static class ModMaterials
         if (materialRef <= 0 || materialRef > pkg.Exports.Length) return null;
         var info = new MaterialInfo { Name = pkg.Exports[materialRef - 1].ObjectName };
         int reference = materialRef;
+        var native = new List<int>();   // the textures the compiled shaders use (instances' and the material's resource lists)
         for (int depth = 0; depth < 8 && reference != 0; depth++)
         {
             if (reference < 0) { info.Parent = pkg.RefName(reference); break; }
@@ -86,7 +87,11 @@ static class ModMaterials
                     try
                     {
                         foreach (int r in ExportCopy.MaterialNativeTextures(pkg, md, cls))
-                            if (r > 0 && r <= pkg.Exports.Length && pkg.ClassOf(pkg.Exports[r - 1]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) { info.ExpressionTexture = r - 1; break; }
+                            if (r > 0 && r <= pkg.Exports.Length && pkg.ClassOf(pkg.Exports[r - 1]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (info.ExpressionTexture < 0) info.ExpressionTexture = r - 1;
+                                if (!native.Contains(r - 1)) native.Add(r - 1);
+                            }
                     }
                     catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
                 }
@@ -117,10 +122,18 @@ static class ModMaterials
                     if (colon < 0 || eq < colon) continue;
                     info.Switches.TryAdd(s[(colon + 2)..eq].Trim(), s[(eq + 3)..].StartsWith("true", StringComparison.OrdinalIgnoreCase));
                 }
+                foreach (int r in ExportCopy.MaterialNativeTextures(pkg, d, "MaterialInstanceConstant"))
+                    if (r > 0 && r <= pkg.Exports.Length && !native.Contains(r - 1) && pkg.ClassOf(pkg.Exports[r - 1]).Equals("Texture2D", StringComparison.OrdinalIgnoreCase)) native.Add(r - 1);
             }
             catch (Exception ex) when (ex is InvalidDataException or PackageFormatException or IndexOutOfRangeException or ArgumentException) { }
             reference = parent;
         }
+        // A shader that samples its colour and normal map directly, not through a parameter (Medusa's hairshadermedusa:
+        // medusa_hair_diffusev2 is only in the compiled resource's texture list): those maps by their texture names.
+        if (info.Texture("diffuse") < 0 && native.FirstOrDefault(i => pkg.Exports[i].ObjectName.Contains("diff", StringComparison.OrdinalIgnoreCase), -1) is int dt && dt >= 0)
+            info.Textures.TryAdd("diffusetex", dt);
+        if (info.Texture("norm") < 0 && native.FirstOrDefault(i => pkg.Exports[i].ObjectName.Contains("norm", StringComparison.OrdinalIgnoreCase) && !pkg.Exports[i].ObjectName.Contains("placeholder", StringComparison.OrdinalIgnoreCase), -1) is int nt && nt >= 0)
+            info.Textures.TryAdd("normaltex", nt);
         return info;
     }
 

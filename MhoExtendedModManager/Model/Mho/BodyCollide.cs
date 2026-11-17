@@ -239,7 +239,7 @@ sealed class BodyCollide
                 keys[b] = smoothed;
             }
         var tracks = new Dictionary<string, BoneTrack>(a.Tracks, StringComparer.OrdinalIgnoreCase);
-        foreach (var (b, list) in keys) tracks[bones[b].Name] = new BoneTrack { RotationKeys = list };
+        foreach (var (b, list) in keys) tracks[bones[b].Name] = new BoneTrack { RotationKeys = list, PositionKeys = a.Tracks.TryGetValue(bones[b].Name, out var old) ? old.PositionKeys : [] };   // (a mane matched with positions keeps them)
         return new BoneAnimation { Name = a.Name, DurationSeconds = a.DurationSeconds, Tracks = tracks };
     }
 

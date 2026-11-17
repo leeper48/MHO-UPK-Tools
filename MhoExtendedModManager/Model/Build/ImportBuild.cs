@@ -86,6 +86,14 @@ sealed class ImportBuild
             var only = o.Parts is { Length: > 0 } ps && ps != "default" && ps != "all" ? ps.Split(',').ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
             // (a prop, Kurt 2026-10-26, the Props view: its own model comes back as it is, any other is laid over it)
             bool isProp = PropFit.IsProp(sk);
+            // added rigs (as the preview's PrepareFbx): grafted first, so the FBX's bones of the same names carry them
+            if (!isProp)
+            {
+                (sk, var grafted) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(o.Cape, o.Hair, o.Rigs), null, log);
+                rigs.AddRange(grafted);
+                hairRig = grafted.FirstOrDefault(x => x.Part == BorrowedRig.Kind.Hair);
+                fitTo = sk;
+            }
             r = FbxReimport.LoadAny(o.SourceFbx, fitTo, only, log, o.PropAsIs);
             if (!isProp) FbxLean.Apply(r, o.Lean);
             if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
@@ -110,16 +118,15 @@ sealed class ImportBuild
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.ApplyAny(r, o.ModelFbx, sk, log); }
-        if ((o.Hair > 0 || o.Cape > 0 || o.Rigs.Count > 0) && o.SourceFbx != null) log("borrow:  an FBX source keeps its own bones: the borrowed rigs are left out");
         if (PropFit.IsProp(sk) && o.PropFit is { IsNone: false } pfit) { PropFit.Adjust(r, sk, pfit); log("prop:    " + r.Notes[^1]["prop fit: ".Length..].Insert(0, "fit ")); }   // the Prop Fit sliders
         MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
         if (WeightPaint.Apply(r, o.PaintFile) is { } paintNote) log("paint:   " + paintNote["weight paint: ".Length..]);
         builtBones = MhoAnim.FromGlobals(r.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
         foreach (var rig in rigs)
         {
-            rig.Paired = r.ChainPairs.Count(c => BorrowedRig.Pattern(rig.Part).IsMatch(c.MhoRoot));
+            rig.Paired = o.SourceFbx != null ? Gui.PreviewPanel.RiddenBy(r, rig) : r.ChainPairs.Count(c => BorrowedRig.Pattern(rig.Part).IsMatch(c.MhoRoot));
             rig.MeasureBody(builtBones, r);
-            log($"{rig.Part.ToString().ToLowerInvariant()}:  {rig.Paired} model chain(s) ride {rig.Label}");
+            log($"{rig.Part.ToString().ToLowerInvariant()}:  {rig.Paired} {(o.SourceFbx != null ? "of the model's bones" : "model chain(s)")} ride {rig.Label}");
         }
         pkg = AnimPackage.Open(package);
         int e = MeshExport(pkg);
@@ -153,6 +160,29 @@ sealed class ImportBuild
         if (!stem.Equals("model", StringComparison.OrdinalIgnoreCase) || folder.Length == 0) return stem;
         int on = folder.IndexOf(" on ", StringComparison.Ordinal);
         return on > 0 ? folder[..on] : folder;
+    }
+
+    /// <summary>The height the feet shift is measured from: the stock mesh's Origin, not the package's (Kurt, 2026-11-16: a
+    /// build onto a package holding an earlier build added its lift again, Medusa on Carnage stood 10.8 units up after a few
+    /// builds). The stock copy of the same mesh when the game has one; else 0 for a character (every stock character mesh has
+    /// Origin 0: only whips and Blade's chainsaber are moved, -1.5); null (the package's own) for a prop without a stock copy.</summary>
+    float? StockOriginZ()
+    {
+        try
+        {
+            if (MhoExtendedModManager.StockFiles.Cooked is string cooked && MhoExtendedModManager.StockFiles.For(cooked, Path.GetFileName(package)) is string sp && File.Exists(sp))
+            {
+                var sp0 = AnimPackage.Open(sp);
+                int se = sp0.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).FirstOrDefault(i => sp0.GetExportName(i).Equals(sk.Name, StringComparison.OrdinalIgnoreCase), -1);
+                if (se >= 0 && sp0.TryReadProperties(se) is { } sprops)
+                {
+                    var sn = SkelNative.Read(sp0.GetExportData(se).ToArray(), sprops.PayloadOffset, sprops.GetBool("bhasvertexcolors"));
+                    if (sn.Origins.Length >= 12) return BitConverter.ToSingle(sn.Origins, 8);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        return PropFit.IsProp(sk) ? null : 0f;
     }
 
     int MeshExport(AnimPackage p) => p.FindExportsOfClass(AnimExportCli.Meshes.SkeletalMeshReader.ClassName).First(i => p.GetExportName(i).Equals(sk.Name, StringComparison.OrdinalIgnoreCase));
@@ -278,10 +308,19 @@ sealed class ImportBuild
         built = SkelEncoder.Build(baseN, locals, enc, matRefs, extra);
         var feet = FeetOffset(r, sk);
         float feetBy = o.FeetShift ?? (o.FeetOnFloor && feet is { } fa ? fa.By : 0);
+        // the mesh's Origin (the game draws the posed model moved by it: the whole model up or down), from the stock one
+        float? stockZ = built.Origins.Length >= 12 ? StockOriginZ() : null;
+        if (stockZ is float sz0 && MathF.Abs(BitConverter.ToSingle(built.Origins, 8) - (sz0 + (MathF.Abs(feetBy) >= 0.05f ? feetBy : 0))) > 0.001f && MathF.Abs(feetBy) < 0.05f)
+        {
+            // no shift now, but the package's mesh kept an earlier build's: back to the stock height
+            log($"feet:    the earlier build's lift ({BitConverter.ToSingle(built.Origins, 8) - sz0:0.0} units) taken off: the stock height");
+            built.Origins = [.. built.Origins];
+            BitConverter.TryWriteBytes(built.Origins.AsSpan(8), sz0);
+        }
         if (MathF.Abs(feetBy) >= 0.05f && built.Origins.Length >= 12)
         {
-            // the mesh's Origin (the game draws the posed model moved by it: the whole model up or down)
-            float oz = BitConverter.ToSingle(built.Origins, 8);
+            float oz = stockZ ?? BitConverter.ToSingle(built.Origins, 8);
+            if (stockZ != null && MathF.Abs(BitConverter.ToSingle(built.Origins, 8) - stockZ.Value) > 0.001f) log($"feet:    measured from the stock height (the package's mesh had an earlier build's {BitConverter.ToSingle(built.Origins, 8) - stockZ.Value:0.0} units)");
             built.Origins = [.. built.Origins];
             BitConverter.TryWriteBytes(built.Origins.AsSpan(8), oz + feetBy);
             log($"feet:    {(feetBy > 0 ? "raised" : "lowered")} {MathF.Abs(feetBy):0.0} units" + (o.FeetShift != null ? (o.FeetMeasured ? " (automatic: the model's lowest point in the hero's idle, as the preview shows it)" : " (set on the Feet slider)")

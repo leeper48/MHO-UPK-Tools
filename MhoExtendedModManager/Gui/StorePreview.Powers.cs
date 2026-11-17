@@ -216,6 +216,8 @@ sealed partial class StorePreview
     Func<string, bool>? hiddenEffect;
 
     /// <summary>The effects again (a part switched on or off): a character's own, else the power's.</summary>
+    /// <summary>The playing power's prop switches read again (a weapon slot switched on or off on the Parts tab).</summary>
+    public void ReloadProps() => p3?.ReloadPropSwitches();
     public void ReloadEffects() { if (ownFxPackage != null) LoadOwnEffects(); else p3?.ReloadEffects(); }
 
     /// <summary>Shows <paramref name="anim"/> at <paramref name="frame"/>, paused (Save and Keep Editing puts the pose back).</summary>

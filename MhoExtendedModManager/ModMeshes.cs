@@ -626,7 +626,14 @@ static class ModMeshes
         /// <summary>The characters (player classes, lower case) its component isn't for (EntityExcluded: a borrowed power's
         /// own hammer is left out for a costume holding one; Kurt, 2026-10-23, the preview showed both); null: none.</summary>
         public IReadOnlyList<string>? Excluded { get; init; }
+        /// <summary>The component and property it comes from (a weapon-slot rule), for the Parts tab's switches.</summary>
+        public string? Part { get; init; }
+        public string? Prop { get; init; }
     }
+
+    /// <summary>The editor's Parts tab (Kurt, 2026-11-17: Reaping Time's scythes unticked stayed in the preview): a weapon-slot
+    /// rule (package file, component path, property) that's switched off isn't used. Null: every rule is.</summary>
+    public static Func<string, string, string, bool>? RuleOff { get; set; }
 
     static readonly Dictionary<string, List<PropRule>> ruleCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -639,6 +646,14 @@ static class ModMeshes
     /// out: the preview has neither.
     /// </summary>
     public static List<PropRule> PropRules(string powerPackage)
+    {
+        var all = AllPropRules(powerPackage);
+        if (RuleOff is not { } off) return all;
+        string file = Path.GetFileName(powerPackage);
+        return all.Where(r => r.Part == null || r.Prop == null || !off(file, r.Part, r.Prop)).ToList();
+    }
+
+    static List<PropRule> AllPropRules(string powerPackage)
     {
         lock (ruleCache) if (ruleCache.TryGetValue(powerPackage, out var hit)) return hit;
         var result = new List<PropRule>();
@@ -676,9 +691,10 @@ static class ModMeshes
                     for (int k = 0; k < count && t.ValueAt + 8 + 4 * k <= t.End; k++) { int r = BitConverter.ToInt32(d, t.ValueAt + 4 + 4 * k); if (r != 0) list.Add(r > 0 ? pkg.Exports[r - 1].ObjectName : pkg.RefName(r)); }
                     return list;
                 }
-                if (Nm("WeaponSlotToShowOnActivate") is { Length: > 0 } s1) result.Add(new PropRule(true, s1, start, so, null, 0));
+                string partPath = pkg.PathOf(e);
+                if (Nm("WeaponSlotToShowOnActivate") is { Length: > 0 } s1 && !s1.Equals("None", StringComparison.OrdinalIgnoreCase)) result.Add(new PropRule(true, s1, start, so, null, 0) { Part = partPath, Prop = "weaponslottoshowonactivate" });
                 if (Nm("WeaponSlotToHideOnActivate") is { Length: > 0 } s2) result.Add(new PropRule(false, s2, start, so, null, 0));
-                if (Nm("WhileActivatedShowWeaponSlot") is { Length: > 0 } s3) result.Add(new PropRule(true, s3, start, so, endPoint ?? "power_on_end", eo));
+                if (Nm("WhileActivatedShowWeaponSlot") is { Length: > 0 } s3 && !s3.Equals("None", StringComparison.OrdinalIgnoreCase)) result.Add(new PropRule(true, s3, start, so, endPoint ?? "power_on_end", eo) { Part = partPath, Prop = "whileactivatedshowweaponslot" });
                 if (Nm("WhileActivatedHideWeaponSlot") is { Length: > 0 } s4) result.Add(new PropRule(false, s4, start, so, endPoint ?? "power_on_end", eo));
                 foreach (string c in Classes("WhileActivatedAttachmentClass")) result.Add(new PropRule(true, "class:" + c, start, so, endPoint ?? "power_on_end", eo));
                 foreach (string c in Classes("AttachmentsToShowOnActivate")) result.Add(new PropRule(true, "class:" + c, start, so, null, 0));

@@ -63,6 +63,18 @@ sealed partial class StorePreview : Control
     float S => MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi);
     int ThumbSize => (int)(56 * S);
 
+    /// <summary>A power button's right-click menu item picked (the Mods tab: the Editor does it).</summary>
+    public event Action<Mod, Fx.PowerList.Power, PowerMenuAction>? PowerMenu;
+    /// <summary>The power buttons' names and icons from an open draft (the editor) instead of the saved mod.</summary>
+    public PowerLooks? Looks
+    {
+        get => looksOverride;
+        set { looksOverride = value; if (p3 != null) p3.Looks = value ?? (mod == null ? null : PowerLooks.Of(mod, Catalog)); }
+    }
+    PowerLooks? looksOverride;
+    /// <summary>The 3D preview, once made (the power icon maker snapshots it).</summary>
+    public Preview3D? View3D => p3;
+
     public Mod? Mod
     {
         get => mod;
@@ -75,11 +87,13 @@ sealed partial class StorePreview : Control
                 // zoom and animation were lost when a picture was picked and then 3D again); only show the new choice.
                 bool again = value.LocalPreview != mod.LocalPreview || value.Manifest.PreviewImage != mod.Manifest.PreviewImage;
                 mod = value;
+                if (p3 != null) p3.Looks = looksOverride ?? PowerLooks.Of(value, Catalog);
                 if (again) Resolve();
                 return;
             }
             SaveAnim();   // leaving this mod: its animation and frame are kept for next time
             mod = value; modStamp = stamp;
+            if (p3 != null) p3.Looks = looksOverride ?? (value == null ? null : PowerLooks.Of(value, Catalog));   // (the mod's power names and icons on the buttons)
             Hide3D(); resumeOnReveal = false;
             items = []; meshes = []; index = -1; meshIndex = 0; scroll = 0; show3D = false; shownMesh = null; wantedAnim = null;
             var old = image; image = null; old?.Dispose();

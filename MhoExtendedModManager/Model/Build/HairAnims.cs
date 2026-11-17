@@ -48,6 +48,22 @@ static class HairAnims
     /// </summary>
     /// <param name="overrides">FBX edits (0.16.0): animation name → an FBX whose clip replaces it; that sequence is encoded
     /// anew (<see cref="Encode"/>). Without a rig only the sets holding a replaced animation are copied, with just those.</param>
+    /// <summary>A component's animation list with each copy right after the set it's a copy of: <paramref name="list"/> is
+    /// <paramref name="sets"/> in order (null when the two don't line up).</summary>
+    static List<int>? Interleave(List<int> list, IReadOnlyList<CostumeAnims.Set> sets, List<(CostumeAnims.Set From, int Ref)> copies)
+    {
+        if (list.Count != sets.Count) return null;
+        var outList = new List<int>();
+        var placed = new HashSet<int>();
+        for (int k = 0; k < list.Count; k++)
+        {
+            outList.Add(list[k]);
+            foreach (var c in copies.Where(c => ReferenceEquals(c.From, sets[k]))) { outList.Add(c.Ref); placed.Add(c.Ref); }
+        }
+        foreach (var c in copies.Where(c => !placed.Contains(c.Ref))) outList.Add(c.Ref);   // (a set not in the list: at the end)
+        return outList;
+    }
+
     public static Result Add(string builtPath, string packageFile, IReadOnlyList<MeshBone> bones, IReadOnlySet<string> borrowed, IReadOnlyList<BorrowedRig> rigs, Action<string> log,
         IReadOnlyDictionary<string, string>? overrides = null)
     {
@@ -137,11 +153,17 @@ static class HairAnims
             return e;
         }
         var setRefs = new List<int>();
+        // each new set and the set it's a copy of: listed right after it (Kurt, 2026-11-16: appended at the end, the copy of
+        // Carnage's own set took movement_webswing back from the borrowed Emma Frost run listed after it, and he swung high)
+        var copyAfter = new List<(CostumeAnims.Set From, int Ref)>();
         int touched = 0;
         var replacedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // (an earlier edit copy can hold a name twice)
         var expect = new List<Expect>();
         int sequences = 0, statics = 0, replacedCount = 0;
         var restLocal = bones.ToDictionary(b => b.Name, b => b.Position, StringComparer.OrdinalIgnoreCase);
+        // bones whose position moves too (Medusa's Hair): written with a translation key per frame, and named in a rotation-only
+        // set's UseTranslationBoneNames so the game applies them
+        var posBones = rigs.SelectMany(r => r.Library.PositionBones).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var (from, setIndex, clone) in work)
         {
             byte[] sd = pkg.ReadExportBytes(pkg.Exports[setIndex]).ToArray();
@@ -152,7 +174,14 @@ static class HairAnims
             if (nTracks != from.TrackBoneNames.Count) throw new InvalidDataException($"{from.Path}: {nTracks} track names in the set, {from.TrackBoneNames.Count} read");
             var add = hair.Where(h => !from.TrackBoneNames.Contains(h, StringComparer.OrdinalIgnoreCase)).ToList();
             bool replacesHere = from.Sequences.Any(x => overrides.ContainsKey(x.Name));
-            if (add.Count == 0 && !replacesHere) { lines.Add($"{from.Path}: has the hair bones already, left as it is"); continue; }
+            if (add.Count == 0 && !replacesHere)
+            {
+                // (an animation swap from the hair's own character, Medusa's run on Carnage): its own hair tracks play; it stays
+                // where it is in the list (the copies go right after their own originals, so they don't take its names back)
+                lines.Add($"{from.Path}: has the hair bones already, kept as it is");
+                touched++;
+                continue;
+            }
             var track = from.TrackBoneNames.Concat(add).ToList();
             int nSeq = BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(seqTag.ValueAt));
             var oldSeqs = Enumerable.Range(0, nSeq).Select(k => BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(seqTag.ValueAt + 4 + 4 * k))).ToList();
@@ -173,6 +202,7 @@ static class HairAnims
                 var anim = srcSeq.Name != null ? ModAnimations.Load(aref) : null;
                 int frames = qt.FirstOrDefault(t => t.Name.Equals("NumFrames", StringComparison.OrdinalIgnoreCase)) is { } nf ? BinaryPrimitives.ReadInt32LittleEndian(qd.AsSpan(nf.ValueAt)) : 0;
                 var keys = new Dictionary<string, Quaternion[]>(StringComparer.OrdinalIgnoreCase);
+                var places = add.ToDictionary(h => h, h => new[] { restLocal[h] }, StringComparer.OrdinalIgnoreCase);
                 bool still = false;
                 if (replaced)
                 {
@@ -193,6 +223,9 @@ static class HairAnims
                 {
                     var moved = Moved(anim);
                     foreach (var h in add) keys[h] = Sample(moved.Tracks.TryGetValue(h, out var t) ? t : null, frames, bones.First(b => b.Name.Equals(h, StringComparison.OrdinalIgnoreCase)).Orientation);
+                    foreach (var h in add)
+                        if (posBones.Contains(h) && moved.Tracks.TryGetValue(h, out var pt) && pt.PositionKeys.Count > 1)
+                            places[h] = SamplePositions(pt.PositionKeys, frames, restLocal[h]);
                 }
                 else
                 {
@@ -200,7 +233,7 @@ static class HairAnims
                     foreach (var h in add) keys[h] = [bones.First(b => b.Name.Equals(h, StringComparison.OrdinalIgnoreCase)).Orientation];
                     still = true;
                 }
-                byte[] nqd = AppendTracks(pkg, qd, qt, add.Select(h => (restLocal[h], keys[h])).ToList(), frames, seqName, out var writtenKeys);
+                byte[] nqd = AppendTracks(pkg, qd, qt, add.Select(h => (places[h], keys[h])).ToList(), frames, seqName, out var writtenKeys);
                 if (writtenKeys.Zip(add).Any(z => z.First.Length != keys[z.Second].Length)) still = true;
                 if (still) statics++;
                 for (int i = 0; i < add.Count; i++) keys[add[i]] = writtenKeys[i];
@@ -214,9 +247,29 @@ static class HairAnims
                 .. add.SelectMany(h => BitConverter.GetBytes((long)NameIdx(h)))];
             byte[] seqList = [.. BitConverter.GetBytes(newSeqRefs.Count), .. newSeqRefs.SelectMany(BitConverter.GetBytes)];
             // both tags rewritten, the later one first so the earlier one's place holds
-            var edits = new[] { (Tag: tbn, Value: names), (Tag: seqTag, Value: seqList) }.OrderByDescending(x => x.Tag.Start);
-            byte[] nsd = sd;
-            foreach (var (tag, value) in edits)
+            var editList = new List<(TagWalker.Tag Tag, byte[] Value)> { (tbn, names), (seqTag, seqList) };
+            // a rotation-only set (the default) applies positions only to the bones it names: the moving hair bones added
+            var usePos = from.TranslationBones != null ? add.Where(h => posBones.Contains(h) && !from.TranslationBones.Contains(h)).ToList() : [];
+            byte[]? newUse = null;
+            if (usePos.Count > 0)
+            {
+                var useTag = stags.FirstOrDefault(t => t.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
+                int had = useTag != null ? BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(useTag.ValueAt)) : 0;
+                byte[] list = [.. BitConverter.GetBytes(had + usePos.Count), .. useTag != null ? sd.AsSpan(useTag.ValueAt + 4, had * 8).ToArray() : [],
+                    .. usePos.SelectMany(h => BitConverter.GetBytes((long)NameIdx(h)))];
+                if (useTag != null) editList.Add((useTag, list));
+                else
+                {
+                    var tag = new byte[24];
+                    BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx("UseTranslationBoneNames"));
+                    BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("ArrayProperty"));
+                    BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(16), list.Length);
+                    newUse = [.. tag, .. list];
+                }
+                lines.Add($"{from.Path}: {usePos.Count} hair bone(s) move by position: named in the copy's UseTranslationBoneNames");
+            }
+            byte[] nsd = newUse != null ? [.. sd.AsSpan(0, stags.NoneAt), .. newUse, .. sd.AsSpan(stags.NoneAt)] : sd;   // (after every tag: the places below hold)
+            foreach (var (tag, value) in editList.OrderByDescending(x => x.Tag.Start))
             {
                 nsd = [.. nsd.AsSpan(0, tag.ValueAt), .. value, .. nsd.AsSpan(tag.End)];
                 BinaryPrimitives.WriteInt32LittleEndian(nsd.AsSpan(tag.Start + 16), value.Length);
@@ -241,7 +294,7 @@ static class HairAnims
                 foreach (var (old, data) in seqData) replace[old - 1] = _ => data;
                 if (inPlace.Contains(setIndex)) lines.Add($"set {from.Path}: the earlier edit copy, its animations replaced in place");
             }
-            if (!inPlace.Contains(setIndex)) setRefs.Add(setRef);   // (an earlier edit copy is listed already)
+            if (!inPlace.Contains(setIndex)) { setRefs.Add(setRef); copyAfter.Add((from, setRef)); }   // (an earlier edit copy is listed already)
             touched++;
         }
         if (touched == 0) throw new InvalidDataException("every set has the hair bones already");
@@ -259,10 +312,16 @@ static class HairAnims
         byte[] ncd;
         if (at != null)
         {
+            // the list as it was, each copy right after its original (the list is ca.Sets in order); else (it doesn't line up)
+            // the copies at the end
             int n = BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt));
-            ncd = [.. cd.AsSpan(0, at.End), .. addRefs, .. cd.AsSpan(at.End)];
-            BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.ValueAt), n + setRefs.Count);
-            BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.Start + 16), at.Size + addRefs.Length);
+            var old = Enumerable.Range(0, n).Select(k => BinaryPrimitives.ReadInt32LittleEndian(cd.AsSpan(at.ValueAt + 4 + 4 * k))).ToList();
+            var refsNow = Interleave(old, ca.Sets, copyAfter) ?? [.. old, .. setRefs];
+            if (refsNow.Count != old.Count + setRefs.Count) throw new InvalidDataException("the animation list didn't come out whole");
+            if (!refsNow.Skip(old.Count).SequenceEqual(setRefs)) lines.Add("the copies listed right after their own sets (the sets after them still win, as before)");
+            byte[] value = [.. BitConverter.GetBytes(refsNow.Count), .. refsNow.SelectMany(BitConverter.GetBytes)];
+            ncd = [.. cd.AsSpan(0, at.ValueAt), .. value, .. cd.AsSpan(at.End)];
+            BinaryPrimitives.WriteInt32LittleEndian(ncd.AsSpan(at.Start + 16), value.Length);
         }
         else
         {
@@ -289,7 +348,8 @@ static class HairAnims
                 return outer;
             }
             var refs = ca.Sets.Select(s => ImportOf(s.Path)).ToList();
-            byte[] value = [.. BitConverter.GetBytes(refs.Count + setRefs.Count), .. refs.SelectMany(BitConverter.GetBytes), .. addRefs];
+            var refsNow = Interleave(refs, ca.Sets, copyAfter) ?? [.. refs, .. setRefs];
+            byte[] value = [.. BitConverter.GetBytes(refsNow.Count), .. refsNow.SelectMany(BitConverter.GetBytes)];
             var tag = new byte[24];
             BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(0), NameIdx("AnimSets"));
             BinaryPrimitives.WriteInt32LittleEndian(tag.AsSpan(8), NameIdx("ArrayProperty"));
@@ -312,9 +372,15 @@ static class HairAnims
             File.WriteAllBytes(tmp, output);
             var after = CostumeAnims.Read(tmp, packageFile, n => fileFor(n) is { } f && f.Item1 == builtPath ? (tmp, true) : fileFor(n));
             var names = all ? copy.SelectMany(x => x.Sequences.Select(q => q.Name)).ToHashSet(StringComparer.OrdinalIgnoreCase) : overrides.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            int fromCopy = after?.Anims.Count(a => names.Contains(a.Name) && a.From.Path.Contains(Suffix, StringComparison.OrdinalIgnoreCase) && (hair.Count == 0 || a.From.TrackBoneNames.Contains(hair[0], StringComparer.OrdinalIgnoreCase))) ?? 0;
-            lines.Add($"lookup: {fromCopy} of {names.Count} animation names play from a copy{(hair.Count > 0 ? " with the borrowed tracks" : "")} ({after?.Anims.Count ?? 0} names in all)");
-            if (fromCopy != names.Count) throw new InvalidDataException("the game's lookup doesn't reach every copied animation: " + lines[^1]);
+            // a name may play from a set after its copy (a borrowed power's, an animation swap: as before the build); it must not
+            // play from an original that was copied (then the copy never plays)
+            var copiedPaths = copyAfter.Select(c => c.From.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool FromCopy(CostumeAnims.Anim a) => hair.Count > 0 ? a.From.TrackBoneNames.Contains(hair[0], StringComparer.OrdinalIgnoreCase) : a.From.Path.Contains(Suffix, StringComparison.OrdinalIgnoreCase);
+            var mine = after?.Anims.Where(a => names.Contains(a.Name)).ToList() ?? [];
+            int fromCopy = mine.Count(FromCopy), later = mine.Count(a => !FromCopy(a) && !copiedPaths.Contains(a.From.Path));
+            var lost = mine.Where(a => !FromCopy(a) && copiedPaths.Contains(a.From.Path)).Select(a => a.Name).ToList();
+            lines.Add($"lookup: {fromCopy} of {names.Count} animation names play from a copy{(hair.Count > 0 ? " with the borrowed tracks" : "")}, {later} from a set listed after it (a borrowed power, a swap) ({after?.Anims.Count ?? 0} names in all)");
+            if (lost.Count > 0 || fromCopy + later != names.Count) throw new InvalidDataException("the game's lookup doesn't reach every copied animation: " + lines[^1] + (lost.Count > 0 ? " (still from the original: " + string.Join(", ", lost.Take(6)) + ")" : ""));
         }
         finally { try { File.Delete(tmp); } catch (IOException) { } }
         foreach (var l in lines) log("anims:   " + l);
@@ -350,13 +416,31 @@ static class HairAnims
         return o;
     }
 
+    /// <summary>A track's position at each whole frame 0…frames−1 (linear between keys); the rest position without keys.</summary>
+    static Vector3[] SamplePositions(IReadOnlyList<BonePositionKey> k, int frames, Vector3 rest)
+    {
+        var o = new Vector3[frames];
+        for (int f = 0; f < frames; f++)
+        {
+            if (k.Count == 0) { o[f] = rest; continue; }
+            int i = 0;
+            while (i + 1 < k.Count && k[i + 1].TimeFrame <= f) i++;
+            var a = k[i].Position;
+            if (i + 1 < k.Count && k[i + 1].TimeFrame > k[i].TimeFrame && f > k[i].TimeFrame)
+                a = Vector3.Lerp(a, k[i + 1].Position, (f - k[i].TimeFrame) / (k[i + 1].TimeFrame - k[i].TimeFrame));
+            o[f] = a;
+        }
+        return o;
+    }
+
     /// <summary>The sequence's export bytes with one track per hair bone appended (offsets property and compressed stream).</summary>
-    static byte[] AppendTracks(Package pkg, byte[] qd, TagWalker qt, List<(Vector3 Pos, Quaternion[] Rot)> add, int frames, string seq, out List<Quaternion[]> written)
+    static byte[] AppendTracks(Package pkg, byte[] qd, TagWalker qt, List<(Vector3[] Pos, Quaternion[] Rot)> add, int frames, string seq, out List<Quaternion[]> written)
     {
         written = new();
         string Fmt(string prop, string dflt) => qt.FirstOrDefault(t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase)) is { } t
             ? TagWalker.NameAt(pkg, qd, t.ValueAt).ToUpperInvariant() : dflt;
         string rotFmt = Fmt("RotationCompressionFormat", "ACF_FLOAT96NOW"), keyFmt = Fmt("KeyEncodingFormat", "AKF_CONSTANTKEYLERP");
+        bool transNone = Fmt("TranslationCompressionFormat", "ACF_NONE") == "ACF_NONE";
         bool perTrack = keyFmt == "AKF_PERTRACKCOMPRESSION", variable = keyFmt == "AKF_VARIABLEKEYLERP";
         var off = qt.FirstOrDefault(t => t.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException($"{seq}: no CompressedTrackOffsets");
         // native data after the properties: raw tracks (count, each: positions, rotations), then the compressed stream
@@ -370,16 +454,20 @@ static class HairAnims
         void Align() { while (stream.Length % 4 != 0) w.Write((byte)0); }
         var offsets = new List<int>();
         bool fixed48 = rotFmt == "ACF_FIXED48NOW", none = rotFmt == "ACF_NONE", float96 = rotFmt == "ACF_FLOAT96NOW";
-        foreach (var (pos, rot) in add)
+        foreach (var (posAll, rot) in add)
         {
             Align();
             var keys = rot.Length == frames && frames > 1 ? rot : [rot[0]];
             if (!perTrack && !(float96 || fixed48 || none)) keys = [keys[0]];   // an interval / packed format: the first pose only
             written.Add(keys);
+            // positions: a key per frame for a bone that moves (raw floats: per-track None, else the sequence's ACF_None), else
+            // one key (its rest place)
+            var pos = posAll.Length == frames && frames > 1 && (perTrack || transNone) && posAll.Any(v => (v - posAll[0]).LengthSquared() > 1e-10f) ? posAll : [posAll[0]];
             if (perTrack)
             {
                 int tAt = (int)stream.Length;
-                w.Write((0u << 28) | (7u << 24) | 1u); w.Write(pos.X); w.Write(pos.Y); w.Write(pos.Z);
+                w.Write((0u << 28) | (7u << 24) | (uint)pos.Length);
+                foreach (var v in pos) { w.Write(v.X); w.Write(v.Y); w.Write(v.Z); }
                 int rAt = (int)stream.Length;
                 w.Write((1u << 28) | (7u << 24) | (uint)keys.Length);
                 foreach (var q in keys) { var s = Stored(q); w.Write(s.X); w.Write(s.Y); w.Write(s.Z); }
@@ -387,7 +475,12 @@ static class HairAnims
                 continue;
             }
             int tOff = (int)stream.Length;
-            w.Write(pos.X); w.Write(pos.Y); w.Write(pos.Z);
+            foreach (var v in pos) { w.Write(v.X); w.Write(v.Y); w.Write(v.Z); }
+            if (variable && pos.Length > 1)
+            {
+                Align();
+                for (int f = 0; f < pos.Length; f++) { if (frames > 255) w.Write((ushort)f); else w.Write((byte)f); }
+            }
             Align();
             int rOff = (int)stream.Length;
             if (keys.Length == 1 && !none) { var s = Stored(keys[0]); w.Write(s.X); w.Write(s.Y); w.Write(s.Z); }
@@ -400,7 +493,7 @@ static class HairAnims
                 for (int f = 0; f < keys.Length; f++) { if (frames > 255) w.Write((ushort)f); else w.Write((byte)f); }
                 Align();
             }
-            offsets.AddRange([tOff, 1, rOff, keys.Length]);
+            offsets.AddRange([tOff, pos.Length, rOff, keys.Length]);
         }
         Align();
         byte[] ns = stream.ToArray();
