@@ -188,11 +188,23 @@ sealed partial class MainForm
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException or KeyNotFoundException or InvalidOperationException)
         { Dialog.Show(this, "Couldn't read the mod list from Nexus: " + ex.Message, "Find My Mods on Nexus", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         finally { UseWaitCursor = false; nexusBusy = null; UpdateNexusStatus(); }
-        using var f = new NexusScanForm(targets, all);
-        if (f.ShowDialog(this) != DialogResult.OK || f.Confirmed.Count == 0) { Reload(); return; }
+        using var f = new NexusScanForm(targets, all, lib.State.NexusNotThese);
+        bool ok = f.ShowDialog(this) == DialogResult.OK && f.Confirmed.Count > 0;
         var l = lib;
+        // Strong matches the user unticked are remembered (state.json NexusNotThese): the next scan doesn't tick them.
+        void KeepNotThese() =>
+            l.State.NexusNotThese = f.NotThese.Count > 0
+                ? f.NotThese.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).ToDictionary(kv => kv.Key, kv => kv.Value.Order().ToList(), StringComparer.OrdinalIgnoreCase)
+                : null;
+        if (!ok)
+        {
+            if (f.NotTheseChanged) Change("remember the Nexus pages you unticked", () => { KeepNotThese(); return true; });
+            else Reload();
+            return;
+        }
         Change($"link {f.Confirmed.Count} mod(s) to Nexus", () =>
         {
+            KeepNotThese();
             foreach (var (m, id, version) in f.Confirmed)
                 if (l.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod mm)
                     mm.NexusLink = new NexusLink { ModId = id, Version = mm.Manifest.Version, Installed = DateTime.Now };

@@ -134,6 +134,9 @@ sealed class ModState
     public Dictionary<string, string>? Notes { get; set; }
     /// <summary>Extension: each mod's link to its Nexus page and the installed file / version (this PC).</summary>
     public Dictionary<string, NexusLink>? NexusLinks { get; set; }
+    /// <summary>Extension: Nexus pages the user unticked for a mod in Find My Mods on Nexus (Nexus mod IDs; this PC), so the
+    /// next scan doesn't tick them again (Kurt, 2026-11-18).</summary>
+    public Dictionary<string, List<int>>? NexusNotThese { get; set; }
     /// <summary>Extension: the picture the user picked to show big for a mod (this PC; see ModManifest.PreviewImage).</summary>
     public Dictionary<string, string>? Previews { get; set; }
     /// <summary>Extension: the picture the user picked for a mod's card in the list (a TextureName the mod replaces; this PC).</summary>
@@ -144,7 +147,7 @@ sealed class ModState
     {
         foreach (var l in new[] { LockedTop, LockedBottom })
             if (l != null) for (int i = 0; i < l.Count; i++) if (l[i].Equals(from, StringComparison.OrdinalIgnoreCase)) l[i] = to;
-        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to); Move(Previews, from, to); Move(CardPictures, from, to);
+        Move(Tags, from, to); Move(HiddenTags, from, to); Move(Notes, from, to); Move(NexusLinks, from, to); Move(NexusNotThese, from, to); Move(Previews, from, to); Move(CardPictures, from, to);
     }
 
     /// <summary>A mod duplicated (Duplicate Mod): the copy gets this PC's tags, hidden tags, note and picture picks of the
@@ -174,7 +177,7 @@ sealed class ModState
     {
         LockedTop?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
         LockedBottom?.RemoveAll(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
-        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name); Drop(Previews, name); Drop(CardPictures, name);
+        Drop(Tags, name); Drop(HiddenTags, name); Drop(Notes, name); Drop(NexusLinks, name); Drop(NexusNotThese, name); Drop(Previews, name); Drop(CardPictures, name);
     }
 
     /// <summary>

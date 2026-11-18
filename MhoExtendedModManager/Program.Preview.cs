@@ -4647,6 +4647,21 @@ static partial class Program
                 {
                     float lo = fa.Positions.Min(p => p.Z), hi = fa.Positions.Max(p => p.Z);
                     Console.WriteLine($"  {what,-34} lowest {lo,8:0.0}  top {hi,7:0.0}  pelvis z {(pelvis >= 0 ? fa.BonePosition(pelvis).Z : float.NaN),7:0.0}  root z {fa.BonePosition(froot).Z,6:0.0}");
+                    // MHO_FOOT_LIMBS=<prefix,prefix>: the lowest vertex whose strongest bone starts with each prefix (a pet's front
+                    // paws on g_l_shoulder.. : "g_l_shoulder,g_l_elbow,g_l_wrist,...")
+                    if (Environment.GetEnvironmentVariable("MHO_FOOT_LIMBS") is { Length: > 0 } limbs)
+                        foreach (string lp in limbs.Split(','))
+                        {
+                            float best = float.MaxValue; int count = 0;
+                            for (int v = 0; v < fa.Positions.Length && v < fl.Influences.Count; v++)
+                            {
+                                var inf = fl.Influences[v]; int top = 0;
+                                for (int k = 1; k < inf.Weights.Count; k++) if (inf.Weights[k] > inf.Weights[top]) top = k;
+                                if (inf.Bones.Count == 0 || !fl.Bones[inf.Bones[top]].Name.StartsWith(lp, StringComparison.OrdinalIgnoreCase)) continue;
+                                best = Math.Min(best, fa.Positions[v].Z); count++;
+                            }
+                            Console.WriteLine($"      lowest on {lp,-14} {(count > 0 ? best.ToString("0.0") : "-"),7}  ({count} vertices)");
+                        }
                     // MHO_FOOT_DIR=1: each toe bone's three local axes in world space (left mirrored: the two should match)
                     if (Environment.GetEnvironmentVariable("MHO_FOOT_DIR") == "1")
                         foreach (string tb in new[] { "g_r_ball", "g_l_ball" })

@@ -388,6 +388,32 @@ static partial class Program
             Gui.ApplyForm.Snapshot(args[1]);
             return 0;
         }
+        if (args.Length == 1 && args[0].Equals("--nexus-scan-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // Find My Mods remembers unticked strong matches (scratch MHO_EXTMM_HOME; nothing is saved): every mod gets a
+            // made-up Nexus page of its own name and author (a strong match), the first is unticked, then a second scan.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var tl = ModLibrary.Load(Settings.Load().LibraryPath);
+            var ms = tl.Mods.Take(3).ToList();
+            var fake = ms.Select((m, i) => new NexusMatch.NexusMod(9000 + i, m.Name, m.Manifest.Author ?? "", "", "1", DateTime.Now, "")).ToList();
+            int fails = 0;
+            void Check(string what, bool ok) { Console.WriteLine($"{(ok ? "PASS" : "FAIL")} {what}"); if (!ok) fails++; }
+            bool Ticked(Gui.NexusScanForm f, Mod m) => f.TestRows().First(r => r.Mod == m).Ticked;
+            using var f1 = new Gui.NexusScanForm(ms, fake);
+            Check($"strong matches ticked in advance ({ms.Count})", ms.All(m => Ticked(f1, m)));
+            f1.TestUntick(ms[0]); f1.TestRemember();
+            Check("the unticked one is remembered", f1.NotThese.TryGetValue(ms[0].FolderName, out var r1) && r1.SetEquals([9000]) && f1.NotThese.Count == 1 && f1.NotTheseChanged);
+            var kept = f1.NotThese.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+            using var f2 = new Gui.NexusScanForm(ms, fake, kept);
+            Check("next scan: not ticked again", !Ticked(f2, ms[0]));
+            Check("next scan: the others still ticked", ms.Skip(1).All(m => Ticked(f2, m)));
+            f2.TestRemember();
+            Check("left unticked: still remembered, nothing changed", f2.NotThese.ContainsKey(ms[0].FolderName) && !f2.NotTheseChanged);
+            using var f3 = new Gui.NexusScanForm(ms, fake, kept);
+            f3.TestTick(ms[0]); f3.TestRemember();
+            Check("ticked again: forgotten", f3.NotThese.Count == 0 && f3.NotTheseChanged);
+            return fails == 0 ? 0 : 1;
+        }
         if (args.Length == 2 && args[0].Equals("--nexus-scan-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: Find My Mods on Nexus for the library's unlinked mods (the real list, or MHO_EXTMM_NEXUS_API's), to a PNG.

@@ -1,6 +1,11 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.557
+- Find My Mods on Nexus remembers the strong matches you untick: the next scan doesn't tick them again (Match says Unticked; tick one to link it after all). Cancel remembers them too.
+- Editor → Details: a mod linked to its Nexus page on this PC shows that page in the Nexus Page box when the mod names none; Save writes it into the mod, so its users get update notices.
+- Model tab builds take your author name (Settings → Your Author Name) instead of "MHO MFF Importer".
+
 0.60.556
 - Editor → Gear (new): a hero's gear names and icons. Each of the five slots shows its icon, its name in game and, under Second Line by Item Level, the line each item level shows under the name ("Son of Ultron's Belt" on Vision's level 10 belt), which you can change. All Five Slots at Once changes a level's line for every slot (Enter, or Fill All Slots for several levels), for every hero: where a slot's lines don't end in the same word (Deadpool's Heaters, Chimichangas), its slot name is put after the prefix ("<prefix> Pistols"). Unique items are listed too, with their own name, second line and icon. Replace Icon, Make Icon From 3D View, Game's Icon and Game's Name; the page says when a name or icon is shared with other slots or heroes (a change shows on all of them). Names are string changes and the 40 x 40 icons classic icon replacements, so MHModManager installs them; the large 128 x 128 icons are an extension.
 - Make Icon From 3D View for gear: the hero in the idle with no power effects, on a transparent background. Clicking a slot's icon later opens the icon maker again as you left it (snapshot, erasing, glow, outline). Copy From Slot on a unique item starts from that slot's icon and settings, not baked in, so it can get another outline color.

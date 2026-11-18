@@ -98,6 +98,9 @@ sealed partial class ModEditorView : UserControl
         this.lib = lib; this.game = game; this.editing = editing;
         catalog = game == null ? null : new StockCatalog(lib, game);
         draft = editing == null ? new ModDraft { Author = Settings.Load().AuthorName?.Trim() ?? "" } : ModDraft.From(editing);
+        // A mod linked to its Nexus page on this PC (Find My Mods, an install from Nexus, Link to Nexus Page) shows that page
+        // in the Nexus Page box when the mod names none; Save writes it into the mod (Kurt, 2026-11-18).
+        if (draft.NexusModId == null && editing?.NexusLink?.ModId is int linked) draft.NexusModId = linked;
         Title = editing == null ? "New Mod" : $"Edit: {editing.Name}";
         Dock = DockStyle.Fill;
         Font = Ui.Regular(9.5f);

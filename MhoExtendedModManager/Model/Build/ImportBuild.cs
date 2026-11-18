@@ -714,7 +714,8 @@ sealed class ImportBuild
         string modDir = Path.Combine(outDir, "mod");
         string variant = o.Variant(MaterialChoice.Donor(o.Material, metalShare, glowShare));
         string modName = $"{(m != null ? "MFF " : "FBX ")}{sourceName} on {sk.Name} (test{variant})";
-        ModOut.Write(modDir, modName, "MHO MFF Importer", Program.Version, [pkgOut],
+        // the user's author name (Settings -> Your Author Name), not the tool's (Kurt, 2026-11-18)
+        ModOut.Write(modDir, modName, global::MhoExtendedModManager.Settings.Load().AuthorName?.Trim() ?? "", Program.Version, [pkgOut],
             $"Test build of the MFF Importer {Program.Version}: {sourceName} on {Path.GetFileName(package)}. " +
             (o.PlaceholderMaterials ? "Materials are the stock ones (placeholders)." : $"Materials from the MFF textures (A/B variant:{(variant.Length > 0 ? variant.TrimStart(',') : " colour, _sp, generated normal map")})."));
         string zip = ModOut.Zip(modDir, modName, Program.Version);
