@@ -137,21 +137,23 @@ sealed partial class ModEditorView
     Control? AllSlotsLevels(string hero)
     {
         if (gearAll == null || PowerDbNow() is not { } db) return null;
-        var std = gearAll[hero].Where(x => x.Unique == null).OrderBy(x => x.Number).ToList();
         var tiers = GearData.Tiers(db);
-        var lists = std.Select(x => tiers.TryGetValue((hero.ToLowerInvariant(), x.Number), out var l) ? l : []).ToList();
-        if (std.Count < 2 || lists.Any(l => l.Count < 2 || l.Count != lists[0].Count)) return null;
-        // each slot's piece: the last words all of its game lines share ("Belt", "Bo Staff")
+        // every hero (Kurt, 2026-11-18): the slots with item levels (War Machine's slot 5 has none), as many levels as they all have
+        var std = gearAll[hero].Where(x => x.Unique == null && tiers.TryGetValue((hero.ToLowerInvariant(), x.Number), out var l) && l.Count >= 2)
+            .OrderBy(x => x.Number).ToList();
+        var lists = std.Select(x => tiers[(hero.ToLowerInvariant(), x.Number)]).ToList();
+        if (std.Count < 2) return null;
+        // each slot's piece: the last words all of its game lines share ("Belt", "Bo Staff"); a slot whose lines share none
+        // (Deadpool's "Heaters", "Chimichangas") takes its slot name ("Pistols")
         var pieces = new List<string>();
-        foreach (var l in lists)
+        for (int si = 0; si < std.Count; si++)
         {
-            var words = l.Select(t => GearOriginalText(t.TypeId).Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToList();
+            var words = lists[si].Select(t => GearOriginalText(t.TypeId).Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToList();
             int k = 0;
             while (words.All(w => w.Length > k + 1) && words.Select(w => w[^(k + 1)]).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1) k++;
-            if (k == 0) return null;
-            pieces.Add(string.Join(" ", words[0][^k..]));
+            pieces.Add(k > 0 ? string.Join(" ", words[0][^k..]) : GearOriginalName(std[si]).Trim() is { Length: > 0 } nm ? nm : $"Slot {std[si].Number}");
         }
-        int n = lists[0].Count;
+        int n = lists.Min(l => l.Count);
         string? Prefix(int si, int i)
         {
             string t = GearText(lists[si][i].TypeId), end = " " + pieces[si];
@@ -161,29 +163,16 @@ sealed partial class ModEditorView
         var body = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Visible = false, Margin = new Padding((int)(4 * S), 0, 0, 0) };
         body.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); body.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var note = new Label { AutoSize = true, Tag = "subtle", MaximumSize = new Size((int)(620 * S), 0), Margin = new Padding(0, 0, 0, (int)(6 * S)),
-            Text = $"All Levels copies one prefix into every level's box (Enter); then Fill All Slots writes them. Type a level's prefix once: it's written into every slot as \"<prefix> <piece>\" ({string.Join(", ", pieces)}). An empty box: the slots differ now (open a slot's own list below to see them). Clear a box and press Enter: that level back to the game's in every slot." };
+            Text = $"Type a level's prefix once: it's written into every slot as \"<prefix> <piece>\" ({string.Join(", ", pieces)}). An empty box: the slots differ now (open a slot's own list below to see them). Clear a box and press Enter: that level back to the game's in every slot." };
         body.Controls.Add(note, 0, 0); body.SetColumnSpan(note, 2);
         var commits = new List<(TextBox Box, Action Write)>();
-        // All Levels (Kurt, 2026-11-17): one prefix copied into every level's box below (nothing is written yet); Fill All Slots
-        // then writes them, or change single levels first
-        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        body.Controls.Add(new Label { Text = "All Levels", AutoSize = true, Font = Ui.Bold(8.5f), Anchor = AnchorStyles.Left, Margin = new Padding(0, (int)(2 * S), (int)(10 * S), (int)(6 * S)) }, 0, 1);
-        var allLevels = new TextBox { Width = (int)(320 * S), Margin = new Padding(3, 3, 3, (int)(8 * S)) };
-        Ui.Tip(allLevels, $"One prefix for all {n} levels: Enter copies it into every level's box below (nothing is written yet). Then change single levels if you like and click Fill All Slots to write them into all {std.Count} slots.");
-        allLevels.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter) return;
-            e.SuppressKeyPress = true;
-            foreach (var (b, _) in commits) b.Text = allLevels.Text.Trim();
-        };
-        body.Controls.Add(allLevels, 1, 1);
         for (int i = 0; i < n; i++)
         {
             int lvl = i;
             var ps = Enumerable.Range(0, std.Count).Select(si => Prefix(si, lvl)).ToList();
             string common = ps.All(x => x != null) && ps.Distinct().Count() == 1 ? ps[0]! : "";
             body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            body.Controls.Add(new Label { Text = $"Level {i + 1:00}", AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Margin = new Padding(0, (int)(2 * S), (int)(10 * S), 0) }, 0, i + 2);
+            body.Controls.Add(new Label { Text = $"Level {i + 1:00}", AutoSize = true, Tag = "subtle", Anchor = AnchorStyles.Left, Margin = new Padding(0, (int)(2 * S), (int)(10 * S), 0) }, 0, i + 1);
             var t = new TextBox { Width = (int)(320 * S), Text = common };
             Ui.Tip(t, $"Level {i + 1}'s prefix for all {std.Count} slots: {string.Join(", ", Enumerable.Range(0, std.Count).Select(si => GearText(lists[si][lvl].TypeId)))} now. Typing \"Son of Ultron's\" makes them {string.Join(", ", pieces.Select(pc => "Son of Ultron's " + pc))}. Press Enter or leave the box to write them; empty + Enter = the game's in every slot.");
             string last = common;
@@ -197,7 +186,7 @@ sealed partial class ModEditorView
             }
             t.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Commit(); } };
             t.Leave += (_, _) => Commit();
-            body.Controls.Add(t, 1, i + 2);
+            body.Controls.Add(t, 1, i + 1);
             commits.Add((t, () => { if (t.Text.Trim().Length > 0) { last = null!; Commit(); } }));
         }
         // Fill All Slots (Kurt, 2026-11-17): every level with a prefix written into all the slots at once
@@ -207,7 +196,7 @@ sealed partial class ModEditorView
         }, tip: $"Write every level that has a prefix into all {std.Count} slots at once (\"<prefix> <piece>\": {string.Join(", ", pieces)}), as Enter on each box would. Empty boxes are left as they are.");
         fill.Margin = new Padding(0, (int)(8 * S), 0, (int)(4 * S));
         body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        body.Controls.Add(fill, 1, n + 2);
+        body.Controls.Add(fill, 1, n + 1);
         int same = Enumerable.Range(0, n).Count(i => Prefix(0, i) != null && Enumerable.Range(0, std.Count).Select(si => Prefix(si, i)).Distinct().Count() == 1);
         box.Controls.Add(FoldHead(body, () => $"ALL FIVE SLOTS AT ONCE  ·  {n} levels  ·  {same} the same in every slot",
             $"Click to open or close: one prefix per item level, written into all {std.Count} slots (prefix + {string.Join(" / ", pieces)})."));
@@ -378,9 +367,54 @@ sealed partial class ModEditorView
         r.Note.Text = string.Join("\n", lines);
     }
 
+    /// <summary>
+    /// A unique's icon on this page (Kurt, 2026-11-18: "pixelated compared to the standard"): its only icon of its own is the 40 × 40,
+    /// which the 80 px box blew up, while slots show their 128 × 128. So the picture it was made from is kept at 128 × 128 beside its
+    /// icon maker settings, for this page only (the game gets the 40 × 40 as before). Only for slots with no large icon of their own.
+    /// </summary>
+    string GearPreviewFile(GearSlot s) => GearMakings(s) + ".preview.png";
+
+    void SaveGearPreview(GearSlot s, string image)
+    {
+        if (s.HdTexture != null && s.HdFromSlot == null) return;
+        try
+        {
+            using var src = PostWriter.Picture(image);
+            if (src == null) return;
+            using var big = new Bitmap(128, 128, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(big))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.DrawImage(src, new Rectangle(0, 0, 128, 128));
+            }
+            string file = GearPreviewFile(s);
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            big.Save(file, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException) { }
+    }
+
     /// <summary>The slot's icon as the mod has it: its replacement (large one first), else the game's.</summary>
     Bitmap? GearIconImage(GearSlot s)
     {
+        // a unique's own picture at 128 × 128 when it's at least as new as its 40 × 40 replacement (else the Icons tab changed it)
+        if (s.HdTexture == null || s.HdFromSlot != null)
+        {
+            string pv = GearPreviewFile(s);
+            var srcs = GearData.Textures(s).Select(t =>
+            {
+                int v = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(t.Package, StringComparison.OrdinalIgnoreCase));
+                return v >= 0 ? draft.Textures[v].FirstOrDefault(r => r.Texture.Equals(t.Texture, StringComparison.OrdinalIgnoreCase)).Source
+                    : draft.Extra.FirstOrDefault(x => x.Package.Equals(t.Package, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(t.Texture, StringComparison.OrdinalIgnoreCase)).Source;
+            }).Where(x => x != null && File.Exists(x)).ToList();
+            try
+            {
+                if (srcs.Count > 0 && File.Exists(pv) && srcs.All(x => File.GetLastWriteTimeUtc(pv) >= File.GetLastWriteTimeUtc(x!).AddSeconds(-2))
+                    && PostWriter.Picture(pv) is { } pic) return pic;
+            }
+            catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { }
+        }
         foreach (var (pkg, tex) in GearData.Textures(s).AsEnumerable().Reverse())
         {
             int view = Array.FindIndex(Applier.IconPackages, x => x.File.Equals(pkg, StringComparison.OrdinalIgnoreCase));
@@ -469,6 +503,7 @@ sealed partial class ModEditorView
                 if (view >= 0) draft.Textures[view].Add((tex, dds));
                 else draft.Extra.Add((pkg, tex, dds));
             }
+            SaveGearPreview(s, png);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidDataException or IOException or System.Runtime.InteropServices.ExternalException)
         {
@@ -590,7 +625,7 @@ sealed partial class ModEditorView
         GearRowsForTest = [.. gearRows.Select(r => r.Slot.Label)];
         // All Five Slots at Once: level 10's box (as typed and left), then every slot's level 10 line; then the box cleared again
         if (image != null && PowerDbNow() is { } adb && gearSlotsTable!.Controls.OfType<TableLayoutPanel>().FirstOrDefault() is { } allBox
-            && allBox.Controls.OfType<TableLayoutPanel>().FirstOrDefault() is { } allBody && allBody.GetControlFromPosition(1, 11) is { } cell)
+            && allBox.Controls.OfType<TableLayoutPanel>().FirstOrDefault() is { } allBody && allBody.GetControlFromPosition(1, 10) is { } cell)
         {
             var tb = cell as TextBox ?? cell.Controls.OfType<TextBox>().First();
             var onLeave = typeof(Control).GetMethod("OnLeave", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
@@ -602,23 +637,7 @@ sealed partial class ModEditorView
             var back = std.Select(x => GearTextChanged(GearData.Tiers(adb)[(x.Hero.ToLowerInvariant(), x.Number)][9].TypeId)).ToList();
             GearAllCheck = $"{(allOk && back.All(b => !b) ? "PASS" : "FAIL")} All Five Slots at Once, level 10 \"Test All\": {string.Join(" / ", got)}; cleared: back to the game's {back.Count(b => !b)} of {back.Count}";
             // Fill All Slots: levels 2 and 3 typed (no Enter), then the button
-            TextBox Box(int lvl) { var c = allBody.GetControlFromPosition(1, lvl + 1)!; return c as TextBox ?? c.Controls.OfType<TextBox>().First(); }
-            // All Levels: Enter copies it into every level's box, writing nothing
-            {
-                var gc = allBody.GetControlFromPosition(1, 1)!;
-                var g = gc as TextBox ?? gc.Controls.OfType<TextBox>().First();
-                int Changed() => std.Sum(x => GearData.Tiers(adb)[(x.Hero.ToLowerInvariant(), x.Number)].Count(t => GearTextChanged(t.TypeId)));
-                int before = Changed();
-                var was = Enumerable.Range(1, GearData.Tiers(adb)[(std[0].Hero.ToLowerInvariant(), std[0].Number)].Count).Select(l => Box(l).Text).ToList();
-                g.Text = "Every Level";
-                typeof(Control).GetMethod("OnKeyDown", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(g, [new KeyEventArgs(Keys.Enter)]);
-                int levels = GearData.Tiers(adb)[(std[0].Hero.ToLowerInvariant(), std[0].Number)].Count;
-                bool copied = Enumerable.Range(1, levels).All(l => Box(l).Text == "Every Level");
-                bool unwritten = Changed() == before;
-                GearAllCheck += $"\n{(copied && unwritten ? "PASS" : "FAIL")} All Levels copies into all {levels} level boxes ({copied}) and writes nothing yet ({unwritten})";
-                g.Text = "";
-                for (int l = 1; l <= levels; l++) Box(l).Text = was[l - 1];   // (as they were: nothing was written)
-            }
+            TextBox Box(int lvl) { var c = allBody.GetControlFromPosition(1, lvl)!; return c as TextBox ?? c.Controls.OfType<TextBox>().First(); }
             Box(2).Text = "Fill Two"; Box(3).Text = "Fill Three";
             var fillBtn = allBody.Controls.OfType<Button>().First(b => b.AccessibleName == "Fill All Slots" || b.Text == "Fill All Slots");
             typeof(Control).GetMethod("OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(fillBtn, [EventArgs.Empty]);
@@ -650,13 +669,19 @@ sealed partial class ModEditorView
             bool layerOk = f?.LayerForTest is { } fl && fl.Width == 384 && fl.GetPixel(192, 192).A == 255 && fl.GetPixel(10, 10).A == 0;
             GearCopyCheck = $"{(hasButton && sameLook && layerOk ? "PASS" : "FAIL")} Copy From Slot {slot.Number} on {uq.Unique}: button {hasButton}, the slot's look (red outline 2 px, glow 50 %) {sameLook}, its layer on transparency {layerOk}";
             f?.Close();
+            // a unique's icon shows from its picture at 128 × 128 on the page, not its 40 × 40 blown up; Game's Icon takes it back
+            bool put = PutGearIcon(uq, image);
+            int w = GearIconImage(uq)?.Width ?? 0;
+            GearIconOff(uq);
+            int back = GearIconImage(uq)?.Width ?? 0;
+            GearCopyCheck += $"\n{(put && w == 128 && back != 128 ? "PASS" : "FAIL")} {uq.Unique}'s icon on the page from its picture: {w} px (the game's after Game's Icon: {back} px)";
         }
         // (MHO_GEAR_SNAP=<png>: the page scrolled to the unique items, before the save)
         if (image != null && Environment.GetEnvironmentVariable("MHO_GEAR_SNAP") is { Length: > 0 } snap && gearSlotsTable?.Parent is ScrollableControl sc && FindForm() is Form form)
         {
             ShowGearSlots();   // (the boxes as the mod has them, after the checks above)
             await Task.Delay(2500);
-            // All Five Slots at Once opened (the picture shows All Levels and the 15 levels), at the top
+            // All Five Slots at Once opened (the picture shows the 15 levels), at the top
             foreach (var t in gearSlotsTable.Controls.OfType<TableLayoutPanel>().First().Controls.OfType<TableLayoutPanel>()) t.Visible = true;
             await Task.Delay(500);
             sc.AutoScrollPosition = new Point(0, 0);

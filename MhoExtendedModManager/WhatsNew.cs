@@ -62,7 +62,7 @@ static class WhatsNew
     static Notice GearPage() => new(
         "0.60.553-gear", "0.60.553",
         "[!]New in the Editor: Gear" + nl +
-        "  • Rename a hero's gear: the line each item level shows under the gear's name (\"Son of Ultron's Belt\"), one slot at a time, or All Five Slots at Once (All Levels fills all 15 levels in one go). Unique items get their own name and second line too." + nl +
+        "  • Rename a hero's gear: the line each item level shows under the gear's name (\"Son of Ultron's Belt\"), one slot at a time, or all five slots at once (15 levels, for every hero). Unique items get their own name and second line too." + nl +
         "  • Gear icons: your own picture, or Make Icon From 3D View (the hero in the idle, on a transparent background). Click an icon later to change its glow or outline; Copy From Slot gives a unique item its slot's icon to start from." + nl +
         "  • The page says when a name or icon is shared with other heroes' gear, since a change shows on all of them." + nl + nl +
         "[!]Also" + nl +
