@@ -408,6 +408,39 @@ static class ModelWork
 {
     public const string Folder = "Model";
 
+    /// <summary>
+    /// True when the Model tab built something from Marvel Future Fight's assets (Kurt, 2026-11-18: the posts then say so): its
+    /// state.json names an MFF character as a built target's source (a bare name such as "hero_usagent01", where the game's are
+    /// "gamesrc:…" and FBX files "fbx:…"), or an MFF prop ("propmff:…").
+    /// </summary>
+    public static bool UsesMff(string? folder)
+    {
+        if (folder == null || !File.Exists(Path.Combine(folder, "state.json"))) return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "state.json")));
+            var root = doc.RootElement;
+            static bool Mff(System.Text.Json.JsonElement e) => e.ValueKind == System.Text.Json.JsonValueKind.String && e.GetString() is string s
+                && s.Trim().Length > 0 && !s.Equals("None", StringComparison.OrdinalIgnoreCase) && !System.Text.RegularExpressions.Regex.IsMatch(s, @"^[a-z]+:", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            bool built = root.TryGetProperty("Built", out var b) && b.ValueKind == System.Text.Json.JsonValueKind.Array && b.GetArrayLength() > 0;
+            if (root.TryGetProperty("TargetSources", out var ts) && ts.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                if (ts.EnumerateObject().Any(p => Mff(p.Value))) return true;
+            }
+            else if (built && root.TryGetProperty("Source", out var src) && Mff(src)) return true;
+            // an MFF prop anywhere in the tab's choices
+            bool Prop(System.Text.Json.JsonElement e) => e.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => e.GetString()!.StartsWith("propmff:", StringComparison.OrdinalIgnoreCase),
+                System.Text.Json.JsonValueKind.Array => e.EnumerateArray().Any(Prop),
+                System.Text.Json.JsonValueKind.Object => e.EnumerateObject().Any(p => p.Name.StartsWith("propmff:", StringComparison.OrdinalIgnoreCase) || Prop(p.Value)),
+                _ => false,
+            };
+            return built && Prop(root);
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException) { return false; }
+    }
+
     /// <summary>The packages (without .upk) the Model tab built, from its state.json; empty when there's none.</summary>
     static HashSet<string> Built(string folder)
     {

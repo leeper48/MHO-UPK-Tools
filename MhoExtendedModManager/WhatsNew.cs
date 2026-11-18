@@ -58,9 +58,9 @@ static class WhatsNew
     /// <summary>0.60.535 (Kurt, 2026-11-17): power looks on every tab, the power menu, Make Icon From 3D View, Bone Lengths
     /// and Shape Keys, Weapon parts, idle buttons, game characters onto others (Medusa on Carnage).</summary>
     /// <summary>0.60.537 (Kurt, 2026-11-17): the Visual Update image, Swap Model on telescoping staffs, the folded Prop Fit heading.</summary>
-    /// <summary>0.60.553 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
+    /// <summary>0.60.556 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
     static Notice GearPage() => new(
-        "0.60.553-gear", "0.60.553",
+        "0.60.556-gear", "0.60.556",
         "[!]New in the Editor: Gear" + nl +
         "  • Rename a hero's gear: the line each item level shows under the gear's name (\"Son of Ultron's Belt\"), one slot at a time, or all five slots at once (15 levels, for every hero). Unique items get their own name and second line too." + nl +
         "  • Gear icons: your own picture, or Make Icon From 3D View (the hero in the idle, on a transparent background). Click an icon later to change its glow or outline; Copy From Slot gives a unique item its slot's icon to start from." + nl +
@@ -69,6 +69,7 @@ static class WhatsNew
         "  • Icon maker: click the big icon to erase parts of it ([ ] brush size, mouse wheel zoom, Shift + click for a straight line, Undo / Redo)." + nl +
         "  • Powers → Parts: Material Swap rows. Untick Vision's Intangible Density → Material Swap: Stealthmat Classic so it no longer puts Vision Classic's textures on other costumes and mod models." + nl +
         "  • FreeCam Options: Snap on Attack can be switched in game with a key and a gamepad button (Controls), and moved to Options. Apply to Game again to get it." + nl +
+        "  • Create Post: a mod whose model was built from Marvel Future Fight's assets says so under Shout Outs." + nl +
         "  • Pressing Enter in a slider's number box sets the value instead of closing the window." + nl + nl +
         "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
         "w-gear");

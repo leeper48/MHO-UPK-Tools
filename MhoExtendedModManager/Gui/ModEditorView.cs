@@ -507,7 +507,7 @@ sealed partial class ModEditorView : UserControl
     {
         Collect();
         draft.Strings = stringsPage.Collect();
-        using var f = new PostForm(PostWriter.From(draft), "", (draft.PostNexus, draft.PostDiscord, draft.PostImages),
+        using var f = new PostForm(PostWriter.From(draft, editing?.Folder), "", (draft.PostNexus, draft.PostDiscord, draft.PostImages),
             (n, d, imgs) => { draft.PostNexus = n; draft.PostDiscord = d; draft.PostImages = imgs; ShowPostPictures(); }, keptWithDraft: true, catalog: catalog);
         f.ShowDialog(this);
     }

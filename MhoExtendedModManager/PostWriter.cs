@@ -14,10 +14,17 @@ static class PostWriter
     public const int DiscordLimit = 2000;
 
     /// <summary>What a post is made from: the manifest (a saved mod's, or a draft's preview) and the string count.</summary>
-    public sealed record Source(ModManifest Manifest, int StringCount, IReadOnlyCollection<string> Languages);
+    /// <param name="UsesMff">The Model tab built it from Marvel Future Fight's assets (<see cref="ModelWork.UsesMff"/>): the posts credit MFF.</param>
+    public sealed record Source(ModManifest Manifest, int StringCount, IReadOnlyCollection<string> Languages, bool UsesMff = false);
 
-    public static Source From(Mod m) => new(m.Manifest, m.Strings.Count, m.Strings.Select(s => s.Language).Distinct().ToList());
-    public static Source From(ModDraft d) => new(d.Preview(), d.Strings.Count, d.Strings.Select(s => s.Language).Distinct().ToList());
+    public static Source From(Mod m) => new(m.Manifest, m.Strings.Count, m.Strings.Select(s => s.Language).Distinct().ToList(),
+        ModelWork.UsesMff(Path.Combine(m.Folder, ModelWork.Folder)));
+    /// <param name="modFolder">The mod being edited (its Model folder when the editor has no work folder of its own); null for a new mod.</param>
+    public static Source From(ModDraft d, string? modFolder = null) => new(d.Preview(), d.Strings.Count, d.Strings.Select(s => s.Language).Distinct().ToList(),
+        ModelWork.UsesMff(d.ModelFolder ?? (string.IsNullOrEmpty(modFolder) ? null : Path.Combine(modFolder, ModelWork.Folder))));
+
+    /// <summary>The credit for Marvel Future Fight's assets (Kurt, 2026-11-18), in both posts' shout-outs.</summary>
+    public const string MffCredit = "Model assets came from Marvel Future Fight.";
 
     sealed record Facts(string Name, string Version, string Author, List<string> Characters, List<string> Teams, List<string> Kinds,
                         List<string> Changes, List<string> Replaces, string Description, ChangelogEntry? Latest, List<ChangelogEntry> Older,
@@ -134,6 +141,7 @@ static class PostWriter
 
         Heading("Shout outs");
         b.AppendLine($"Made with [url={ManagerUrl}]MHO Extended Mod Manager[/url]. Thanks to everyone who inspired or helped with this mod.");
+        if (s.UsesMff) b.AppendLine(MffCredit);
 
         if (f.Older.Count > 0)
         {
@@ -169,6 +177,7 @@ static class PostWriter
             if (s.Manifest.NexusModId is int nid) b.AppendLine($"Download: <{MhoExtendedModManager.Nexus.SiteMods}{nid}>");
             b.AppendLine($"Install with MHO Extended Mod Manager (<{ManagerUrl}>) or MHModManager: install the zip, turn it on, Apply. Close the game first.");
             if (f.UsesExtension) b.AppendLine("The images in other icon packages need MHO Extended Mod Manager.");
+            if (s.UsesMff) { b.AppendLine(); b.AppendLine("**Shout Outs**"); b.AppendLine(MffCredit); }
             return b.ToString().TrimEnd();
         }
         string text = Build(f.Description, true);
