@@ -17,7 +17,7 @@ namespace MhoExtendedModManager.Gui;
 /// Choose Image Editor (<see cref="OpenFile"/>: Save writes the file, so every Edit in Image Editor takes it in as it would a
 /// save in GIMP).
 /// </summary>
-sealed class ImageEditForm : Form
+sealed class ImageEditForm : Form, Ui.IOwnsTips
 {
     public enum Tool { Brush, Erase, BringBack, Eyedropper, Clone, Smudge }
 
@@ -30,13 +30,15 @@ sealed class ImageEditForm : Form
     readonly Button undoButton, redoButton;
     readonly Dictionary<Tool, Button> toolButtons = [];
     readonly ColorSwatch swatch;
-    readonly LightSlider opacitySlider;
+    readonly LightSlider opacitySlider, softSlider;
     readonly string? file;
     Bitmap view;
     /// <summary>The brush's radius in the image's pixels, its color and opacity (remembered while the app runs).</summary>
     static float radius = 10;
     static Color color = Color.White;
     static float opacity = 1;
+    /// <summary>The brush's soft edge (Kurt, 2026-11-18): 0 = hard (a one-pixel edge), 1 = soft from its middle out.</summary>
+    static float softness = 0;
     Tool tool;
     /// <summary>The painting tool the eyedropper goes back to after a pick.</summary>
     Tool lastPaint;
@@ -131,6 +133,10 @@ sealed class ImageEditForm : Form
         opacitySlider.ValueChanged += () => { opacity = opacitySlider.Value; ShowInfo(); };
         Ui.Tip(opacitySlider, "How strongly the Brush, Erase and Bring Back cover in one stroke (Shift + [ and Shift + ]). A stroke doesn't build up over itself; a new stroke adds to the last.");
         tools.Controls.Add(opacitySlider);
+        softSlider = new LightSlider { Label = "Softness", Min = 0, Max = 1, Step = 0.05f, Mark = null, Format = v => $"{v * 100:0} %", Home = () => 0, Width = (int)(220 * s), Height = (int)(30 * s), Value = softness, Margin = new Padding(0, 3, (int)(10 * s), 3) };
+        softSlider.ValueChanged += () => { softness = softSlider.Value; ShowInfo(); canvas.Invalidate(); };
+        Ui.Tip(softSlider, "How soft the brush's edge is, for every tool: 0 % is a hard edge, 100 % fades from the middle out (Ctrl + [ and Ctrl + ]). The inner dashed ring shows where the fade starts.");
+        tools.Controls.Add(softSlider);
         tools.Controls.Add(Ui.FlatButton("Smaller [", () => SetRadius(radius / 1.25f), tip: "A smaller brush ([ key)."));
         tools.Controls.Add(Ui.FlatButton("Bigger ]", () => SetRadius(radius * 1.25f), tip: "A bigger brush (] key)."));
         t.Controls.Add(tools, 0, 0);
@@ -171,20 +177,22 @@ sealed class ImageEditForm : Form
         canvas.MouseLeave += (_, _) => { mouse = new Point(-100, -100); canvas.Invalidate(); };
         canvas.MouseEnter += (_, _) => canvas.Focus();
         canvas.MouseWheel += (_, e) => ZoomAt(e.Location, e.Delta > 0 ? ((ModifierKeys & Keys.Shift) != 0 ? 1.05f : 1.25f) : 1 / ((ModifierKeys & Keys.Shift) != 0 ? 1.05f : 1.25f));
-        Ui.Tip(canvas, "Left button: the tool (B Brush, E Erase, R Bring Back, C Clone, S Smudge, I Eyedropper). Right button: bring back what was there. Clone: Ctrl + click where to copy from. Alt + click (or Ctrl + click with other tools): take a color. Shift + click: a straight line from where the last stroke ended. [ and ]: brush size; Shift + [ / ]: opacity. Mouse wheel or + / −: zoom at the cursor (Shift: finer); 0: fit; 1: actual size. Middle button, or Space + left: move the view. Ctrl+Z / Ctrl+Y: undo / redo a stroke. F11: full screen.");
+        // (no tooltip on the picture: it covered what you paint, Kurt 2026-11-18; the keys are on the Keys and Mouse button)
         t.Controls.Add(canvas, 0, 1);
         info.Margin = new Padding(0, 8, 0, 0);
         // (a fixed-size line: an auto-sized one changed size with every mouse move over the picture and re-laid the window out)
         info.AutoSize = false; info.AutoEllipsis = true; info.Dock = DockStyle.Fill; info.Height = TextRenderer.MeasureText("Ag", Font).Height + 4;
         t.Controls.Add(info, 0, 2);
 
+        var keys = Ui.FlatButton("Keys and Mouse", () => { }, tip: "Left button: the tool (B Brush, E Erase, R Bring Back, C Clone, S Smudge, I Eyedropper). Right button: bring back what was there. Clone: Ctrl + click where to copy from. Alt + click (or Ctrl + click with other tools): take a color. Shift + click: a straight line from where the last stroke ended. [ and ]: brush size; Shift + [ / ]: opacity; Ctrl + [ / ]: softness. Mouse wheel or + / −: zoom at the cursor (Shift: finer); 0: fit; 1: actual size. Middle button, or Space + left: move the view. Ctrl+Z / Ctrl+Y: undo / redo a stroke. F11: full screen.");
+        Icons.Make(keys, "Keys and Mouse", Icons.Help, s);
         undoButton = Ui.FlatButton("Undo", Undo, tip: "Take the last stroke back (Ctrl+Z).");
         Icons.Make(undoButton, "Undo", Icons.Undo, s);
         redoButton = Ui.FlatButton("Redo", Redo, tip: "Do the stroke again that Undo took back (Ctrl+Y).");
         Icons.Make(redoButton, "Redo", Icons.Redo, s);
         var buttons = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(0, 10, 0, 0) };
         buttons.Controls.AddRange([
-            undoButton, redoButton,
+            keys, undoButton, redoButton,
             Ui.FlatButton("Fit", Fit, tip: "The whole picture in the window again (0 key)."),
             Ui.FlatButton("1:1", ActualSize, tip: "One picture pixel per screen pixel (1 key)."),
             Ui.FlatButton("Full Screen", ToggleFull, tip: "Fill the screen with the editor; again to come back (F11)."),
@@ -218,8 +226,8 @@ sealed class ImageEditForm : Form
         {
             if (ActiveControl is TextBox) return;
             bool shift = e.Shift, ctrl = e.Control;
-            if (e.KeyCode == Keys.OemOpenBrackets) { if (shift) SetOpacity(opacity - 0.1f); else SetRadius(radius / 1.25f); e.Handled = true; }
-            else if (e.KeyCode == Keys.OemCloseBrackets) { if (shift) SetOpacity(opacity + 0.1f); else SetRadius(radius * 1.25f); e.Handled = true; }
+            if (e.KeyCode == Keys.OemOpenBrackets) { if (ctrl) softSlider.Value = Math.Clamp(softness - 0.1f, 0, 1); else if (shift) SetOpacity(opacity - 0.1f); else SetRadius(radius / 1.25f); e.Handled = true; }
+            else if (e.KeyCode == Keys.OemCloseBrackets) { if (ctrl) softSlider.Value = Math.Clamp(softness + 0.1f, 0, 1); else if (shift) SetOpacity(opacity + 0.1f); else SetRadius(radius * 1.25f); e.Handled = true; }
             else if (e.KeyCode == Keys.Z && ctrl && shift) { Redo(); e.Handled = true; }
             else if (e.KeyCode == Keys.Z && ctrl) { Undo(); e.Handled = true; }
             else if (e.KeyCode == Keys.Y && ctrl) { Redo(); e.Handled = true; }
@@ -362,7 +370,7 @@ sealed class ImageEditForm : Form
         string under = note != null ? "  ·  " + note : tool == Tool.Clone && cloneSource == null ? "  ·  Ctrl + Click Where to Copy From" : "";
         if (UnderMouse() is Color c && (tool == Tool.Eyedropper || PickHeld))
             under += $"  ·  Under the Cursor #{c.R:X2}{c.G:X2}{c.B:X2}{(c.A < 255 ? $" ({c.A * 100 / 255} % Opaque)" : "")}";
-        info.Text = $"{Name(tool)}  ·  Brush {radius * 2:0.#} px  ·  Opacity {opacity * 100:0} %  ·  Color #{color.R:X2}{color.G:X2}{color.B:X2}  ·  {w} × {h}  ·  Zoom {Scale * 100:0} %{under}"
+        info.Text = $"{Name(tool)}  ·  Brush {radius * 2:0.#} px  ·  Opacity {opacity * 100:0} %  ·  Softness {softness * 100:0} %  ·  Color #{color.R:X2}{color.G:X2}{color.B:X2}  ·  {w} × {h}  ·  Zoom {Scale * 100:0} %{under}"
             + (file != null && saved != null && !px.AsSpan().SequenceEqual(saved) ? "  ·  Not Saved" : "");
         if (undoButton != null) { undoButton.Enabled = undo.Count > 0; redoButton.Enabled = redo.Count > 0; }
     }
@@ -443,7 +451,7 @@ sealed class ImageEditForm : Form
                 for (int x = x0; x <= x1; x++)
                 {
                     float d = MathF.Sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
-                    float c = Math.Clamp(radius + 0.5f - d, 0, 1);
+                    float c = Cover(d);
                     int p = y * w + x;
                     if (c <= cover[p]) continue;
                     cover[p] = c;
@@ -519,7 +527,7 @@ sealed class ImageEditForm : Form
                 float pb = px[at] * a, pg = px[at + 1] * a, pr = px[at + 2] * a;
                 if (load) { carried![bi] = pb; carried[bi + 1] = pg; carried[bi + 2] = pr; carried[bi + 3] = a; continue; }
                 float d = MathF.Sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
-                float c = Math.Clamp(radius + 0.5f - d, 0, 1) * opacity;
+                float c = Cover(d) * opacity;
                 if (c <= 0) continue;
                 float nb = pb + (carried![bi] - pb) * c, ng = pg + (carried[bi + 1] - pg) * c, nr = pr + (carried[bi + 2] - pr) * c, na = a + (carried[bi + 3] - a) * c;
                 if (na <= 1e-4f) px[at + 3] = 0;
@@ -532,6 +540,17 @@ sealed class ImageEditForm : Form
                 carried[bi] += (nb - carried[bi]) * 0.25f; carried[bi + 1] += (ng - carried[bi + 1]) * 0.25f;
                 carried[bi + 2] += (nr - carried[bi + 2]) * 0.25f; carried[bi + 3] += (na - carried[bi + 3]) * 0.25f;
             }
+    }
+
+    /// <summary>The brush's coverage at <paramref name="d"/> pixels from its middle: full inside the hard part, then a smooth
+    /// fade to the edge (with no softness, the one-pixel edge it always had).</summary>
+    static float Cover(float d)
+    {
+        float inner = radius * (1 - softness);
+        if (d <= inner - 0.5f) return 1;
+        float fade = Math.Max(1f, radius + 0.5f - (inner - 0.5f));
+        float c = Math.Clamp((radius + 0.5f - d) / fade, 0, 1);
+        return softness > 0 ? c * c * (3 - 2 * c) : c;
     }
 
     void Refresh2()
@@ -577,6 +596,11 @@ sealed class ImageEditForm : Form
     /// <summary>Test: the eyedropper at a canvas point; the brush color after.</summary>
     internal Color PickForTest(Point at) { var was = tool; tool = Tool.Eyedropper; Pick(at); tool = was; return color; }
     internal void UndoForTest() => Undo();
+    /// <summary>Snapshot: the brush color, opacity and softness set as the controls would (they show it).</summary>
+    internal void SettingsForTest(Color c, float o, float soft) { color = c; swatch.Swatch = c; opacitySlider.Value = o; opacity = o; softSlider.Value = soft; softness = soft; ShowInfo(); }
+    /// <summary>Test / snapshot: the mouse over a canvas point (the brush ring drawn there).</summary>
+    internal void HoverForTest(Point at) { mouse = at; SetTool(Tool.Brush); canvas.Invalidate(); }
+    internal static float SoftnessForTest { get => softness; set => softness = value; }
     /// <summary>Test: Clone from <paramref name="source"/> (canvas), then a stroke from <paramref name="a"/> to <paramref name="b"/>.</summary>
     internal void CloneForTest(Point source, Point a, Point b, float brushRadius)
     {
@@ -668,6 +692,13 @@ sealed class ImageEditForm : Form
         using var pen2 = new Pen(Color.FromArgb(160, 0, 0, 0), 1f);
         g.DrawEllipse(pen2, mouse.X - rr - 1, mouse.Y - rr - 1, rr * 2 + 2, rr * 2 + 2);
         g.DrawEllipse(pen, mouse.X - rr, mouse.Y - rr, rr * 2, rr * 2);
+        if (softness > 0.02f)
+        {
+            // where the soft edge starts
+            float ri = rr * (1 - softness);
+            using var inner = new Pen(Color.FromArgb(170, 255, 255, 255), 1f) { DashStyle = DashStyle.Dash };
+            if (ri > 1) g.DrawEllipse(inner, mouse.X - ri, mouse.Y - ri, ri * 2, ri * 2);
+        }
     }
 
     protected override void Dispose(bool disposing)

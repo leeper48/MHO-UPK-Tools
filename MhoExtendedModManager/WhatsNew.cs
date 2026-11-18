@@ -50,7 +50,7 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
@@ -59,6 +59,20 @@ static class WhatsNew
     /// and Shape Keys, Weapon parts, idle buttons, game characters onto others (Medusa on Carnage).</summary>
     /// <summary>0.60.537 (Kurt, 2026-11-17): the Visual Update image, Swap Model on telescoping staffs, the folded Prop Fit heading.</summary>
     /// <summary>0.60.556 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
+    static Notice ImageEditor() => new(
+        "0.60.562-image-editor", "0.60.562",
+        "[!]New: a built-in image editor" + nl +
+        "  • Brush, Erase, Bring Back, Clone, Smudge and Eyedropper, with a color wheel, Opacity and Softness. Shift + click draws a straight line from your last stroke; Undo / Redo, zoom, 1:1 and full screen. The ? button lists every key." + nl +
+        "  • Icons tabs: Edit Image (or click a picture, then Edit Here) paints on a replacement or the game's original. Icon makers: click the big icon. Model tab: double-click a map, then Edit Here." + nl +
+        "  • Settings → Model → Choose Image Editor → Built-In Editor makes every Edit in Image Editor use it (it's also used when no other editor is installed)." + nl + nl +
+        "[!]Also" + nl +
+        "  • Model tab: an MFF model whose texture paints half a face and uses it for both sides no longer shows a seam down the middle. Build into Mod again to fix one built before." + nl +
+        "  • Find My Mods on Nexus remembers the matches you untick." + nl +
+        "  • Editor → Details: a mod linked to its Nexus page shows that page in the Nexus Page box." + nl +
+        "  • Model tab builds use your author name, not \"MHO MFF Importer\"." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-imageedit");
+
     static Notice GearPage() => new(
         "0.60.556-gear", "0.60.556",
         "[!]New in the Editor: Gear" + nl +

@@ -826,6 +826,35 @@ static partial class Program
             Console.WriteLine(report);
             return report.StartsWith("ok") ? 0 : 1;
         }
+        if (args.Length == 3 && args[0].Equals("--image-edit-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            // The manual's screenshot: the built-in image editor (off-screen) on a picture (.dds or an image), Brush picked, a
+            // soft half-opaque stroke across it and the brush ring in place. --image-edit-snapshot <image> <out.png>
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            Bitmap pic;
+            if (args[1].EndsWith(".dds", StringComparison.OrdinalIgnoreCase) && MhoPackageModifier.TextureDecode.ReadDds(args[1], out _) is { } d && MhoPackageModifier.TextureDecode.ToBgra(d.Format, d.W, d.H, d.Data, out _) is byte[] bgra)
+                pic = MhoPackageModifier.TextureDecode.ToBitmap(bgra, d.W, d.H);
+            else { using var b0 = Model.ImagePixels.Open(args[1]); pic = new Bitmap(b0); }
+            using var ed = new Gui.ImageEditForm(pic, null, Path.GetFileName(args[1])) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            ed.Shown += (_, _) => ed.BeginInvoke(async () =>
+            {
+                await Task.Delay(300);
+                Gui.ImageEditForm.SoftnessForTest = 0.6f;
+                Point Q(float x, float y) => ed.CanvasPointForTest(x, y);
+                ed.PaintForTest(Q(pic.Width * 0.2f, pic.Height * 0.78f), Q(pic.Width * 0.8f, pic.Height * 0.7f), Color.FromArgb(255, 240, 200, 40), 0.7f, pic.Width / 30f);
+                ed.SettingsForTest(Color.FromArgb(255, 240, 200, 40), 0.7f, 0.6f);
+                ed.HoverForTest(Q(pic.Width * 0.62f, pic.Height * 0.4f));
+                await Task.Delay(200);
+                using var shot = new Bitmap(ed.Width, ed.Height);
+                ed.DrawToBitmap(shot, new Rectangle(0, 0, ed.Width, ed.Height));
+                shot.Save(args[2]);
+                ed.Close();
+            });
+            Application.Run(ed);
+            return 0;
+        }
         if (args.Length == 3 && args[0].Equals("--viewer-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // Layout check: the image viewer (off-screen) on a picture, fitted and at 8×, as PNGs. --viewer-snapshot <image> <dir>

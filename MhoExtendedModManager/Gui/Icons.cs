@@ -488,6 +488,16 @@ static class Icons
         g.DrawLine(p, cx - r, cy, cx + r, cy); g.DrawLine(p, cx, cy - r, cx, cy + r);
     };
 
+    /// <summary>Brush size (Kurt, 2026-11-18: the [ ] buttons as a paint brush with + or −): the brush, smaller, with the sign
+    /// at its bottom right.</summary>
+    public static Action<Graphics, RectangleF, Pen, Brush> BrushSize(bool bigger) => (g, b, p, br) =>
+    {
+        PaintBrush(g, new RectangleF(b.X - b.Width * 0.04f, b.Y - b.Height * 0.04f, b.Width * 0.8f, b.Height * 0.8f), p, br);
+        float cx = b.Right - b.Width * 0.02f, cy = b.Bottom - b.Height * 0.04f, r = b.Width * 0.2f;
+        g.DrawLine(p, cx - r, cy, cx + r, cy);
+        if (bigger) g.DrawLine(p, cx, cy - r, cx, cy + r);
+    };
+
     /// <summary>A check box, ticked or empty (Tick All / Tick None).</summary>
     public static Action<Graphics, RectangleF, Pen, Brush> Box(bool ticked, bool all = false) => (g, b, p, br) =>
     {
@@ -823,6 +833,7 @@ static class Icons
         ["Add .UPK Files"] = ("Add .UPK Files", File("UPK", arrowIn: true)), ["Add .MHSFX Files"] = ("Add .MHSFX Files", File("SFX", arrowIn: true)),
         ["Open a .UPK"] = ("Open a .UPK", File("UPK", arrowIn: true)), ["Import Changes (.JSON)"] = ("Import Changes (.JSON)", File("JSON", arrowIn: true)),
         ["Keep as a Mod"] = ("Keep as a Mod", Build), ["Restore to Original"] = ("Restore to Original", Reset),
+        ["Smaller ["] = ("Smaller Brush", BrushSize(false)), ["Bigger ]"] = ("Bigger Brush", BrushSize(true)),
         ["A+"] = ("Larger Text", null), ["A−"] = ("Smaller Text", null), ["Back"] = ("Back", Back), ["Contents"] = ("Contents", List),
         ["▲"] = ("Previous / Up", null), ["▼"] = ("Next / Down", null), ["×"] = ("Remove", null), ["▶"] = ("Play / Pause", null), ["▾"] = ("More", null),
         ["Bust"] = ("Bust", Person(Framing.Shot.Bust)), ["Full Body"] = ("Full Body", Person(Framing.Shot.Full)),

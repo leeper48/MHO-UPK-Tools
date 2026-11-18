@@ -205,6 +205,16 @@ static class Ui
     /// </summary>
     internal static List<string> TipDebugLog => DisabledTips.DebugLog;
 
+    /// <summary>
+    /// A window that isn't modal but takes the tooltips as a modal one does: its own tooltip, and the main window's put away
+    /// while the cursor is over it (Kurt, 2026-11-18: over the image editor, the Model tab's 3D view under it kept showing its
+    /// tooltip, which flickered, and the editor's own never showed).
+    /// </summary>
+    internal interface IOwnsTips { }
+
+    /// <summary>A modal window, or one that takes the tooltips as one (<see cref="IOwnsTips"/>).</summary>
+    static bool TakesTips(Form? f) => f != null && (f.Modal || f is IOwnsTips);
+
     sealed class DisabledTips : IMessageFilter
     {
         readonly System.Windows.Forms.Timer timer = new() { Interval = 450 };
@@ -218,7 +228,7 @@ static class Ui
                 // over a modal window, the main window's shared tooltip is put away (Kurt: the 3D view's tip showed through
                 // the Tag Colors window); back when the cursor leaves it
                 var formUnder = Control.FromChildHandle(WindowFromPoint(Cursor.Position))?.FindForm();
-                bool overModal = formUnder?.Modal == true;
+                bool overModal = TakesTips(formUnder);
                 if (overModal == Tips.Active) Tips.Active = !overModal;
                 var c = Under();
                 if (Debug) DebugLog.Add($"{Environment.TickCount64 % 100000} msg {m.Msg:X} under {c?.AccessibleName ?? "-"} over {over?.AccessibleName ?? "-"}");
@@ -238,7 +248,7 @@ static class Ui
             while (at.GetChildAtPoint(at.PointToClient(pos), GetChildAtPointSkip.Invisible) is Control child) at = child;
             // a disabled control, or any control of a modal window: the shared tooltip belongs to the main window, which a
             // modal window disables, so it never shows there (measured: --tip-dialog-test; Kurt: Tag Colors had no tooltips)
-            return (!at.Enabled || form.Modal) && at.Parent != null && !string.IsNullOrEmpty(Tips.GetToolTip(at)) ? at : null;
+            return (!at.Enabled || TakesTips(form)) && at.Parent != null && !string.IsNullOrEmpty(Tips.GetToolTip(at)) ? at : null;
         }
 
         // a modal window's own tooltip (the shared one, owned by the main window, stays hidden over it), freed with the window
@@ -247,7 +257,7 @@ static class Ui
 
         ToolTip TipsFor(Control c)
         {
-            if (c.FindForm() is not { Modal: true } f) return Tips;
+            if (c.FindForm() is not { } f || !TakesTips(f)) return Tips;
             if (!modalTips.TryGetValue(f, out var t))
             {
                 modalTips[f] = t = NewTips(() => shownText);

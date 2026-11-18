@@ -1,6 +1,13 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.562
+- Image editor: no tooltip over the picture (it covered what you paint); the keys and mouse help is on the ? button. The brush size buttons are a paint brush with a minus or plus.
+
+0.60.561
+- Image editor: a Softness slider for the brush's edge (every tool; Ctrl + [ and Ctrl + ]); a dashed inner ring shows where the fade starts.
+- Image editor: its buttons show their own tooltips, and the window under it (the Model tab's 3D view) no longer shows its tooltip through it, which was the flicker.
+
 0.60.560
 - Image editor: Clone (C; Ctrl + click where to copy from, then paint: the source follows the brush) and Smudge (S; drags colors along, Opacity sets how strongly).
 - Image editor: its tooltips no longer flicker (the tool and button rows stay on one line; the window is kept wide enough for them).
