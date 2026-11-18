@@ -80,6 +80,7 @@ sealed partial class ModEditorView
             right.Controls.Add(hint, 0, 0);
             var tools = Toolbar(Ui.AccentButton("Load .DDS/.PNG", ChooseDds, tip: "Load the replacement for the texture selected on the left, or a new file for the replacement selected in the table (double-click a row does the same): a .DDS, or a .PNG / .JPG converted to match the original."),
                 Ui.AccentButton("Create from 3D", CreateFrom3D, tip: "Make the replacement for the selected texture from a character in 3D: frame it, take a snapshot at the texture's size (store images, hero portraits, costume icons)."),
+                Ui.FlatButton("Edit Image", EditImage, tip: "Paint on the selected texture's replacement (or the game's original when there's none yet) in the built-in editor: Brush, Erase, Bring Back, Eyedropper, Shift + click for straight lines, Undo. Done makes it the replacement."),
                 Ui.FlatButton("Remove Replacement", RemoveRow, tip: "Take the selected replacements out of the mod."), Ui.FlatButton("Export Original", SaveOriginal, tip: "Save (as .DDS or .PNG) the game's original of the selected texture, as a starting point for your replacement."));
             tools.Dock = DockStyle.Fill;
             right.Controls.Add(tools, 0, 1);
@@ -96,8 +97,8 @@ sealed partial class ModEditorView
             // Click a preview to look closer (Kurt: 1:1, full screen, zoom).
             // Export names say what each is: the game's original, or the replacement .DDS decoded (to compare with a snapshot's PNG).
             static string First(string info) => info.Split("  ·  ")[0].Trim();
-            ImageViewerForm.Attach(stockPic, () => (stockPic.Image, "Original: " + stockInfo.Text, First(stockInfo.Text) + "_original"));
-            ImageViewerForm.Attach(newPic, () => (newPic.Image, "Replacement: " + newInfo.Text, Path.GetFileNameWithoutExtension(newInfo.Text.Split("  ·  ").Select(x => x.Trim()).FirstOrDefault(x => x.EndsWith(".dds", StringComparison.OrdinalIgnoreCase), First(newInfo.Text))) + "_dds"));
+            ImageViewerForm.Attach(stockPic, () => (stockPic.Image, "Original: " + stockInfo.Text, First(stockInfo.Text) + "_original"), EditImage);
+            ImageViewerForm.Attach(newPic, () => (newPic.Image, "Replacement: " + newInfo.Text, Path.GetFileNameWithoutExtension(newInfo.Text.Split("  ·  ").Select(x => x.Trim()).FirstOrDefault(x => x.EndsWith(".dds", StringComparison.OrdinalIgnoreCase), First(newInfo.Text))) + "_dds"), EditImage);
             search.TextChanged += (_, _) => Filter();
             MhoPackageModifier.Gui.SearchBox.AddClear(search);
             names.SelectedIndexChanged += (_, _) => { if (names.SelectedItem is TexEntry e) { ShowStock(e.File, e.Name); if (sides.SelectedIndex == 1) ShowCreator(); } };
@@ -269,6 +270,30 @@ sealed partial class ModEditorView
             RefreshRows();
             ShowNew(chosen);
             if (convertNote != null) newInfo.Text = convertNote + "  ·  " + newInfo.Text;
+        }
+
+        /// <summary>
+        /// Edit Image (Kurt, 2026-11-18): the selected texture's replacement (else the game's original) in the built-in editor;
+        /// Done makes the edited picture the replacement (a PNG converted like a chosen one).
+        /// </summary>
+        void EditImage()
+        {
+            if (Selected() is not TexEntry e) { Dialog.Show(this, "Select the stock texture on the left, or a replacement on the right.", "Textures"); return; }
+            string? current = Extra
+                ? f.draft.Extra.FirstOrDefault(x => x.Package.Equals(e.File, StringComparison.OrdinalIgnoreCase) && x.Texture.Equals(e.Name, StringComparison.OrdinalIgnoreCase)).Source
+                : f.draft.Textures[view].FirstOrDefault(x => x.Texture.Equals(e.Name, StringComparison.OrdinalIgnoreCase)).Source;
+            Bitmap? start = null;
+            if (current != null && File.Exists(current) && TextureDecode.ReadDds(current, out _) is { } d && TextureDecode.ToBgra(d.Format, d.W, d.H, d.Data, out _) is byte[] bgra)
+                start = TextureDecode.ToBitmap(bgra, d.W, d.H);
+            else if (f.catalog?.Preview(e.File, e.Name) is { } p) start = TextureDecode.ToBitmap(p.Bgra, p.W, p.H);
+            if (start == null) { Dialog.Show(this, "The picture can't be read: Set the game folder first.", "Textures"); return; }
+            using var ed = new ImageEditForm(start, null, "Edit: " + e.Name);
+            start.Dispose();
+            if (ed.ShowDialog(this) != DialogResult.OK || !ed.Edited) return;
+            string png = Path.Combine(Settings.Home, "converted", $"{ModInstaller.Sanitise(e.Name)}_edit_{DateTime.Now:yyyyMMdd_HHmmss}.png");
+            Directory.CreateDirectory(Path.GetDirectoryName(png)!);
+            using (var r = ed.Result) Model.ImagePixels.SavePng(r, png);
+            UseFile(e, png);
         }
 
         /// <summary>The selected stock texture as .dds (a starting point for its replacement).</summary>

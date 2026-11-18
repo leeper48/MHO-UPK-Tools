@@ -553,13 +553,13 @@ sealed partial class ModelPage
             try { made = await Task.Run(() => ExportPackageMap(pm, png)); }
             catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {pm.Texture} couldn't be read: {ex.Message}"); return; }
             if (!made || IsDisposed) return;
-            bool editPkg;
+            bool editPkg, herePkg;
             using (var pimg = ImagePixels.Open(png))
             using (var pv = new ImageViewerForm(pimg, $"{pm.Material} · {pm.Kind} ({pm.Texture}, {pimg.Width} × {pimg.Height})", FbxExport.SafeName(pm.Texture), editIn,
-                pm.Kind == "Spec (Packed)" ? (SpecLayouts.All.OrderByDescending(l => l.Parameter.Length).FirstOrDefault(l => (pm.Param.Length > 0 ? pm.Param : pm.Texture).Contains(l.Parameter, StringComparison.OrdinalIgnoreCase)) ?? SpecLayouts.All[0]).Channels : null))
-            { pv.ShowDialog(this); editPkg = pv.EditRequested; }
+                pm.Kind == "Spec (Packed)" ? (SpecLayouts.All.OrderByDescending(l => l.Parameter.Length).FirstOrDefault(l => (pm.Param.Length > 0 ? pm.Param : pm.Texture).Contains(l.Parameter, StringComparison.OrdinalIgnoreCase)) ?? SpecLayouts.All[0]).Channels : null, editHere: matEdit.Enabled))
+            { pv.ShowDialog(this); editPkg = pv.EditRequested; herePkg = pv.EditHereRequested; }
             try { File.Delete(png); } catch (IOException) { }
-            if (editPkg) EditMapExternally();
+            if (herePkg) EditMapExternally(builtIn: true); else if (editPkg) EditMapExternally();
             return;
         }
         if (matGrid.Rows[row].Tag is not ValueTuple<string, string> t) return;
@@ -574,12 +574,12 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Materials: {mat}'s {kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
         if (IsDisposed) return;
         if (file == null) { Log($"Materials: {mat} has no {kind.ToLowerInvariant()} map ({matGrid.Rows[row].Cells["from"].Value})."); return; }
-        bool editIt;
+        bool editIt, editHere;
         using (var img = ImagePixels.Open(file))
         using (var v = new ImageViewerForm(img, $"{mat} · {kind} Map ({img.Width} × {img.Height})", $"{FbxExport.SafeName(mat)}_{kind.ToLowerInvariant().Replace(" ", "")}", editIn,
-            kind == "MHO Spec" ? SpecLayouts.All[0].Channels : null))
-        { v.ShowDialog(this); editIt = v.EditRequested; }
-        if (editIt) EditMapExternally();
+            kind == "MHO Spec" ? SpecLayouts.All[0].Channels : null, editHere: matEdit.Enabled))
+        { v.ShowDialog(this); editIt = v.EditRequested; editHere = v.EditHereRequested; }
+        if (editHere) EditMapExternally(builtIn: true); else if (editIt) EditMapExternally();
     }
 
     /// <summary>Test: the image the row's map stands for (null = none).</summary>

@@ -268,20 +268,19 @@ static partial class Program
                     Check(back is { } bk && bk.Look == f.LookForTest && alphaSame && worst <= 8, $"makings saved and read back: the same look, the layer's alpha exact, colors within {worst} steps");
                     // the eraser on the layer (at its own size)
                     var layer = new Bitmap(f.LayerForTest!);
-                    using var er = new Gui.IconEraseForm(layer, null, "Sentry's Cape") { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+                    using var er = new Gui.ImageEditForm(layer, null, "Sentry's Cape", Gui.ImageEditForm.Tool.Erase) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
                     Bitmap? got = null;
                     er.Changed += b => { got?.Dispose(); got = b; };
                     er.Show(); await Task.Delay(300);
                     int mid = layer.Width / 2;
                     int Alpha(Bitmap b, int x, int y) => b.GetPixel(x, y).A;
                     int before = Alpha(layer, mid, mid);
-                    var c = er.Controls[0].Controls[0];   // the canvas
-                    float k = c.Width / (float)layer.Width;
-                    er.StrokeForTest(new Point((int)(mid * k) - 60, (int)(mid * k)), new Point((int)(mid * k) + 60, (int)(mid * k)), false, 20);
+                    Point P(float x, float y) => er.CanvasPointForTest(x + 0.5f, y + 0.5f);
+                    er.StrokeForTest(P(mid - 30, mid), P(mid + 30, mid), false, 20);
                     int erased = got != null ? Alpha(got, mid, mid) : -1;
                     using (var b = new Bitmap(er.Width, er.Height)) { er.DrawToBitmap(b, new Rectangle(0, 0, er.Width, er.Height)); b.Save(Path.Combine(args[2], "eraser.png")); }
                     Check(before > 0 && erased == 0, $"a stroke erases (alpha at the middle {before} → {erased})");
-                    er.StrokeForTest(new Point((int)(mid * k), (int)(mid * k)), new Point((int)(mid * k), (int)(mid * k)), true, 8);
+                    er.StrokeForTest(P(mid, mid), P(mid, mid), true, 8);
                     int restored = got != null ? Alpha(got, mid, mid) : -1;
                     Check(restored == before, $"the right button brings it back ({restored})");
                     er.UndoForTest();
@@ -298,7 +297,7 @@ static partial class Program
                     for (int yy = layer.Height / 4; yy < layer.Height * 3 / 4 && Alpha(got!, qx, qy) < 255; yy += 3)
                         for (int xx = layer.Width / 5; xx < layer.Width / 2 - 20; xx += 3)
                             if (Alpha(got!, xx, yy) == 255 && Alpha(got!, xx + 6, yy) == 255) { qx = xx; qy = yy; break; }
-                    er.ZoomForTest(new Point((int)(qx * k), (int)(qy * k)), 4);
+                    er.ZoomForTest(P(qx, qy), 4);
                     var at = er.CanvasPointForTest(qx + 0.5f, qy + 0.5f);
                     int beforeQ = Alpha(got!, qx, qy);
                     er.StrokeForTest(at, at, false, 1.5f);
@@ -314,7 +313,46 @@ static partial class Program
                     er.ShiftLineForTest(lineA, lineB, 3);
                     bool lineGone = Enumerable.Range((int)(layer.Width * 0.32f), (int)(layer.Width * 0.36f)).All(x => Alpha(got!, x, ly) == 0);
                     Check(lineGone && beside > 0 && Alpha(got!, mid, ly - 12) == beside, $"Shift + click erases the straight line between the two points (and not beside it: {beside})");
+                    // the brush (2026-11-18): red at 50 % over the erased line paints it half see-through red; the eyedropper takes
+                    // that red; a second stroke at 50 % adds to the first (a stroke doesn't build up over itself, a new one does)
+                    er.PaintForTest(P(mid, ly), P(mid + 4, ly), Color.FromArgb(255, 200, 30, 20), 0.5f, 3);
+                    var painted = got!.GetPixel(mid + 2, ly);
+                    Check(painted.R == 200 && painted.G == 30 && Math.Abs(painted.A - 128) <= 1, $"the brush paints its color at its opacity over see-through pixels (#{painted.R:X2}{painted.G:X2}{painted.B:X2}, alpha {painted.A})");
+                    var picked = er.PickForTest(P(mid + 2, ly));
+                    Check(picked.R == 200 && picked.G == 30 && picked.B == 20 && picked.A == 255, $"the eyedropper takes the color (#{picked.R:X2}{picked.G:X2}{picked.B:X2})");
+                    er.PaintForTest(P(mid, ly), P(mid + 4, ly), Color.FromArgb(255, 200, 30, 20), 0.5f, 3);
+                    var twice = got!.GetPixel(mid + 2, ly);
+                    Check(Math.Abs(twice.A - 191) <= 2, $"a second stroke adds to the first (alpha {twice.A})");
+                    er.UndoForTest();
+                    Check(got!.GetPixel(mid + 2, ly).A == painted.A, "Undo takes the second stroke back");
+                    // Clone (2026-11-18): Ctrl + click a source, paint 40 px lower: the pixels there become the source's
+                    var srcPx = got!.GetPixel(mid + 2, ly);
+                    var dstBefore = got.GetPixel(mid + 2, ly + 40);
+                    er.CloneForTest(P(mid + 2, ly), P(mid + 2, ly + 40), P(mid + 2, ly + 40), 2);
+                    var dst = got.GetPixel(mid + 2, ly + 40);
+                    Check(Math.Abs(dst.A - srcPx.A) <= 2 && Math.Abs(dst.R - srcPx.R) <= 3 && Math.Abs(dst.G - srcPx.G) <= 3, $"Clone paints the source's pixels (alpha {dstBefore.A} → {dst.A}, source {srcPx.A}; #{dst.R:X2}{dst.G:X2}{dst.B:X2})");
+                    er.UndoForTest();
+                    // Smudge: dragging from the red line 12 px to the right carries its color there
+                    var smBefore = got!.GetPixel(mid + 12, ly);
+                    er.SmudgeForTest(P(mid + 2, ly), P(mid + 12, ly), 3, 1);
+                    var smAfter = got.GetPixel(mid + 12, ly);
+                    Check(smAfter != smBefore && (smAfter.A > smBefore.A || smAfter.R > smBefore.R), $"Smudge drags the color along (#{smBefore.R:X2}{smBefore.G:X2}{smBefore.B:X2} a{smBefore.A} → #{smAfter.R:X2}{smAfter.G:X2}{smAfter.B:X2} a{smAfter.A})");
+                    er.UndoForTest();
                     er.Close();
+                    // the Built-In Editor on a file (Choose Image Editor): a stroke, Save writes the PNG over the file
+                    string pngFile = Path.Combine(args[2], "builtin_edit.png");
+                    Model.ImagePixels.SavePng(layer, pngFile);
+                    using (var fe = new Gui.ImageEditForm(layer, null, "builtin_edit.png", Gui.ImageEditForm.Tool.Brush, pngFile) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) })
+                    {
+                        fe.Show(); await Task.Delay(200);
+                        Point Q(float x, float y) => fe.CanvasPointForTest(x + 0.5f, y + 0.5f);
+                        fe.PaintForTest(Q(mid, mid), Q(mid + 6, mid), Color.FromArgb(255, 10, 200, 40), 1, 3);
+                        bool ok = fe.SaveForTest();
+                        using var back2 = Model.ImagePixels.Open(pngFile);
+                        var bp = back2.GetPixel(mid + 3, mid);
+                        Check(ok && bp.R == 10 && bp.G == 200 && bp.B == 40 && bp.A == 255, $"the Built-In Editor's Save writes the file (#{bp.R:X2}{bp.G:X2}{bp.B:X2})");
+                        fe.Close();
+                    }
                 }
                 catch (Exception ex) { lines.Add("FAIL " + ex); }
                 File.WriteAllLines(Path.Combine(args[2], "result.txt"), lines);
@@ -797,7 +835,7 @@ static partial class Program
             using var img = Image.FromFile(args[1]);
             // (a name with "spec": a packed spec map, its channel buttons clicked in turn and shot)
             bool packed = Path.GetFileName(args[1]).Contains("spec", StringComparison.OrdinalIgnoreCase);
-            using var v = new Gui.ImageViewerForm(img, Path.GetFileName(args[1]), channels: packed ? Model.SpecLayouts.All[0].Channels : null) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000) };
+            using var v = new Gui.ImageViewerForm(img, Path.GetFileName(args[1]), channels: packed ? Model.SpecLayouts.All[0].Channels : null, editIn: "GIMP 3.2", editHere: true) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000) };
             v.Shown += (_, _) => v.BeginInvoke(async () =>
             {
                 await Task.Delay(300);

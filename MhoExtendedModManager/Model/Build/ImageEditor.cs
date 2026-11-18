@@ -36,12 +36,18 @@ static class ImageEditor
         return found.Distinct(StringComparer.OrdinalIgnoreCase).Select((f, i) => (f, i)).OrderBy(x => Rank(x.f)).ThenBy(x => x.i).Select(x => x.f).ToList();
     }
 
-    /// <summary>The editor to use: the chosen one, else the first found; null when there's none.</summary>
-    public static string? Find() => Environment.GetEnvironmentVariable("MHO_TEST_EDITOR") == "1" ? Environment.ProcessPath : Settings.Current.ImageEditorPath is string set && File.Exists(set) ? set : Installed().FirstOrDefault();
+    /// <summary>The Mod Manager's own editor (Gui.ImageEditForm), chosen like a program: "Built-In Editor" (Kurt, 2026-11-18).</summary>
+    public const string BuiltIn = "built-in";
+
+    /// <summary>The editor to use: the chosen one, else the first found, else the built-in one (never null since 0.60.558).</summary>
+    public static string? Find() => Environment.GetEnvironmentVariable("MHO_TEST_EDITOR") == "1" ? Environment.ProcessPath
+        : Settings.Current.ImageEditorPath == BuiltIn ? BuiltIn
+        : Settings.Current.ImageEditorPath is string set && File.Exists(set) ? set : Installed().FirstOrDefault() ?? BuiltIn;
 
     /// <summary>A program's name as it calls itself ("GIMP 3.0", "Adobe Photoshop 2025", "Corel PHOTO-PAINT").</summary>
     public static string Describe(string exe)
     {
+        if (exe == BuiltIn) return "Built-In Editor";
         try
         {
             var v = FileVersionInfo.GetVersionInfo(exe);
@@ -62,6 +68,7 @@ static class ImageEditor
     public static string? Open(string exe, string file)
     {
         if (Environment.GetEnvironmentVariable("MHO_TEST_EDITOR") == "1") return null;   // tests: nothing opens on screen
+        if (exe == BuiltIn) return global::MhoExtendedModManager.Gui.ImageEditForm.OpenFile(file);
         try { Process.Start(new ProcessStartInfo(exe, $"\"{file}\"") { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(file)! }); return null; }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return ex.Message; }
     }

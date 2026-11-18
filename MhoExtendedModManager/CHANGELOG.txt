@@ -1,6 +1,20 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.560
+- Image editor: Clone (C; Ctrl + click where to copy from, then paint: the source follows the brush) and Smudge (S; drags colors along, Opacity sets how strongly).
+- Image editor: its tooltips no longer flicker (the tool and button rows stay on one line; the window is kept wide enough for them).
+- Model tab builds: a model whose UV halves are mirrored (one half of a face painted and used for both sides: MFF Kate Bishop) no longer shows a seam down the middle. The vertices both halves shared get a copy per side, so each side's normal map is lit the right way. Build the model into the mod again to fix one built before.
+
+0.60.559
+- The picture viewer (double-click a Model tab map, click an icon tab picture): Edit Here (E) opens that picture in the built-in editor in the viewer's place and size; Edit in GIMP (Shift+E) stays beside it.
+
+0.60.558
+- One built-in image editor everywhere a picture can be changed: Brush, Erase, Bring Back and Eyedropper (B, E, R, I; the right button brings back, Alt or Ctrl + click takes a color), a color wheel with a screen eyedropper, Opacity, Shift + click straight lines, [ and ] brush size (Shift: opacity), Undo / Redo, zoom at the cursor, Fit (0), 1:1 (1), full screen (F11), Export as PNG, a window you can resize.
+- Icons, Store Images, Achievements and Other Packages tabs: Edit Image paints on the selected texture's replacement (or the game's original); Done makes it the replacement.
+- Power and gear icon makers: Edit Image (or a click on the big icon) opens the same editor (Erase picked first).
+- Settings → Model → Choose Image Editor: Built-In Editor is an option (and is used when no other editor is installed), so the Model tab's maps, power ground marks and post pictures can be painted in it too; Save (Ctrl+S) sends the picture back as a save in GIMP does.
+
 0.60.557
 - Find My Mods on Nexus remembers the strong matches you untick: the next scan doesn't tick them again (Match says Unticked; tick one to link it after all). Cancel remembers them too.
 - Editor → Details: a mod linked to its Nexus page on this PC shows that page in the Nexus Page box when the mod names none; Save writes it into the mod, so its users get update notices.

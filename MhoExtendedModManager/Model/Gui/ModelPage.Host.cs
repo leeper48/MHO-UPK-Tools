@@ -701,7 +701,10 @@ sealed partial class ModelPage
             }) { ToolTipText = "The Blender that Open in Blender starts (the newest with the MHO Actions add-on unless you pick one)." });
             // the image editor the Materials tab opens maps in (Kurt, 2026-10-06)
             string? editor = ImageEditor.Find();
-            var editors = new ToolStripMenuItem($"Choose Image Editor ({(editor != null ? ImageEditor.Describe(editor) : "None Found")})") { ToolTipText = "The program the Materials tab's Edit in Image Editor opens a map in (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita, Paint.NET, or any other). Each save there comes back into the Model tab." };
+            var editors = new ToolStripMenuItem($"Choose Image Editor ({ImageEditor.Describe(editor ?? ImageEditor.BuiltIn)})") { ToolTipText = "The program the Materials tab's Edit in Image Editor opens a map in (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita, Paint.NET, or any other). Each save there comes back into the Model tab." };
+            // the app's own editor (brush, eraser, bring back, eyedropper, Shift lines, undo: Kurt, 2026-11-18), first
+            editors.DropDownItems.Add(new ToolStripMenuItem(ImageEditor.Describe(ImageEditor.BuiltIn), null, (_, _) => { Settings.Current.ImageEditorPath = ImageEditor.BuiltIn; Settings.Current.Save(); changed(); })
+            { Checked = editor == ImageEditor.BuiltIn, ToolTipText = "The Mod Manager's own editor: Brush, Erase, Bring Back and Eyedropper, Shift + click for straight lines, Undo / Redo, zoom. Save (Ctrl+S) sends the picture back here." });
             foreach (var ed in ImageEditor.Installed())
             {
                 string e2 = ed;
@@ -710,7 +713,7 @@ sealed partial class ModelPage
             }
             editors.DropDownItems.Add(new ToolStripMenuItem("Another Program", null, (_, _) =>
             {
-                using var d = new OpenFileDialog { Title = "Your image editor's program file", Filter = "Programs (*.exe)|*.exe", InitialDirectory = Path.GetDirectoryName(editor ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)) };
+                using var d = new OpenFileDialog { Title = "Your image editor's program file", Filter = "Programs (*.exe)|*.exe", InitialDirectory = editor == ImageEditor.BuiltIn ? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) : Path.GetDirectoryName(editor ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)) };
                 if (d.ShowDialog(owner) != DialogResult.OK) return;
                 Settings.Current.ImageEditorPath = d.FileName; Settings.Current.Save();
                 changed();

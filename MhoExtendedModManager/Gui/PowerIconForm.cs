@@ -198,7 +198,7 @@ sealed class PowerIconForm : Form
         t.Controls.Remove(big);
         bigCol.Controls.Add(big);
         var resetFrame = Ui.FlatButton("Reset Framing", () => { zoom = 1; panX = panY = 0; Compose(); }, tip: "The whole snapshot in the icon again (no zoom, centered).");
-        var erase = Ui.FlatButton("Erase", OpenEraser, tip: "Open the icon big to erase parts of the character or gear: left button erases, right button brings back, [ and ] change the brush size, Ctrl+Z undoes. (A click on the icon does the same.)");
+        var erase = Ui.FlatButton("Edit Image", OpenEraser, tip: "Open the icon big in the built-in editor (a click on the icon does the same): Erase (E, where it starts), Brush (B), Bring Back (R, or the right button) and Eyedropper (I, or Alt + click); Shift + click draws a straight line; [ and ] change the brush size; Ctrl+Z undoes.");
         var tools = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
         tools.Controls.AddRange([erase, resetFrame]);
         bigCol.Controls.Add(tools);
@@ -414,7 +414,7 @@ sealed class PowerIconForm : Form
             layer.Dispose(); layer = baked;
             zoom = 1; panX = panY = 0;
         }
-        using var f = new IconEraseForm(layer, Transparent ? null : backColor, powerName);
+        using var f = new ImageEditForm(layer, Transparent ? null : backColor, "Edit: " + powerName, ImageEditForm.Tool.Erase);
         f.Changed += b => { layer?.Dispose(); layer = b; Compose(); };
         f.ShowDialog(this);
         if (backToSnap != null) backToSnap.Enabled = true;

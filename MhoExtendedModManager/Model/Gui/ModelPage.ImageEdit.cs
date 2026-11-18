@@ -28,7 +28,7 @@ sealed partial class ModelPage
 
     Button EditButton()
     {
-        matEdit = Ui.FlatButton("Edit in Image Editor", EditMapExternally, "Opens the selected map in your image editor (Settings ▾ → Model → Choose Image Editor: GIMP, Photoshop, Corel PHOTO-PAINT …) as a PNG copy in the mod's Model folder. Every time you save it there, the Model tab takes it in as that map (the preview updates; Back to Automatic or Undo takes it back). Keep the file name and PNG format when saving (GIMP: Ctrl+E, which exports over the PNG; Ctrl+S only saves GIMP's own .xcf).");
+        matEdit = Ui.FlatButton("Edit in Image Editor", () => EditMapExternally(), "Opens the selected map in your image editor (Settings ▾ → Model → Choose Image Editor: GIMP, Photoshop, Corel PHOTO-PAINT …) as a PNG copy in the mod's Model folder. Every time you save it there, the Model tab takes it in as that map (the preview updates; Back to Automatic or Undo takes it back). Keep the file name and PNG format when saving (GIMP: Ctrl+E, which exports over the PNG; Ctrl+S only saves GIMP's own .xcf).");
         Icons.Make(matEdit, "Edit in Image Editor", Icons.Pencil, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         return matEdit;
     }
@@ -53,9 +53,10 @@ sealed partial class ModelPage
         _ => false,
     };
 
-    void EditMapExternally()
+    /// <param name="builtIn">The viewer's Edit Here: the built-in editor, whatever editor is chosen.</param>
+    void EditMapExternally(bool builtIn = false)
     {
-        if (SelectedPackageMap() is { } pm) { EditPackageMap(pm); return; }
+        if (SelectedPackageMap() is { } pm) { EditPackageMap(pm, builtIn); return; }
         if (SelectedMap() is not { } sel0 || OverridesPath() is not string ovPath) return;
         var tex = shownMaterials.FirstOrDefault(m => m.Material == sel0.Material).Tex;
         // the Spec row of a material that uses its MHO spec map: that map is the one edited
@@ -67,7 +68,7 @@ sealed partial class ModelPage
             try { source = MapImage(sel.Kind, tex, sel.Material, MapsCache); made = source != null; }
             catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
         if (source == null) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Replace File puts one in)."); return; }
-        string? exe = ImageEditor.Find();
+        string? exe = builtIn ? ImageEditor.BuiltIn : ImageEditor.Find();
         if (exe == null)
         {
             Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -91,9 +92,9 @@ sealed partial class ModelPage
         status.Text = $"Editing in {ImageEditor.Describe(exe)}: Save There to Update"; status.ForeColor = Ui.Enabled;
     }
 
-    void EditPackageMap(PackageMap m)
+    void EditPackageMap(PackageMap m, bool builtIn = false)
     {
-        string? exe = ImageEditor.Find();
+        string? exe = builtIn ? ImageEditor.BuiltIn : ImageEditor.Find();
         if (exe == null) { Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET).\n\nPick your editor's program in Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         string file = Path.Combine(host.WorkFolder, "edit", Path.GetFileNameWithoutExtension(ChosenPackage?.Key ?? "package"), FbxExport.SafeName(m.Texture) + ".png");
         Protected.CheckWrite(Path.GetDirectoryName(file)!);

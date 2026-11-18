@@ -30,14 +30,20 @@ sealed class ImageViewerForm : Form
     /// <param name="exportName">The file name Export suggests (without extension).</param>
     /// <summary>Edit in Image Editor was clicked (the viewer closed for it): the caller opens the map in the editor.</summary>
     public bool EditRequested { get; private set; }
+    /// <summary>Edit Here was clicked (Kurt, 2026-11-18: "the editing features ... should be in this window"): the caller opens
+    /// the picture in the built-in editor, which takes this window's place and size (<see cref="ImageEditForm.NextBounds"/>).</summary>
+    public bool EditHereRequested { get; private set; }
 
     /// <param name="editIn">The image editor's name: an "Edit in …" button that closes the viewer and asks the caller to open the
     /// picture there (<see cref="EditRequested"/>); null for none.</param>
     /// <param name="channels">A packed map's channel names (R, G, B, A; Kurt, 2026-11-08: a spec map's skin mask didn't show,
     /// its reflectivity alpha being 0 there drew it see-through): buttons to show RGB (alpha ignored, the start), RGBA, or
     /// one channel as gray. Null: the picture as it is.</param>
-    public ImageViewerForm(Image source, string title, string exportName = "image", string? editIn = null, string[]? channels = null)
+    /// <param name="editHere">An Edit Here button (E): the picture in the built-in editor in this window's place (<see cref="EditHereRequested"/>).</param>
+    public ImageViewerForm(Image source, string title, string exportName = "image", string? editIn = null, string[]? channels = null, bool editHere = false)
     {
+        // the built-in editor chosen as the image editor: Edit Here is that, one button
+        if (editIn == Model.ImageEditor.Describe(Model.ImageEditor.BuiltIn)) { editHere = true; editIn = null; }
         // (raw pixels: a GDI+ copy drops the color under alpha 0, which on a packed spec map is real data: skin, cloth)
         image = source is Bitmap sb ? RawCopy(sb) : new Bitmap(source);
         shown = image;
@@ -59,7 +65,8 @@ sealed class ImageViewerForm : Form
             Ui.FlatButton("−", () => Step(-1, null), tip: "Zoom out by 25% (− or the mouse wheel)."),
             Ui.FlatButton("+", () => Step(1, null), tip: "Zoom in by 25% (+ or the mouse wheel)."),
             fullBtn,
-            .. (editIn != null ? new[] { Ui.FlatButton("Edit in " + editIn, () => { EditRequested = true; Close(); }, tip: $"Close this and open the map in {editIn}; each save there comes back into the Model tab (E).") } : []),
+            .. (editHere ? new[] { Ui.AccentButton("Edit Here", EditHere, tip: "Paint on this picture right here: Brush, Erase, Bring Back, Eyedropper, Shift + click for straight lines, Undo / Redo (E).") } : []),
+            .. (editIn != null ? new[] { Ui.FlatButton("Edit in " + editIn, () => { EditRequested = true; Close(); }, tip: $"Close this and open the map in {editIn}; each save there comes back into the Model tab ({(editHere ? "Shift+E" : "E")}).") } : []),
             Ui.FlatButton("Export", Export, tip: "Save the picture as a PNG at its real size (what's shown here, whatever the zoom): e.g. a snapshot, or a replacement .DDS decoded, to compare them (Ctrl+S)."),
             Ui.FlatButton("Close", Close, tip: "Close the viewer (Esc)."),
         ]);
@@ -102,6 +109,7 @@ sealed class ImageViewerForm : Form
             {
                 case Keys.Escape: if (FormBorderStyle == FormBorderStyle.None) ToggleFull(); else Close(); break;
                 case Keys.F11: ToggleFull(); break;
+                case Keys.E when !e.Control && editHere && !(e.Shift && editIn != null): EditHere(); break;
                 case Keys.E when !e.Control && editIn != null: EditRequested = true; Close(); break;
                 case Keys.S when e.Control: Export(); break;
                 case Keys.Oemplus: case Keys.Add: Step(1, null); break;
@@ -257,19 +265,28 @@ sealed class ImageViewerForm : Form
         return copy;
     }
 
+    void EditHere()
+    {
+        EditHereRequested = true;
+        ImageEditForm.NextBounds = (WindowState == FormWindowState.Normal ? Bounds : RestoreBounds, WindowState == FormWindowState.Maximized || FormBorderStyle == FormBorderStyle.None);
+        Close();
+    }
+
     protected override void Dispose(bool disposing) { if (disposing) { if (!ReferenceEquals(shown, image)) shown.Dispose(); image.Dispose(); } base.Dispose(disposing); }
 
     /// <summary>Makes a picture box open its picture in the viewer on a click (hand cursor, tooltip).</summary>
-    public static void Attach(PictureBox box, Func<(Image? Image, string Title, string ExportName)> what)
+    /// <param name="edit">Edit Here in the viewer calls it (the caller opens the built-in editor); null = view only.</param>
+    public static void Attach(PictureBox box, Func<(Image? Image, string Title, string ExportName)> what, Action? edit = null)
     {
         box.Cursor = Cursors.Hand;
-        Ui.Tip(box, "Click to look closer: fit, 1:1, zoom, full screen and export as PNG.");
+        Ui.Tip(box, edit != null ? "Click to look closer (fit, 1:1, zoom, full screen, export as PNG) and to paint on it (Edit Here)." : "Click to look closer: fit, 1:1, zoom, full screen and export as PNG.");
         box.Click += (_, _) =>
         {
             var (img, title, name) = what();
             if (img == null) return;
-            using var v = new ImageViewerForm(img, title, name);
-            v.ShowDialog(box.FindForm());
+            bool here;
+            using (var v = new ImageViewerForm(img, title, name, editHere: edit != null)) { v.ShowDialog(box.FindForm()); here = v.EditHereRequested; }
+            if (here) edit!();
         };
     }
 }

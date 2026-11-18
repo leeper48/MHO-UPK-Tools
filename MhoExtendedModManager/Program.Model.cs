@@ -194,6 +194,67 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--mff-seams":
+            {
+                // --mff-seams <model> [material part] (read only): per section, places where vertices meet (UV seams, mirror
+                // lines): how far their normals and the encoder's tangents disagree, and shared vertices whose tangent sums cancel
+                // (a mirrored UV half meeting its other half on one vertex)
+                if (rest.Count < 2) { Console.WriteLine("--mff-seams <model> [material]"); return 1; }
+                var mm = MhoExtendedModManager.Model.MffModel.Load(MhoExtendedModManager.Model.Source.ResolveModelFile(rest[1]));
+                foreach (var sec in mm.Parts.SelectMany(p => p.Sections))
+                {
+                    if (rest.Count > 2 && !sec.Material.Contains(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                    var es = new MhoExtendedModManager.Model.EncSection { Pos = sec.Pos, Normal = sec.Normal, Tris = sec.Tris, Weights = sec.Weights, Uv = sec.Uv.Select(u => new System.Numerics.Vector2(u.X, 1 - u.Y)).ToArray() };
+                    var tan = MhoExtendedModManager.Model.SkelEncoder.Tangents(es);
+                    // raw tangent sum length per vertex (cancelling = mirrored halves sharing a vertex)
+                    int n = sec.Pos.Length; var tsum = new System.Numerics.Vector3[n]; var tabs = new float[n];
+                    var flips = new HashSet<int>(); var tw = new Dictionary<int, HashSet<int>>();
+                    for (int i = 0; i + 2 < sec.Tris.Length; i += 3)
+                    {
+                        int a = sec.Tris[i], c = sec.Tris[i + 1], d = sec.Tris[i + 2];
+                        var e1 = sec.Pos[c] - sec.Pos[a]; var e2 = sec.Pos[d] - sec.Pos[a];
+                        var u1 = es.Uv[c] - es.Uv[a]; var u2 = es.Uv[d] - es.Uv[a];
+                        float r = u1.X * u2.Y - u2.X * u1.Y; if (MathF.Abs(r) < 1e-12f) continue;
+                        var sd = (e1 * u2.Y - e2 * u1.Y) / r;
+                        int s = r > 0 ? 1 : -1;
+                        foreach (int v in new[] { a, c, d }) { tsum[v] += sd; tabs[v] += sd.Length(); (tw.TryGetValue(v, out var h) ? h : tw[v] = []).Add(s); }
+                    }
+                    int mixed = tw.Count(kv => kv.Value.Count > 1);
+                    int cancel = Enumerable.Range(0, n).Count(v => tabs[v] > 0 && tsum[v].Length() < 0.3f * tabs[v]);
+                    // places with several vertices
+                    var groups = Enumerable.Range(0, n).GroupBy(v => (MathF.Round(sec.Pos[v].X * 1000), MathF.Round(sec.Pos[v].Y * 1000), MathF.Round(sec.Pos[v].Z * 1000))).Where(g => g.Count() > 1).ToList();
+                    float Ang(System.Numerics.Vector3 x, System.Numerics.Vector3 y) => MathF.Acos(Math.Clamp(System.Numerics.Vector3.Dot(System.Numerics.Vector3.Normalize(x), System.Numerics.Vector3.Normalize(y)), -1, 1)) * 180 / MathF.PI;
+                    int nBad = 0, tBad = 0, wBad = 0; float nMax = 0;
+                    foreach (var g in groups)
+                    {
+                        var l = g.ToList();
+                        float na = 0; bool tb = false, wb = false;
+                        for (int i = 1; i < l.Count; i++) { na = MathF.Max(na, Ang(sec.Normal[l[0]], sec.Normal[l[i]])); if (tan[l[0]].W != tan[l[i]].W) wb = true; if (Ang(new(tan[l[0]].X, tan[l[0]].Y, tan[l[0]].Z), new(tan[l[i]].X, tan[l[i]].Y, tan[l[i]].Z)) > 30) tb = true; }
+                        if (na > 5) nBad++; if (tb) tBad++; if (wb) wBad++; nMax = MathF.Max(nMax, na);
+                    }
+                    Console.WriteLine($"{sec.Material}: {n} verts, {sec.TriCount} tris; {groups.Count} shared places: normals differ >5° at {nBad} (max {nMax:0}°), tangents differ >30° at {tBad}, handedness differs at {wBad}; vertices with mirrored triangles on both sides {mixed}, tangent sums cancelling {cancel}");
+                    var uvU = es.Uv.Select(u => u.X).ToArray();
+                    Console.WriteLine($"    UV u range {uvU.Min():0.###} .. {uvU.Max():0.###}; mirrored (handedness −) vertices {tan.Count(t => t.W < 0)} of {n}");
+                    var split = MhoExtendedModManager.Model.SkelEncoder.SplitMirrored(es);
+                    var tan2 = MhoExtendedModManager.Model.SkelEncoder.Tangents(split);
+                    Console.WriteLine($"    the encoder splits {split.Pos.Length - n} vertices shared by mirrored halves (0.60.560); after it, tangents of the split ones (first 5): {string.Join("  ", Enumerable.Range(n, Math.Min(5, split.Pos.Length - n)).Select(v => $"{tan2[v].X:0.00} {tan2[v].Y:0.00} {tan2[v].Z:0.00} w{tan2[v].W:+0;-0}"))}");
+                    // MFF_SEAM_BOX=u0,v0,u1,v1 (top-left UVs): every vertex in it, with its place's other vertices
+                    if (Environment.GetEnvironmentVariable("MFF_SEAM_BOX") is string box)
+                    {
+                        var bx = box.Split(',').Select(x => float.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                        var byPlace = groups.SelectMany(g => g.Select(v => (v, g.ToList()))).ToDictionary(x => x.v, x => x.Item2);
+                        int shown = 0;
+                        foreach (int v in Enumerable.Range(0, n).Where(v => es.Uv[v].X >= bx[0] && es.Uv[v].Y >= bx[1] && es.Uv[v].X <= bx[2] && es.Uv[v].Y <= bx[3]).OrderBy(v => sec.Pos[v].Z))
+                        {
+                            if (shown++ > 60) break;
+                            var others = byPlace.TryGetValue(v, out var l) ? l.Where(x => x != v).ToList() : [];
+                            string o = string.Join("; ", others.Select(x => $"#{x} uv {es.Uv[x].X:0.###},{es.Uv[x].Y:0.###} n∠{Ang(sec.Normal[v], sec.Normal[x]):0}° t∠{Ang(new(tan[v].X, tan[v].Y, tan[v].Z), new(tan[x].X, tan[x].Y, tan[x].Z)):0}° w{tan[x].W:+0;-0}"));
+                            Console.WriteLine($"    #{v} pos {sec.Pos[v].X:0.0} {sec.Pos[v].Y:0.0} {sec.Pos[v].Z:0.0} uv {es.Uv[v].X:0.###},{es.Uv[v].Y:0.###} n {sec.Normal[v].X:0.00} {sec.Normal[v].Y:0.00} {sec.Normal[v].Z:0.00} t {tan[v].X:0.00} {tan[v].Y:0.00} {tan[v].Z:0.00} w{tan[v].W:+0;-0} sum {tsum[v].Length() / Math.Max(1e-6f, tabs[v]):0.00} tris±{string.Join("", tw.GetValueOrDefault(v) ?? [])}  {(others.Count == 0 ? "(alone)" : o)}");
+                        }
+                    }
+                }
+                return 0;
+            }
             case "--mff-layout":
                 // read-only: where an MFF rip folder keeps its model folders and textures (Models\Models or Models, Texture2D …)
                 foreach (string f in rest.Skip(1)) { var (m, t) = MhoExtendedModManager.Model.Source.Layout(f); Console.WriteLine($"{f}\n  models:   {m}\n  textures: {t}"); }

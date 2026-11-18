@@ -581,6 +581,63 @@ static class Icons
         g.FillEllipse(br, b.Right - w * 0.32f, b.Y - h * 0.02f, w * 0.34f, h * 0.34f);
     }
 
+    /// <summary>Paint brush (the image editor's Brush): a handle, a band and a filled tip.</summary>
+    public static void PaintBrush(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height;
+        g.DrawLine(p, b.Right - w * 0.04f, b.Y + h * 0.04f, b.X + w * 0.5f, b.Y + h * 0.5f);
+        using var thick = (Pen)p.Clone(); thick.Width = p.Width * 2.4f;
+        g.DrawLine(thick, b.X + w * 0.5f, b.Y + h * 0.5f, b.X + w * 0.38f, b.Y + h * 0.62f);
+        g.FillPolygon(br, new[] { new PointF(b.X + w * 0.36f, b.Y + h * 0.56f), new PointF(b.X + w * 0.44f, b.Y + h * 0.64f), new PointF(b.X + w * 0.3f, b.Bottom - h * 0.1f), new PointF(b.X + w * 0.02f, b.Bottom - h * 0.02f), new PointF(b.X + w * 0.12f, b.Bottom - h * 0.3f) });
+    }
+
+    /// <summary>Eraser (the image editor's Erase): a tilted block with its rubber end filled, over a line.</summary>
+    public static void Eraser(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height;
+        var a = new PointF(b.X + w * 0.08f, b.Y + h * 0.62f); var c = new PointF(b.X + w * 0.56f, b.Y + h * 0.1f);
+        var d = new PointF(b.Right - w * 0.04f, b.Y + h * 0.44f); var e = new PointF(b.X + w * 0.42f, b.Bottom - h * 0.14f);
+        var m1 = new PointF((a.X + c.X) / 2, (a.Y + c.Y) / 2); var m2 = new PointF((e.X + d.X) / 2, (e.Y + d.Y) / 2);
+        g.FillPolygon(br, new[] { a, m1, m2, e });
+        g.DrawPolygon(p, new[] { a, c, d, e });
+        g.DrawLine(p, b.X + w * 0.36f, b.Bottom - h * 0.02f, b.Right - w * 0.02f, b.Bottom - h * 0.02f);
+    }
+
+    /// <summary>Clone stamp (the image editor's Clone): a round handle on a neck over a wide stamp.</summary>
+    public static void CloneStamp(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height;
+        g.DrawEllipse(p, b.X + w * 0.32f, b.Y, w * 0.36f, h * 0.32f);
+        g.DrawLine(p, b.X + w * 0.44f, b.Y + h * 0.32f, b.X + w * 0.42f, b.Y + h * 0.56f);
+        g.DrawLine(p, b.X + w * 0.56f, b.Y + h * 0.32f, b.X + w * 0.58f, b.Y + h * 0.56f);
+        g.DrawRectangle(p, b.X + w * 0.08f, b.Y + h * 0.56f, w * 0.84f, h * 0.22f);
+        g.FillRectangle(br, b.X + w * 0.04f, b.Bottom - h * 0.12f, w * 0.92f, h * 0.1f);
+    }
+
+    /// <summary>Smudge (the image editor's Smudge): a fingertip over a smeared stroke.</summary>
+    public static void Smudge(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height;
+        // the smear
+        using var thick = (Pen)p.Clone(); thick.Width = p.Width * 2.2f;
+        g.DrawBezier(thick, b.X + w * 0.02f, b.Bottom - h * 0.08f, b.X + w * 0.25f, b.Bottom - h * 0.3f, b.X + w * 0.35f, b.Bottom - h * 0.05f, b.X + w * 0.55f, b.Bottom - h * 0.22f);
+        // the finger: a rounded tip and two sides going up and right
+        g.DrawArc(p, b.X + w * 0.44f, b.Y + h * 0.42f, w * 0.26f, h * 0.26f, 90, 180);
+        g.DrawLine(p, b.X + w * 0.57f, b.Y + h * 0.42f, b.Right - w * 0.02f, b.Y + h * 0.02f);
+        g.DrawLine(p, b.X + w * 0.57f, b.Y + h * 0.68f, b.Right - w * 0.02f, b.Y + h * 0.3f);
+        g.DrawLine(p, b.X + w * 0.55f, b.Y + h * 0.5f, b.X + w * 0.66f, b.Y + h * 0.5f);
+    }
+
+    /// <summary>Bring Back (the image editor's restore brush): a brush stroke with a turning arrow.</summary>
+    public static void BringBack(Graphics g, RectangleF b, Pen p, Brush br)
+    {
+        float w = b.Width, h = b.Height;
+        g.DrawArc(p, b.X + w * 0.08f, b.Y + h * 0.08f, w * 0.84f, h * 0.84f, 200, 250);
+        var tip = new PointF(b.X + w * 0.1f, b.Y + h * 0.36f);
+        g.FillPolygon(br, new[] { new PointF(tip.X - w * 0.12f, tip.Y - h * 0.16f), new PointF(tip.X + w * 0.2f, tip.Y - h * 0.08f), new PointF(tip.X - w * 0.02f, tip.Y + h * 0.16f) });
+        g.FillEllipse(br, b.X + w * 0.36f, b.Y + h * 0.36f, w * 0.28f, h * 0.28f);
+    }
+
     /// <summary>Camera (Take Snapshot).</summary>
     public static void Camera(Graphics g, RectangleF b, Pen p, Brush br)
     {

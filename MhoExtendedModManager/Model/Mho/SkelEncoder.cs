@@ -98,8 +98,12 @@ static class SkelEncoder
         var active = new List<ushort>(); var activeSet = new HashSet<ushort>();
         var all = new List<Vector3>();
 
-        foreach (var sec in sections)
+        foreach (var sec0 in sections)
         {
+            // a vertex shared by mirrored UV halves (a face painted once and used for both sides: MFF Kate Bishop) gets its
+            // own copy per side, so each side's tangent is its own (summed together they cancelled and the face showed a seam
+            // down the middle, Kurt 2026-11-18)
+            var sec = sec0.Tangent == null ? SplitMirrored(sec0) : sec0;
             var tan = sec.Tangent ?? Tangents(sec);
             foreach (var chunkTris in SplitByBones(sec))
             {
@@ -213,6 +217,42 @@ static class SkelEncoder
             cur.Add(s.Tris[t]); cur.Add(s.Tris[t + 1]); cur.Add(s.Tris[t + 2]);
         }
         if (cur.Count > 0) yield return cur;
+    }
+
+    /// <summary>
+    /// The section with every vertex whose triangles have both UV windings (mirrored halves meeting on one vertex) split: the
+    /// triangles of the vertex's less common winding get a copy of it (same place, normal, UV, weights). Triangles stay in
+    /// their order, so the index stream draws the same corners. Unchanged (the same object) when no vertex is shared so.
+    /// </summary>
+    public static EncSection SplitMirrored(EncSection s)
+    {
+        int n = s.Pos.Length;
+        var pos = new int[n]; var neg = new int[n];
+        var sign = new int[s.Tris.Length / 3];
+        for (int t = 0; t * 3 + 2 < s.Tris.Length; t++)
+        {
+            int a = s.Tris[3 * t], b = s.Tris[3 * t + 1], c = s.Tris[3 * t + 2];
+            var u1 = s.Uv[b] - s.Uv[a]; var u2 = s.Uv[c] - s.Uv[a];
+            float r = u1.X * u2.Y - u2.X * u1.Y;
+            if (MathF.Abs(r) < 1e-12f) continue;
+            sign[t] = r > 0 ? 1 : -1;
+            foreach (int v in new[] { a, b, c }) { if (r > 0) pos[v]++; else neg[v]++; }
+        }
+        if (!Enumerable.Range(0, n).Any(v => pos[v] > 0 && neg[v] > 0)) return s;
+        var p = s.Pos.ToList(); var nr = s.Normal.ToList(); var uv = s.Uv.ToList(); var w = s.Weights.ToList();
+        var copyOf = new Dictionary<int, int>();
+        var tris = (int[])s.Tris.Clone();
+        for (int t = 0; t * 3 + 2 < tris.Length; t++)
+            for (int k = 0; k < 3; k++)
+            {
+                int v = s.Tris[3 * t + k];
+                if (pos[v] == 0 || neg[v] == 0 || sign[t] == 0) continue;
+                int minority = pos[v] >= neg[v] ? -1 : 1;
+                if (sign[t] != minority) continue;
+                if (!copyOf.TryGetValue(v, out int c)) { c = p.Count; copyOf[v] = c; p.Add(s.Pos[v]); nr.Add(s.Normal[v]); uv.Add(s.Uv[v]); w.Add(s.Weights[v]); }
+                tris[3 * t + k] = c;
+            }
+        return new EncSection { Material = s.Material, Pos = [.. p], Normal = [.. nr], Uv = [.. uv], Tris = tris, Weights = [.. w] };
     }
 
     /// <summary>Per-vertex tangents from positions and UVs (summed per triangle, Gram-Schmidt against the normal), with the
