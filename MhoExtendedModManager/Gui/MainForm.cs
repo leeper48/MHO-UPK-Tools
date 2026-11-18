@@ -609,6 +609,21 @@ sealed partial class MainForm : Form
             // The Editor tab with nothing open: open the mod highlighted in the list (Kurt). A mod already open stays as it is.
             if (i == 1 && editor == null && !readOnly && Selected is Mod m) BeginInvoke(() => { if (editor == null) EditMod(m); });
         };
+        // data\ui_state.txt (Kurt, 2026-11-17: publishing may close the app itself while it's on the Mods page, not the Editor):
+        // the page shown and whether the Editor is open / has unsaved changes, written when it changes. Read by the build helper
+        // before closing the app; nothing in the app reads it.
+        string lastUiState = "";
+        var uiStateTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        uiStateTimer.Tick += (_, _) =>
+        {
+            string page = pages.SelectedIndex switch { 0 => "Mods", 1 => "Editor", 2 => "Extract", 3 => "FreeCam", _ => "?" };
+            string state = $"page={page}{Environment.NewLine}editor={(editor == null ? "none" : "open")}{Environment.NewLine}dirty={(editor?.IsDirty == true ? "yes" : "no")}{Environment.NewLine}";
+            if (state == lastUiState) return;
+            lastUiState = state;
+            try { File.WriteAllText(Path.Combine(Settings.Home, "ui_state.txt"), state); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        };
+        uiStateTimer.Start();
+        FormClosed += (_, _) => { uiStateTimer.Dispose(); try { File.Delete(Path.Combine(Settings.Home, "ui_state.txt")); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } };
         var pagesWrap = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6, 2, 6, 0) };
         pagesWrap.Controls.Add(pages);
         Controls.Add(pagesWrap); Controls.Add(top);

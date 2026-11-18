@@ -95,11 +95,8 @@ sealed class FreeCamView : UserControl
                 "The zoom Locked Behind starts at, like a camera zoom: right = closer. 1 × is the game's closest view, 2 × twice as close, 0.5 × twice as far.  (Double-click: back to the default.)")]),
             "Locked Behind follows the way the hero faces. Movement stays camera-relative (as in Freecam), so strafing turns the hero and the camera together. Lock Tilt holds the camera at the Start Tilt. Keep Current In-Game Zoom leaves the zoom when you switch to it; unticked, it starts at the zoom shown (1 × is the game's closest view)."), 2, 1);
         grid.Controls.Add(Card("SNAP BEHIND", ShortcutBody(s, "Snap Behind", () => cfg.SnapTilt, v => cfg.SnapTilt = v, () => cfg.SnapHeight, v => cfg.SnapHeight = v,
-            () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX,
-            [Check("Snap on Attack", "Ticked: pressing any power (keyboard, mouse or gamepad) also turns the camera behind your hero, smoothly. Only the direction changes: the tilt, height and zoom stay as you have them (the settings above are for the Snap Behind key). Only in Free Orbit: Locked Behind and Default MHO aren't changed.", () => cfg.SnapOnAttack, v => cfg.SnapOnAttack = v),
-             Slider(s, "Only When Turned Past", 0, 180, 5, () => cfg.SnapOnAttackAngle, v => cfg.SnapOnAttackAngle = v, v => v == 0 ? "Always" : $"{v:0}°", Defaults.SnapOnAttackAngle,
-                "Snap on Attack only swings the camera when it's turned more than this far from the way your hero faces, so small turns toward a moving target leave it alone. 0: on every press.")]),
-            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view). Snap on Attack does the same snap on every power press while in Free Orbit."), 0, 2);
+            () => cfg.SnapKeepZoom, v => cfg.SnapKeepZoom = v, () => cfg.SnapZoomX, v => cfg.SnapZoomX = v, Defaults.SnapTilt, Defaults.SnapHeight, Defaults.SnapZoomX),
+            "Snap Behind / Free Orbit swings the camera behind your hero once, at this tilt and height, and switches to Free Orbit (free to turn again), from any mode. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown (1 × is the game's closest view)."), 0, 2);
         grid.Controls.Add(Card("SELFIE", ShortcutBody(s, "Selfie", () => cfg.SelfieTilt, v => cfg.SelfieTilt = v, () => cfg.SelfieHeight, v => cfg.SelfieHeight = v,
             () => cfg.SelfieKeepZoom, v => cfg.SelfieKeepZoom = v, () => cfg.SelfieZoomX, v => cfg.SelfieZoomX = v, Defaults.SelfieTilt, Defaults.SelfieHeight, Defaults.SelfieZoomX),
             "Selfie puts the camera in front of your hero, facing them, at this tilt and height, and switches to Free Orbit. Keep Current In-Game Zoom leaves the zoom; unticked, it sets the zoom shown."), 1, 2);
@@ -141,7 +138,7 @@ sealed class FreeCamView : UserControl
 
     Control ControlsBody(float s)
     {
-        var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 11, Dock = DockStyle.Top };
+        var t = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, RowCount = 13, Dock = DockStyle.Top };
         for (int i = 0; i < 3; i++) t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         t.Controls.Add(Head("Action"), 0, 0); t.Controls.Add(Head("Keyboard"), 1, 0); t.Controls.Add(Head("Gamepad"), 2, 0);
         ActionRow[] rows =
@@ -156,6 +153,8 @@ sealed class FreeCamView : UserControl
                 () => cfg.BehindKey, v => cfg.BehindKey = v, () => cfg.BehindPad, v => cfg.BehindPad = v, () => cfg.BehindPress, v => cfg.BehindPress = v),
             new("Default MHO", "Switches straight to Default MHO: the game's own camera direction, at the normal height and zoom.",
                 () => cfg.IsoKey, v => cfg.IsoKey = v, () => cfg.IsoPad, v => cfg.IsoPad = v, () => cfg.IsoPress, v => cfg.IsoPress = v),
+            new("Snap on Attack", "Switches Snap on Attack on or off while you play (the Snap on Attack box in Options is how it starts). Remember Camera on Launch keeps your choice between sessions and zones.",
+                () => cfg.AttackKey, v => cfg.AttackKey = v, () => cfg.AttackPad, v => cfg.AttackPad = v, () => cfg.AttackPress, v => cfg.AttackPress = v),
         ];
         for (int i = 0; i < rows.Length; i++) BindRow(t, 1 + i * 2, s, rows[i], rows);
         return t;
@@ -173,6 +172,7 @@ sealed class FreeCamView : UserControl
         "Invert Y flips up / down for the right stick and the mouse camera, every session.\n\n" +
         "Remember Camera on Launch: the game starts, and changes zones, with the camera mode, zoom and angle you last had (the game's script saves them in its settings file when they change and the camera is at rest).\n\n" +
         "Permanent Wall Fade (Disables F11 Toggle): Freecam 1.2 keeps interior walls visible; ticked, they fade as in the base game, and F11 no longer switches them.\n\n" +
+        "Snap on Attack: your powers turn the camera behind your hero while you fight in Free Orbit, smoothly, and only when it's turned further than Only When Turned Past. Give Snap on Attack a key or button under Controls to switch it in game; this box is how it starts.\n\n" +
         "Overhead Labels: only the text goes, health bars and markers stay. Written into the game's MarvelHUD_SF.upk on Apply to Game; untick and Apply, or Remove, to put the game's labels back.";
 
     /// <summary>Invert Y, Remember Camera on Launch, the long-press time and the overhead labels.</summary>
@@ -193,8 +193,13 @@ sealed class FreeCamView : UserControl
         var longPress = Slider(s, "Long Press Time", 200, 3000, 50, () => cfg.LongPressMs, v => cfg.LongPressMs = v, v => $"{v:0} ms", Defaults.LongPressMs,
             "How long a gamepad button is held for a long press (and for the hold of Short Then Long).");
         longPress.Margin = new Padding(0, 8, 0, 2);
+        // Snap on Attack (Kurt, 2026-11-17: here, not on the Snap Behind card; its key / button is under Controls)
+        var attack = Check("Snap on Attack", "Ticked: pressing any power (keyboard, mouse or gamepad) also turns the camera behind your hero, smoothly. Only the direction changes: the tilt, height and zoom stay as you have them. Only in Free Orbit: Locked Behind and Default MHO aren't changed. With a key or button for Snap on Attack (Controls), this is how it starts and you can switch it in game.", () => cfg.SnapOnAttack, v => cfg.SnapOnAttack = v);
+        attack.Margin = new Padding(0, 10, 0, 0);
+        var attackAngle = Slider(s, "Only When Turned Past", 0, 180, 5, () => cfg.SnapOnAttackAngle, v => cfg.SnapOnAttackAngle = v, v => v == 0 ? "Always" : $"{v:0}°", Defaults.SnapOnAttackAngle,
+            "Snap on Attack only swings the camera when it's turned more than this far from the way your hero faces, so small turns toward a moving target leave it alone. 0: on every press.");
         var labelsHead = new Label { Text = "OVERHEAD LABELS", AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 12, 0, 2) };
-        return Stack(s, invert, remember, walls, longPress, labelsHead,
+        return Stack(s, invert, remember, walls, longPress, attack, attackAngle, labelsHead,
             Check("Hide Names", "No names over characters (enemies, vendors, allies; other players' and your own too, as they use the same label).", () => cfg.HideNames, v => cfg.HideNames = v),
             Check("Hide Titles", "No title line under the names (\"Vendor\", \"Crafter\" …).", () => cfg.HideTitles, v => cfg.HideTitles = v),
             Check("Hide Guild Names", "No guild name under player names.", () => cfg.HideGuilds, v => cfg.HideGuilds = v),

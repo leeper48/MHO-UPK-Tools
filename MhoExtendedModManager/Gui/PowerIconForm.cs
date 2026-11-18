@@ -17,6 +17,10 @@ namespace MhoExtendedModManager.Gui;
 /// with its background (then used as it comes back); every save there comes back. And the image effects the app has
 /// elsewhere (Adjust Colors' hue / saturation / brightness and levels, the 3D view's bloom) plus an outline and a shadow.
 /// </para>
+/// <para>
+/// Gear icons (Kurt, 2026-11-17: the Gear page): the same window for a gear slot. The game's gear icons are the piece alone on
+/// transparency (40 × 40 in the inventory, 128 × 128 large), so Transparent is on by default there and the effects start at none.
+/// </para>
 /// </summary>
 sealed class PowerIconForm : Form
 {
@@ -27,6 +31,9 @@ sealed class PowerIconForm : Form
     readonly Func<int, Bitmap?> shoot;
     readonly Func<string?> playing;
     readonly string powerName;
+    /// <summary>A gear icon (the Gear page), not a power's.</summary>
+    readonly bool gear;
+    readonly CheckBox clearBack = new() { Text = "Transparent (No Background)", AutoSize = true };
     readonly PictureBox big = new() { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(28, 28, 32) };
     readonly PictureBox bar = new() { SizeMode = PictureBoxSizeMode.Normal, BackColor = Color.FromArgb(28, 28, 32) };
     readonly ColorSwatch colorSwatch = new();
@@ -71,17 +78,79 @@ sealed class PowerIconForm : Form
     static readonly ColorAdjust adjust = new();
     static float contrast, glow, outlineWidth, shadow;
     static Color outlineColor = Color.FromArgb(10, 10, 12);
+    /// <summary>No background (the character on transparency): off for powers, on for gear (as the game's gear icons are).</summary>
+    static bool transparentPower, transparentGear = true;
+    bool Transparent { get => gear ? transparentGear : transparentPower; set { if (gear) transparentGear = value; else transparentPower = value; } }
 
     /// <summary>The PNG made (Use as Icon): the host puts it in as the power's icon.</summary>
     public event Action<string>? Use;
 
-    public PowerIconForm(Preview3D view, string powerName) : this(size => view.IconSnapshot(size, 2), () => view.CurrentAnimation, powerName) { }
+    /// <summary>
+    /// An icon's makings (Kurt, 2026-11-17: "clicking on an already replaced icon brings the make gear icon panel back up to
+    /// add glows, tweak colors"): the background, the effects and the framing, kept beside the character layer (a PNG) when the
+    /// icon is used, so it opens again as it was.
+    /// </summary>
+    public sealed record Look(int Back, bool Soft, bool Radial, int Edge, float GradientSize, float Hue, float Saturation, float Brightness, float Gamma,
+        float Contrast, float Glow, float Outline, int OutlineColor, float Shadow, bool Transparent, float Zoom, float PanX, float PanY);
 
-    public PowerIconForm(Func<int, Bitmap?> shoot, Func<string?> playing, string powerName)
+    Look Now() => new(backColor.ToArgb(), soft, radial, edgeColor.ToArgb(), gradientSize, adjust.Hue, adjust.Saturation, adjust.Brightness, adjust.Gamma,
+        contrast, glow, outlineWidth, outlineColor.ToArgb(), shadow, Transparent, zoom, panX, panY);
+
+    void Take(Look l)
+    {
+        backColor = Color.FromArgb(l.Back); soft = l.Soft; radial = l.Radial; edgeColor = Color.FromArgb(l.Edge); gradientSize = l.GradientSize;
+        adjust.Hue = l.Hue; adjust.Saturation = l.Saturation; adjust.Brightness = l.Brightness; adjust.Gamma = l.Gamma;
+        contrast = l.Contrast; glow = l.Glow; outlineWidth = l.Outline; outlineColor = Color.FromArgb(l.OutlineColor); shadow = l.Shadow;
+        Transparent = l.Transparent; zoom = l.Zoom; panX = l.PanX; panY = l.PanY;
+    }
+
+    /// <summary>The character layer and the look, to <paramref name="stem"/>.png / .json (after Use as Icon), so it can be opened again.</summary>
+    public void SaveMakings(string stem)
+    {
+        if (layer == null) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(stem)!);
+        layer.Save(stem + ".png", ImageFormat.Png);
+        File.WriteAllText(stem + ".json", System.Text.Json.JsonSerializer.Serialize(Now()));
+    }
+
+    /// <summary>A layer and look kept by <see cref="SaveMakings"/>, or null.</summary>
+    public static (Bitmap Layer, Look? Look)? LoadMakings(string stem)
+    {
+        if (!File.Exists(stem + ".png")) return null;
+        try
+        {
+            using var raw = ImagePixels.Open(stem + ".png");
+            var bmp = new Bitmap(raw);
+            Look? look = null;
+            try { if (File.Exists(stem + ".json")) look = System.Text.Json.JsonSerializer.Deserialize<Look>(File.ReadAllText(stem + ".json")); }
+            catch (System.Text.Json.JsonException) { }
+            return (bmp, look);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException) { return null; }
+    }
+
+    /// <summary>Tests: the character layer and the finished icon now.</summary>
+    internal Bitmap? LayerForTest => layer;
+    internal Bitmap? ResultForTest => result;
+    internal Look LookForTest => Now();
+
+    /// <summary>The character layer it opened with (an icon opened again), or null for a snapshot at once.</summary>
+    readonly Bitmap? startLayer;
+
+    public PowerIconForm(Preview3D view, string powerName, bool gear = false) : this(size => view.IconSnapshot(size, 2), () => view.CurrentAnimation, powerName, gear) { }
+
+    /// <param name="startLayer">Open on this character layer (an icon made before, or a picture) instead of a snapshot; with
+    /// <paramref name="startLook"/>, its background, effects and framing as they were.</param>
+    public PowerIconForm(Func<int, Bitmap?> shoot, Func<string?> playing, string powerName, bool gear = false, Bitmap? startLayer = null, Look? startLook = null)
     {
         this.shoot = shoot; this.playing = playing;
         this.powerName = powerName;
-        Text = $"Make Icon From 3D View: {powerName}";
+        this.gear = gear;
+        this.startLayer = startLayer;
+        // gear: the effects start at none (Kurt: plain, as the game's gear icons); an icon opened again: as it was made
+        if (startLook != null) Take(startLook);
+        else if (gear) { adjust.Hue = 0; adjust.Saturation = 1; adjust.Brightness = 1; adjust.Gamma = 1; contrast = glow = outlineWidth = shadow = 0; }
+        Text = gear ? $"Make Gear Icon From 3D View: {powerName}" : $"Make Icon From 3D View: {powerName}";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Ui.DarkFrame(this);
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
@@ -95,35 +164,58 @@ sealed class PowerIconForm : Form
         var hint = new Label
         {
             AutoSize = true, Tag = "subtle", MaximumSize = new Size((int)(760 * s), 0), Margin = new Padding(0, 0, 0, 10),
-            Text = "Set up the 3D view first: play the power and pause on a good frame, then turn and zoom. The snapshot is the middle of the view (a square as tall as the view). This window stays open, so you can change the view and take another.",
+            Text = gear
+                ? "Set up the 3D view first: turn, move and zoom the view onto the piece of gear (as in any 3D view; the mouse wheel zooms). The snapshot is the middle of the view (a square as tall as the view); zoom and drag in the icon below to frame it. This window stays open, so you can change the view and take another."
+                : "Set up the 3D view first: play the power and pause on a good frame, then turn and zoom. The snapshot is the middle of the view (a square as tall as the view). This window stays open, so you can change the view and take another.",
         };
         t.Controls.Add(hint, 0, 0); t.SetColumnSpan(hint, 3);
         big.Size = new Size((int)(256 * s), (int)(256 * s)); big.Margin = new Padding(0, 0, 14, 0);
         t.Controls.Add(big, 0, 1);
-        Ui.Tip(big, "The icon at twice its large size (128 × 128 in game, where the game shows a large one). Mouse wheel: zoom at the cursor (Shift: finer); drag: move the character in the icon; double-click: back to the whole snapshot.");
+        Ui.Tip(big, "The icon at twice its large size (128 × 128 in game, where the game shows a large one). Click: open it big to erase parts ([ ] brush size). Mouse wheel: zoom at the cursor (Shift: finer); drag: move the character in the icon.");
         big.Cursor = Cursors.SizeAll;
         big.MouseWheel += (_, e) => ZoomAt(e.Location, e.Delta > 0 ? ((ModifierKeys & Keys.Shift) != 0 ? 1.03f : 1.12f) : 1 / ((ModifierKeys & Keys.Shift) != 0 ? 1.03f : 1.12f));
         big.MouseEnter += (_, _) => big.Focus();
-        big.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) dragFrom = e.Location; };
-        big.MouseUp += (_, _) => dragFrom = null;
+        // a click (no drag) opens the eraser; a drag moves the character
+        Point? pressedAt = null; bool dragged = false;
+        big.MouseDown += (_, e) => { if (e.Button == MouseButtons.Left) { dragFrom = e.Location; pressedAt = e.Location; dragged = false; } };
+        big.MouseUp += (_, e) =>
+        {
+            dragFrom = null;
+            if (e.Button == MouseButtons.Left && pressedAt != null && !dragged) { pressedAt = null; BeginInvoke(OpenEraser); }
+            pressedAt = null;
+        };
         big.MouseMove += (_, e) =>
         {
-            if (dragFrom is not Point from || flat != null) return;
+            if (pressedAt is Point p0 && Math.Abs(e.X - p0.X) + Math.Abs(e.Y - p0.Y) > 4) dragged = true;
+            if (dragFrom is not Point from || flat != null || !dragged) return;
             float k = big.Width / (float)Size128;
             panX += (e.X - from.X) / k; panY += (e.Y - from.Y) / k;
             dragFrom = e.Location;
             redraw.Stop(); redraw.Start();
         };
-        big.DoubleClick += (_, _) => { zoom = 1; panX = panY = 0; Compose(); };
+        var bigCol = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 14, 0) };
+        big.Margin = new Padding(0);
+        t.Controls.Remove(big);
+        bigCol.Controls.Add(big);
+        var resetFrame = Ui.FlatButton("Reset Framing", () => { zoom = 1; panX = panY = 0; Compose(); }, tip: "The whole snapshot in the icon again (no zoom, centered).");
+        var erase = Ui.FlatButton("Erase", OpenEraser, tip: "Open the icon big to erase parts of the character or gear: left button erases, right button brings back, [ and ] change the brush size, Ctrl+Z undoes. (A click on the icon does the same.)");
+        var tools = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
+        tools.Controls.AddRange([erase, resetFrame]);
+        bigCol.Controls.Add(tools);
+        t.Controls.Add(bigCol, 0, 1);
 
         // middle: the power bar size, the background, the image editor
         var side = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 18, 0) };
         Label Head(string text) => new() { Text = text, AutoSize = true, Tag = "subtle", Font = Ui.Bold(8.5f), Margin = new Padding(0, 0, 0, 4) };
-        side.Controls.Add(Head("IN THE POWER BAR"));
+        side.Controls.Add(Head(gear ? "IN THE INVENTORY" : "IN THE POWER BAR"));
         bar.Size = new Size(40, 40); bar.Margin = new Padding(0, 0, 0, 14);
-        Ui.Tip(bar, "The icon at the power bar's own size (40 × 40 pixels).");
+        Ui.Tip(bar, gear ? "The icon at the inventory's own size (40 × 40 pixels)." : "The icon at the power bar's own size (40 × 40 pixels).");
         side.Controls.Add(bar);
         side.Controls.Add(Head("BACKGROUND"));
+        clearBack.Checked = Transparent;
+        clearBack.Margin = new Padding(0, 0, 0, 6);
+        Ui.Tip(clearBack, "No background: the character (or piece of gear) alone on transparency, as the game's gear icons are. The colors below are used when it's off.");
+        side.Controls.Add(clearBack);
         var colorRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
         colorSwatch.Size = new Size((int)(28 * s), (int)(28 * s)); colorSwatch.Swatch = backColor; colorSwatch.Margin = new Padding(0, 0, 8, 0);
         colorSwatch.Click += (_, _) => PickColor();
@@ -160,8 +252,14 @@ sealed class PowerIconForm : Form
         gradSize.ValueChanged += () => { gradientSize = gradSize.Value; redraw.Stop(); redraw.Start(); };
         Ui.Tip(gradSize, "How far the middle color reaches: 100 % blends to the edge color at the corners, less makes a smaller spot, more keeps the middle color wider. Double-click: back to 100 %.");
         side.Controls.Add(gradSize);
-        void RadialShown() { edgeRow.Enabled = gradSize.Enabled = radial; gradient.Enabled = !radial; }
+        void RadialShown()
+        {
+            bool back = !Transparent;
+            colorRow.Enabled = quick.Enabled = twoColor.Enabled = back;
+            edgeRow.Enabled = gradSize.Enabled = back && radial; gradient.Enabled = back && !radial;
+        }
         twoColor.CheckedChanged += (_, _) => { radial = twoColor.Checked; RadialShown(); Compose(); };
+        clearBack.CheckedChanged += (_, _) => { Transparent = clearBack.Checked; RadialShown(); Compose(); };
         RadialShown();
         var editHead = Head("IMAGE EDITOR"); editHead.Margin = new Padding(0, 16, 0, 4);
         side.Controls.Add(editHead);
@@ -218,7 +316,9 @@ sealed class PowerIconForm : Form
         buttons.Controls.AddRange([
             Ui.AccentButton("Take Snapshot", Snap, tip: "Snapshot the 3D view as it shows now (F5). It replaces an image editor's version."),
             Ui.FlatButton("Save PNG", SavePng, tip: "Save the icon as a PNG file (128 × 128)."),
-            Ui.AccentButton("Use as Icon", UseIt, tip: "Make this the power's icon (the power bar's and the large one), converted to the game's sizes; it's put in the Icons tab (Enter)."),
+            Ui.AccentButton("Use as Icon", UseIt, tip: gear
+                ? "Make this the gear slot's icon (the inventory's and the large one), converted to the game's sizes; it's put in the Icons tab (Enter)."
+                : "Make this the power's icon (the power bar's and the large one), converted to the game's sizes; it's put in the Icons tab (Enter)."),
             Ui.FlatButton("Close", Close, tip: "Close this window (Esc)."),
         ]);
         t.Controls.Add(buttons, 0, 3); t.SetColumnSpan(buttons, 3);
@@ -227,6 +327,7 @@ sealed class PowerIconForm : Form
         KeyPreview = true;
         KeyDown += (_, e) =>
         {
+            if (Ui.TypingInSlider(this)) return;   // (Enter / Esc in a slider's typed value belong to that box: Kurt, 2026-11-17)
             if (e.KeyCode == Keys.Escape) { Close(); e.Handled = true; }
             else if (e.KeyCode == Keys.Enter) { UseIt(); e.Handled = true; }
             else if (e.KeyCode == Keys.F5) { Snap(); e.Handled = true; }
@@ -235,7 +336,15 @@ sealed class PowerIconForm : Form
         editDelay.Tick += (_, _) => { editDelay.Stop(); TakeEdit(); };
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.Restyle(this);
-        Shown += (_, _) => Snap();
+        Shown += (_, _) =>
+        {
+            if (startLayer == null) { Snap(); return; }
+            // opened again on an icon made before (or a picture): its layer, as it was framed
+            snapshot = new Bitmap(startLayer); layer = new Bitmap(startLayer);
+            snapFraming = (zoom, panX, panY);
+            status.Text = "Opened as It Was Made: Change the Background or Effects, or Take a New Snapshot";
+            Compose();
+        };
     }
 
     /// <summary>The manual's screenshot: a two-color gradient, a little glow and an outline.</summary>
@@ -290,6 +399,28 @@ sealed class PowerIconForm : Form
         return ImagePixels.ToBitmap(N, N, px);
     }
 
+    /// <summary>
+    /// The eraser (Kurt, 2026-11-17): the framing is put into the layer first (the layer at its own size, zoomed and moved as
+    /// the icon shows it; Back to the Snapshot undoes that), then erased big; each stroke shows here at once.
+    /// </summary>
+    void OpenEraser()
+    {
+        if (layer == null) { status.Text = "Take a Snapshot First"; return; }
+        if (flat != null) { status.Text = "The Image Editor's Whole Icon Is in Use: Back to the Snapshot to Erase"; return; }
+        if (zoom != 1 || panX != 0 || panY != 0)
+        {
+            var baked = FramedAt(layer.Width);
+            if (layer.Width == SnapSize) snapFraming = (zoom, panX, panY);
+            layer.Dispose(); layer = baked;
+            zoom = 1; panX = panY = 0;
+        }
+        using var f = new IconEraseForm(layer, Transparent ? null : backColor, powerName);
+        f.Changed += b => { layer?.Dispose(); layer = b; Compose(); };
+        f.ShowDialog(this);
+        if (backToSnap != null) backToSnap.Enabled = true;
+        status.Text = f.DialogResult == DialogResult.OK ? $"Erased {DateTime.Now:HH:mm:ss}  ·  Back to the Snapshot Starts Over" : status.Text;
+    }
+
     void ResetEffects()
     {
         foreach (var (sl, home) in effectSliders) sl.Value = home;
@@ -311,14 +442,18 @@ sealed class PowerIconForm : Form
     }
 
     /// <summary>The character layer framed into the icon (zoom and pan over its middle).</summary>
-    Bitmap Framed()
+    Bitmap Framed() => FramedAt(Size128);
+
+    /// <summary>The framing at another size (<paramref name="n"/> square): the eraser keeps the layer's own detail.</summary>
+    Bitmap FramedAt(int n)
     {
-        var b = new Bitmap(Size128, Size128, PixelFormat.Format32bppArgb);
+        var b = new Bitmap(n, n, PixelFormat.Format32bppArgb);
         if (layer == null) return b;
         using var g = Graphics.FromImage(b);
         g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        float scale = Size128 / (float)layer.Width * zoom, w = layer.Width * scale, h = layer.Height * scale;
-        g.DrawImage(layer, new RectangleF(Size128 / 2f + panX - w / 2, Size128 / 2f + panY - h / 2, w, h));
+        float k = n / (float)Size128;
+        float scale = n / (float)layer.Width * zoom, w = layer.Width * scale, h = layer.Height * scale;
+        g.DrawImage(layer, new RectangleF(n / 2f + panX * k - w / 2, n / 2f + panY * k - h / 2, w, h));
         return b;
     }
 
@@ -450,8 +585,10 @@ sealed class PowerIconForm : Form
             using var framed = Framed();
             using var fxLayer = Effects(framed);
             using var g = Graphics.FromImage(b);
-            g.Clear(backColor);
-            if (radial) { using var rb = RadialBack(); g.DrawImageUnscaled(rb, 0, 0); }
+            if (Transparent) g.Clear(Color.Transparent);
+            else g.Clear(backColor);
+            if (Transparent) { }
+            else if (radial) { using var rb = RadialBack(); g.DrawImageUnscaled(rb, 0, 0); }
             else if (soft)
             {
                 using var path = new GraphicsPath();
@@ -596,7 +733,7 @@ sealed class PowerIconForm : Form
     string? WritePng()
     {
         if (result == null) return null;
-        string png = Path.Combine(Settings.Home, "converted", $"powericon_{Guid.NewGuid().ToString("N")[..8]}.png");
+        string png = Path.Combine(Settings.Home, "converted", $"{(gear ? "gearicon" : "powericon")}_{Guid.NewGuid().ToString("N")[..8]}.png");
         Directory.CreateDirectory(Path.GetDirectoryName(png)!);
         result.Save(png, ImageFormat.Png);
         return png;
@@ -605,7 +742,7 @@ sealed class PowerIconForm : Form
     void SavePng()
     {
         if (result == null) return;
-        using var d = new SaveFileDialog { Title = "Save Icon", Filter = "PNG image (*.png)|*.png", FileName = "power_icon.png" };
+        using var d = new SaveFileDialog { Title = "Save Icon", Filter = "PNG image (*.png)|*.png", FileName = gear ? "gear_icon.png" : "power_icon.png" };
         if (d.ShowDialog(this) == DialogResult.OK) { result.Save(d.FileName, ImageFormat.Png); status.Text = "Saved " + Path.GetFileName(d.FileName); }
     }
 

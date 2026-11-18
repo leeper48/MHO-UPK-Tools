@@ -256,7 +256,7 @@ static class FreeCamBuddy
     }
 
     static readonly string[] OurCommands = [FreeCamPatch.CycleMode, FreeCamPatch.PadButton, FreeCamPatch.PadButton2, FreeCamPatch.PadButton3, FreeCamPatch.SnapBehind, FreeCamPatch.Selfie,
-        FreeCamPatch.OrbitCmd, FreeCamPatch.BehindCmd, FreeCamPatch.IsoCmd];
+        FreeCamPatch.OrbitCmd, FreeCamPatch.BehindCmd, FreeCamPatch.IsoCmd, FreeCamPatch.AttackCmd];
     /// <summary>MHO Camera 0.1.0's lines (native profiling commands), taken out wherever found.</summary>
     static readonly string[] Retired = ["DebugToggleGameProfiling", "DebugSavePerfFrameData", "DebugToggleStatRecording", "DebugStopTimedStatRecording"];
     static readonly string[] Files = ["MarvelInput.ini", "MarvelInputUserSettings.ini"];
@@ -341,7 +341,7 @@ static class FreeCamBuddy
     {
         var lines = new List<(Bind B, string Command)>();
         foreach (var (spec, cmd) in new[] { (cfg.ModeKey, FreeCamPatch.CycleMode), (cfg.SnapKey, FreeCamPatch.SnapBehind), (cfg.SelfieKey, FreeCamPatch.Selfie),
-            (cfg.BehindKey, FreeCamPatch.BehindCmd), (cfg.IsoKey, FreeCamPatch.IsoCmd) })
+            (cfg.BehindKey, FreeCamPatch.BehindCmd), (cfg.IsoKey, FreeCamPatch.IsoCmd), (cfg.AttackKey, FreeCamPatch.AttackCmd) })
             if (Bind.Parse(spec) is Bind b) lines.Add((b, cmd));
         // Gamepad buttons: one command on press and release per button in use (its tracker's), in FreeCamSettings.PadGroups
         // order; the game's script tells short, long and double apart and does that button's action for each.

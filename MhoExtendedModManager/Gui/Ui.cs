@@ -11,6 +11,20 @@ namespace MhoExtendedModManager.Gui;
 /// </summary>
 static class Ui
 {
+    /// <summary>
+    /// A slider's typed value is being edited in <paramref name="form"/> (its box has the focus). A window that handles Enter / Esc
+    /// with KeyPreview sees them before the box, and closed instead of taking the number (Kurt, 2026-11-17): such windows skip
+    /// their keys then.
+    /// </summary>
+    public static bool TypingInSlider(Form form)
+    {
+        Control? c = form;
+        while (c is ContainerControl cc && cc.ActiveControl != null) c = cc.ActiveControl;
+        // (the slider isn't a container: its box is the focused control itself)
+        var focused = c is LightSlider ls ? ls.Controls.OfType<TextBox>().FirstOrDefault(t => t.Focused) : c;
+        return focused is TextBox && focused.Parent is LightSlider;
+    }
+
     public static readonly Color Back = Color.FromArgb(30, 30, 32);
     public static readonly Color Bar = Color.FromArgb(36, 36, 40);
     public static readonly Color Card = Color.FromArgb(36, 36, 40);

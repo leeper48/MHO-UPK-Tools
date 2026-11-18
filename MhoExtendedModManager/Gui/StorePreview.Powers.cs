@@ -28,6 +28,9 @@ sealed partial class StorePreview
     /// <summary>The editor's Powers tab: effects play even with Power FXs off in the main preview (they're what's being coloured).</summary>
     public bool ForceEffects { get => forceEffects; set { forceEffects = value; if (p3 != null) p3.ForceEffects = value; } }
     bool forceEffects;
+    /// <summary>The editor's Gear page: no power effects (an idle pose for gear icons).</summary>
+    public bool NoEffects { get => noEffects; set { noEffects = value; if (p3 != null) p3.NoEffects = value; } }
+    bool noEffects;
     /// <summary>Show the 3D model whatever the mod's preview choice is (the editor's Powers page).</summary>
     public bool Always3D { get; set; }
     /// <summary>The editor's Powers tab: the mod's packages the preview leaves out (the recoloured ones it built before, so a

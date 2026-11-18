@@ -72,6 +72,9 @@ sealed partial class Preview3D
     Func<string, PowerColor?>? colorFor;
     /// <summary>The editor's Powers tab: effects play even with Power FXs off (they're what's being coloured).</summary>
     public bool ForceEffects { get; set; }
+    /// <summary>The editor's Gear page: no power effects at all, whatever Power FXs says (Kurt, 2026-11-17: gear icons from a
+    /// plain pose).</summary>
+    public bool NoEffects { get; set; }
     /// <summary>Effects read by the host instead (the Powers tab: a character's own effects, an NPC's power); true = handled.</summary>
     public Func<bool>? CustomEffects { get; set; }
     /// <summary>The shared effects (the host's own readers load through it).</summary>
@@ -449,6 +452,7 @@ sealed partial class Preview3D
         ClearEffects();
         // Power FXs off: no effects, an effect-only power's too (Kurt, 2026-10-19: Emma's Diamond Form kept playing); its
         // caption says why the idle plays alone
+        if (NoEffects) { ShowPose(); return; }
         if (!(prefs.Powers || ForceEffects)) { if (effectOnly != null) Effects.Say("Power FXs Off: Turn Them On to See This Power's Effects"); ShowPose(); return; }
         if (anim == null || animator == null || ctx is not { Cooked: string cooked, Hero: string hero, MainRef: MeshRef main } c) { ShowPose(); return; }
         int ai = anims.SelectedIndex - 1;

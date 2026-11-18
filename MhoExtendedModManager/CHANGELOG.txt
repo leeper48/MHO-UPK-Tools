@@ -1,6 +1,17 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.553
+- Editor → Gear (new): a hero's gear names and icons. Each of the five slots shows its icon, its name in game and, under Second Line by Item Level, the line each item level shows under the name ("Son of Ultron's Belt" on Vision's level 10 belt), which you can change. All Five Slots at Once changes a level's line for every slot (Enter, or Fill All Slots for several levels); All Levels copies one prefix into all 15 level boxes first. Unique items are listed too, with their own name, second line and icon. Replace Icon, Make Icon From 3D View, Game's Icon and Game's Name; the page says when a name or icon is shared with other slots or heroes (a change shows on all of them). Names are string changes and the 40 x 40 icons classic icon replacements, so MHModManager installs them; the large 128 x 128 icons are an extension.
+- Make Icon From 3D View for gear: the hero in the idle with no power effects, on a transparent background. Clicking a slot's icon later opens the icon maker again as you left it (snapshot, erasing, glow, outline). Copy From Slot on a unique item starts from that slot's icon and settings, not baked in, so it can get another outline color.
+- Icon maker (gear and power icons): click the big icon (or Erase) to erase parts of it: left button erases, right button brings back, [ and ] change the brush size, the mouse wheel zooms at the cursor, the middle button or Space + drag pans, Shift + click erases a straight line from the last stroke, Undo / Redo buttons (Ctrl+Z, Ctrl+Y). Reset Framing replaces the double-click.
+- Powers → Parts: Material Swap rows, the materials a power puts on each costume while it's on. Vision's Intangible Density puts Vision Classic's textures on West Coast and on mod models; untick Material Swap: Stealthmat Classic so they keep their own (shared by all of Vision's costumes, Classic too).
+- Pressing Enter in a slider's number box closed the window instead of setting the value (the icon maker, Borrow Power, Bone Lengths and Shape Keys, Adjust Colors, Tag Colors, Borrow Effects and others).
+
+0.60.538
+- FreeCam Options: Snap on Attack under Controls, a key and a gamepad button (any press type) that switch Snap on Attack while you play. The Snap on Attack box is how it starts; Remember Camera on Launch keeps your choice between sessions and zones. Apply to Game again to put it in.
+- FreeCam Options: Snap on Attack and Only When Turned Past moved from the Snap Behind card to Options.
+
 0.60.537
 - Create Post and the Editor's Details page: Make Visual Update Image, the game's look under LAUNCH beside the mod's under VISUAL UPDATE (the game's store image and the mod's by default; pick another of the mod's or the game's images, or a file of your own, for either), with room on the right for a comic cover.
 - Model tab: Swap Model works on Gambit's staff (and Moon Knight's bo staffs): their telescoping skeletons weren't taken for props, so Swap Model stayed greyed out.

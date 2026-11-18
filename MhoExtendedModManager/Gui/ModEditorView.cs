@@ -124,6 +124,8 @@ sealed partial class ModEditorView : UserControl
         AddGroup("Icons", ("Icons", texturePages[0]), ("Store Images", texturePages[2]), ("Achievements", texturePages[1]), ("Other Packages", texturePages[3]));
         stringsPage = new StringsPage(this);
         AddGroup("Strings", ("Strings", stringsPage));
+        // In development (Kurt, 2026-11-17): the Gear page, only with "PreviewFeatures": true until released.
+        if (WhatsNew.GearTab) AddGroup("Gear", ("Gear", GearPage()));
         var soundsPage = SoundsPage();   // built before the voice page, as before (the voice page refreshes the sound packs' list)
         AddGroup("Audio", ("Voice", VoicePage()), ("Power Sounds", PowerSoundsPage()), ("Sound Packs", soundsPage));
         // Not released yet (Kurt, 2026-10-01): only with "PreviewFeatures": true in settings.json. A mod's existing power colors

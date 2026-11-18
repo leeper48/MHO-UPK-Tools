@@ -757,7 +757,7 @@ static partial class Program
                 if (fgr2 == null || !Settings.IsGameRoot(fgr2)) { Console.WriteLine("game folder not found"); return 1; }
                 var fdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(fgr2, "Data", "Game", "Calligraphy.sip")));
                 var parts = rest.Skip(1).ToList();
-                foreach (var e in fdb.PrototypeDirectory.Entries.Where(e => parts.All(p => e.Path.Contains(p, StringComparison.OrdinalIgnoreCase))).OrderBy(e => e.Path).Take(200))
+                foreach (var e in fdb.PrototypeDirectory.Entries.Where(e => parts.All(p => e.Path.Contains(p, StringComparison.OrdinalIgnoreCase))).OrderBy(e => e.Path).Take(Environment.GetEnvironmentVariable("MHO_FIND_ALL") == "1" ? int.MaxValue : 200))
                     Console.WriteLine(e.Path);
                 return 0;
             }
@@ -1146,13 +1146,15 @@ static partial class Program
                 }
                 return 0;
             }
-            case "--weapon-slots":
+            case "--weapon-slots" or "--material-swaps":
             {
                 // Read only, or a test into <out folder> (Kurt, 2026-11-17: Reaping Time's arm scythes): a power package's weapon-slot
                 // parts (PowerParts.List, Kind Weapon); with an out folder, all off, read back, then on again, compared with the package.
-                if (rest.Count < 2) { Console.WriteLine("--weapon-slots <package.upk> [out folder]"); return 1; }
+                // (--material-swaps: the same for a condition's material swaps, Kind Material: a user's Vision, 2026-11-17)
+                string wkind = rest[0].Equals("--material-swaps", StringComparison.OrdinalIgnoreCase) ? "Material" : "Weapon";
+                if (rest.Count < 2) { Console.WriteLine($"{rest[0]} <package.upk> [out folder]"); return 1; }
                 string wpf = Path.GetFileName(rest[1]);
-                var ws = PowerParts.List(wpf, rest[1]).Where(x => x.Kind == "Weapon").ToList();
+                var ws = PowerParts.List(wpf, rest[1]).Where(x => x.Kind == wkind).ToList();
                 foreach (var w in ws) Console.WriteLine($"  {w.Label}: {w.Part} · {w.Key} = {(w.Original.Length == 0 ? "(off)" : w.Original)}");
                 if (rest.Count < 3 || ws.Count == 0) return 0;
                 string wdir = Path.GetFullPath(rest[2]);
@@ -1162,7 +1164,7 @@ static partial class Program
                 var wlog = new List<string>();
                 string woff = Path.Combine(wdir, "off_" + wpf), won = Path.Combine(wdir, "on_" + wpf);
                 File.WriteAllBytes(woff, PowerParts.Apply(rest[1], [.. wentries.Select(e => (e, true))], wlog));
-                var wafter = PowerParts.List(wpf, woff).Where(x => x.Kind == "Weapon").ToList();
+                var wafter = PowerParts.List(wpf, woff).Where(x => x.Kind == wkind).ToList();
                 int wfails = 0;
                 foreach (var c in ws) { bool ok = wafter.Any(a => a.Part == c.Part && a.Key == c.Key && a.Original.Length == 0); if (!ok) wfails++; Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {c.Label} off"); }
                 File.WriteAllBytes(won, PowerParts.Apply(woff, [.. wentries.Select(e => (e, false))], wlog));
@@ -3279,13 +3281,120 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--gear-census":
+            {
+                // Read-only (Kurt, 2026-11-17: gear names and icons): every hero gear slot (Entity\Items\Armor\Blueprints) with its
+                // name string and icon textures, then which names / icons more than one slot shares.
+                string? ggr = settings.ResolvedGameRoot(data);
+                if (ggr == null || !Settings.IsGameRoot(ggr)) { Console.WriteLine("--gear-census (needs the game folder)"); return 1; }
+                var gdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(ggr, "Data", "Game", "Calligraphy.sip")));
+                var gcat = new StockCatalog(lib, new GameState(ggr, data));
+                var gtext = gcat.Strings("eng").GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Text);
+                var rows = new List<(string Slot, ulong Name, string Icon, string Hd)>();
+                foreach (var e in gdb.Prototypes.Values.Concat(gdb.Blueprints.Values).Where(e => e.Path.StartsWith(@"Entity\Items\Armor\Blueprints\", StringComparison.OrdinalIgnoreCase) && e.Path.EndsWith(".defaults", StringComparison.OrdinalIgnoreCase)).DistinctBy(e => e.Path))
+                {
+                    ulong nm = 0; string icon = "", hd = "", sortName = "";
+                    foreach (string l in PowerBorrow.FieldList(gdb, e.Path))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(l, @"^(\w+) \((\w)\) = 0x([0-9A-F]+)");
+                        if (!m.Success) continue;
+                        ulong v = ulong.Parse(m.Groups[3].Value, System.Globalization.NumberStyles.HexNumber);
+                        switch (m.Groups[1].Value)
+                        {
+                            case "DisplayName": nm = v; break;
+                            case "IconPath": icon = v == 0 ? "" : gdb.AssetName(v); break;
+                            case "IconPathHiRes": hd = v == 0 ? "" : gdb.AssetName(v); break;
+                            case "SortSubCategory": sortName = v == 0 ? "-" : gdb.Name(v); break;
+                        }
+                    }
+                    rows.Add((e.Path[@"Entity\Items\Armor\Blueprints\".Length..], nm, icon, hd + "  sort " + sortName));
+                }
+                foreach (var r in rows.OrderBy(r => r.Slot)) Console.WriteLine($"{r.Slot,-55} \"{(gtext.TryGetValue(r.Name, out var t) ? t : "?")}\"  {r.Icon}  {r.Hd}");
+                Console.WriteLine();
+                Console.WriteLine($"{rows.Count} slots, {rows.Select(r => r.Name).Distinct().Count()} name strings, {rows.Select(r => r.Icon).Distinct().Count()} icons.");
+                foreach (var g in rows.GroupBy(r => r.Name).Where(g => g.Count() > 1)) Console.WriteLine($"  name shared: \"{(gtext.TryGetValue(g.Key, out var t2) ? t2 : "?")}\" by {string.Join(", ", g.Select(r => r.Slot))}");
+                foreach (var g in rows.GroupBy(r => r.Icon).Where(g => g.Count() > 1)) Console.WriteLine($"  icon shared: {g.Key} by {string.Join(", ", g.Select(r => r.Slot))}");
+                return 0;
+            }
+            case "--gear-prefixes":
+            {
+                // Read-only (Kurt, 2026-11-17: is the second line the same per level for all five slots, the piece name after it?):
+                // each slot's 15 lines split into prefix + the slot's piece word(s) (the words all its lines end with); per hero,
+                // whether every level's prefix is the same in all five slots.
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("--gear-prefixes [hero] (needs the game folder)"); return 1; }
+                var pdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(pgr, "Data", "Game", "Calligraphy.sip")));
+                var pcat = new StockCatalog(lib, new GameState(pgr, data));
+                var ptext = pcat.Strings("eng").GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Text);
+                var tiers = GearData.Tiers(pdb);
+                int same = 0, differ = 0;
+                foreach (var hero in tiers.Keys.Select(k => k.Hero).Distinct().OrderBy(h => h))
+                {
+                    var slots = Enumerable.Range(1, 5).Select(n => tiers.TryGetValue((hero, n), out var l) ? l : []).ToList();
+                    if (slots.Any(l => l.Count != 15)) { Console.WriteLine($"{hero}: not 15 items in every slot ({string.Join("/", slots.Select(l => l.Count))})"); differ++; continue; }
+                    var prefixes = new List<string[]>();
+                    var nouns = new List<string>();
+                    foreach (var l in slots)
+                    {
+                        var texts = l.Select(t => ptext.TryGetValue(t.TypeId, out var x) ? x : "").ToList();
+                        // the piece: the longest run of last words all 15 lines share
+                        var words = texts.Select(t => t.Split(' ')).ToList();
+                        int k = 0;
+                        while (words.All(w => w.Length > k) && words.Select(w => w[^(k + 1)]).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1) k++;
+                        nouns.Add(k == 0 ? "?" : string.Join(" ", words[0][^k..]));
+                        prefixes.Add([.. words.Select(w => string.Join(" ", w[..^k]))]);
+                    }
+                    var bad = Enumerable.Range(0, 15).Where(i => prefixes.Select(p => p[i]).Distinct().Count() > 1).ToList();
+                    if (bad.Count == 0) same++; else differ++;
+                    if (rest.Count > 1 && !hero.Equals(rest[1], StringComparison.OrdinalIgnoreCase)) continue;
+                    Console.WriteLine($"{hero}: pieces {string.Join(", ", nouns)}; " + (bad.Count == 0 ? "all 15 prefixes the same in every slot" : $"{bad.Count} level(s) differ: " + string.Join("; ", bad.Select(i => $"{i + 1}: " + string.Join(" / ", prefixes.Select(p => p[i]))))));
+                }
+                Console.WriteLine($"{same} heroes: the same prefixes in all five slots; {differ}: not");
+                return 0;
+            }
+            case "--gear-uniques":
+            {
+                // Read-only: GearData's view (the Gear page's): per hero, slots and unique items with name, icons, sharing
+                string? ugr = settings.ResolvedGameRoot(data);
+                if (ugr == null || !Settings.IsGameRoot(ugr)) { Console.WriteLine("--gear-uniques [hero] (needs the game folder)"); return 1; }
+                var udb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(ugr, "Data", "Game", "Calligraphy.sip")));
+                var ucat = new StockCatalog(lib, new GameState(ugr, data));
+                var uhd = ucat.EntriesFor("ICO__MarvelUIIcons_HD_SF.upk")?.Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var uall = GearData.All(udb, uhd);
+                var utext = ucat.Strings("eng").GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Text);
+                foreach (var (h, list) in uall.OrderBy(k => k.Key))
+                {
+                    if (rest.Count > 1 && !h.Equals(rest[1], StringComparison.OrdinalIgnoreCase)) continue;
+                    Console.WriteLine($"{h}: {list.Count(s => s.Unique == null)} slots, {list.Count(s => s.Unique != null)} uniques");
+                    if (rest.Count > 1)
+                        foreach (var s in list.Where(s => s.Unique == null))
+                            foreach (var (tid, items) in GearData.TierGroups(udb, s))
+                                Console.WriteLine($"    slot {s.Number} levels {items,-22} \"{(utext.TryGetValue(tid, out var tt) ? tt : "?")}\"" + (GearData.TypeUsers(udb, tid, s.Hero, s.Number) is { Count: > 0 } us ? "  also: " + string.Join(", ", us) : ""));
+                    if (rest.Count > 1)
+                        foreach (var s in list)
+                            Console.WriteLine($"  {s.Label,-40} \"{(utext.TryGetValue(s.NameId, out var t) ? t : "?")}\"  {s.Texture} / {s.HdTexture ?? "-"}{(s.HdFromSlot != null ? $" (large = slot's {s.HdFromSlot})" : "")}"
+                                + $"  type \"{(utext.TryGetValue(s.TypeId, out var ty) ? ty : "-")}\"" + (GearData.SharingType(uall, s).Count > 0 ? $" (shared x{GearData.SharingType(uall, s).Count})" : "")
+                                + (GearData.SharingName(uall, s).Count > 0 ? $"  name shared x{GearData.SharingName(uall, s).Count}" : "") + (GearData.SharingIcon(uall, s).Count > 0 ? $"  icon shared x{GearData.SharingIcon(uall, s).Count}" : ""));
+                }
+                var allU = uall.Values.SelectMany(l => l).Where(s => s.Unique != null).ToList();
+                var allS = uall.Values.SelectMany(l => l).Where(s => s.Unique == null).ToList();
+                Console.WriteLine($"{allS.Count} slots: type line own {allS.Count(s => s.TypeId != 0 && GearData.SharingType(uall, s).Count == 0)}, shared {allS.Count(s => GearData.SharingType(uall, s).Count > 0)}, none {allS.Count(s => s.TypeId == 0)}");
+                Console.WriteLine($"uniques: type line own {allU.Count(s => s.TypeId != 0 && GearData.SharingType(uall, s).Count == 0)}, shared {allU.Count(s => GearData.SharingType(uall, s).Count > 0)}, none {allU.Count(s => s.TypeId == 0)}");
+                Console.WriteLine($"{allU.Count} uniques: own large icon {allU.Count(s => s.HdTexture != null)}, slot's {allU.Count(s => s.HdFromSlot != null)}, name shared {allU.Count(s => GearData.SharingName(uall, s).Count > 0)}, icon shared {allU.Count(s => GearData.SharingIcon(uall, s).Count > 0)}");
+                return 0;
+            }
             case "--proto-fields":
             {
                 // Read-only: a prototype's simple fields and its parents' (timing, contact percent ...).
                 string? fgr1 = settings.ResolvedGameRoot(data);
                 if (rest.Count < 2 || fgr1 == null || !Settings.IsGameRoot(fgr1)) { Console.WriteLine("--proto-fields <prototype path> [name part]"); return 1; }
                 var fdb = new Fx.GameData(Fx.SipArchive.Load(Path.Combine(fgr1, "Data", "Game", "Calligraphy.sip")));
-                foreach (string l in PowerBorrow.FieldList(fdb, rest[1]).Where(l => rest.Count < 3 || l.Contains(rest[2], StringComparison.OrdinalIgnoreCase))) Console.WriteLine("  " + l);
+                foreach (string l in PowerBorrow.FieldList(fdb, rest[1]).Where(l => rest.Count < 3 || l.Contains(rest[2], StringComparison.OrdinalIgnoreCase)))
+                {
+                    // asset fields with their names (an icon's texture, a class)
+                    var am = System.Text.RegularExpressions.Regex.Match(l, @"\(A\) = 0x([0-9A-F]+)");
+                    Console.WriteLine("  " + l + (am.Success && ulong.Parse(am.Groups[1].Value, System.Globalization.NumberStyles.HexNumber) is ulong aid and not 0 ? "   → " + fdb.AssetName(aid) : ""));
+                }
                 return 0;
             }
             case "--fx-placement":

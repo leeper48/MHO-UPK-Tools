@@ -115,6 +115,18 @@ static partial class Program
         string ini2b = File.ReadAllText(Path.Combine(input, "MarvelInput.ini"));
         Check(ini2b.Contains("Name=\"XboxTypeS_DPad_Down\",Command=\"MarvelGFxTogglePvPScorePanel | OnRelease MarvelGFxTogglePvPScorePanel\"")
               && ini2b.Contains("Name=\"F3\",Command=\"MarvelGFXShowPvPScores\""), "three buttons: D-Pad Down → tracker 3; F3 → Selfie");
+        // Snap on Attack On / Off (0.60.538): off at start, F9 and a short D-Pad Up (Mode is long there) switch it in game
+        cfg.AttackKey = "F9"; cfg.AttackPad = "XboxTypeS_DPad_Up"; cfg.AttackPress = "Short";
+        Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false)
+              && log.Any(l => l.Contains("NotifyPressPower: Snap on Attack")) && log.Any(l => l.Contains("MarvelHUD.ToggleInWorldText: new command")),
+              "Snap on Attack switch: its code goes in although it's off at start");
+        Dump();
+        string ini2c = File.ReadAllText(Path.Combine(input, "MarvelInput.ini"));
+        Check(ini2c.Contains("Name=\"F9\",Command=\"ToggleInWorldText\"") && System.Text.RegularExpressions.Regex.Matches(ini2c, "Name=\"XboxTypeS_DPad_Up\",Command=\"ToggleTraceActorLock").Count == 1,
+              "Snap on Attack switch bound: F9, and D-Pad Up's tracker shared with Cycle Camera Mode");
+        cfg.AttackKey = ""; cfg.AttackPad = ""; cfg.AttackPress = "";
+        Check(FreeCamBuddy.Apply(game, cfg, [], dryRun: false, log, checkGameRunning: false) && !log.Any(l => l.Contains("Snap on Attack")), "no switch and not ticked: no Snap on Attack code");
+        Dump();
         cfg.SelfiePad = "";
         byte[] first = File.ReadAllBytes(FreeCamBuddy.Live(game));
         cfg.ZoomStepsCloser = 4; cfg.TiltDown = 60; cfg.ModePad = ""; cfg.SnapPad = "";

@@ -59,6 +59,7 @@ sealed class NexusFileForm : Form
         KeyPreview = true;
         KeyDown += (_, e) =>
         {
+            if (Ui.TypingInSlider(this)) return;   // (Enter / Esc in a slider's typed value belong to that box: Kurt, 2026-11-17)
             if (e.KeyCode == Keys.Escape) DialogResult = DialogResult.Cancel;
             else if (e.KeyCode == Keys.Enter) { e.Handled = true; Choose(); }
         };

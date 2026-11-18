@@ -36,6 +36,10 @@ static class WhatsNew
     /// <summary>The FreeCam Options tab (options on top of Marvel Heroes FreeCam by MichaelMerc; started 2026-11-06): in
     /// development, only with "PreviewFeatures": true. Releasing it: set this, add the changelog lines and a notice.</summary>
     public static bool FreeCamTab => FreeCamTabReleased || Settings.Load().PreviewFeatures;
+    /// <summary>The Editor's Gear page (a hero's gear names and icons; started 2026-11-17): in development, only with
+    /// "PreviewFeatures": true. Releasing it: set this, add the changelog lines, the manual's section and a notice.</summary>
+    public static bool GearTab => GearTabReleased || Settings.Load().PreviewFeatures;
+    public const bool GearTabReleased = true;   // (Kurt, 2026-11-17: release prep)
     public const bool FreeCamTabReleased = true;
 
     public sealed record Notice(string Id, string Version, string Text, string Anchor);
@@ -46,7 +50,7 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
@@ -54,6 +58,21 @@ static class WhatsNew
     /// <summary>0.60.535 (Kurt, 2026-11-17): power looks on every tab, the power menu, Make Icon From 3D View, Bone Lengths
     /// and Shape Keys, Weapon parts, idle buttons, game characters onto others (Medusa on Carnage).</summary>
     /// <summary>0.60.537 (Kurt, 2026-11-17): the Visual Update image, Swap Model on telescoping staffs, the folded Prop Fit heading.</summary>
+    /// <summary>0.60.553 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
+    static Notice GearPage() => new(
+        "0.60.553-gear", "0.60.553",
+        "[!]New in the Editor: Gear" + nl +
+        "  • Rename a hero's gear: the line each item level shows under the gear's name (\"Son of Ultron's Belt\"), one slot at a time, or All Five Slots at Once (All Levels fills all 15 levels in one go). Unique items get their own name and second line too." + nl +
+        "  • Gear icons: your own picture, or Make Icon From 3D View (the hero in the idle, on a transparent background). Click an icon later to change its glow or outline; Copy From Slot gives a unique item its slot's icon to start from." + nl +
+        "  • The page says when a name or icon is shared with other heroes' gear, since a change shows on all of them." + nl + nl +
+        "[!]Also" + nl +
+        "  • Icon maker: click the big icon to erase parts of it ([ ] brush size, mouse wheel zoom, Shift + click for a straight line, Undo / Redo)." + nl +
+        "  • Powers → Parts: Material Swap rows. Untick Vision's Intangible Density → Material Swap: Stealthmat Classic so it no longer puts Vision Classic's textures on other costumes and mod models." + nl +
+        "  • FreeCam Options: Snap on Attack can be switched in game with a key and a gamepad button (Controls), and moved to Options. Apply to Game again to get it." + nl +
+        "  • Pressing Enter in a slider's number box sets the value instead of closing the window." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-gear");
+
     static Notice VisualUpdateImage() => new(
         "0.60.537-visual-update", "0.60.537",
         "[!]New: a Visual Update picture for your Nexus page" + nl +

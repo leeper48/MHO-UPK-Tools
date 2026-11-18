@@ -276,7 +276,7 @@ sealed partial class ModEditorView
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    static int KindOrder(string kind) => kind switch { "Setting" => 0, "Weapon" => 1, "Attachment" => 1, "Effect" => 2, "Decal" => 3, "Sound" => 4, _ => 5 };
+    static int KindOrder(string kind) => kind switch { "Setting" => 0, "Material" => 1, "Weapon" => 1, "Attachment" => 1, "Effect" => 2, "Decal" => 3, "Sound" => 4, _ => 5 };
 
     /// <summary>▶ on an effect: that one effect in the 3D view, on the character over its idle, again with each loop (the
     /// dodge's ghosts, a hover's glow); the package as this mod has it (a rebuilt dodge ghost shows as built). ▶ on a sound:

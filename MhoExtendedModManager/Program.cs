@@ -115,6 +115,7 @@ static partial class Program
         ("--model-variations-test", "--model-variations-test <mod> <target package>", "Scratch libraries only (MHO_EXTMM_HOME): the Model tab's Variations tab through its own code; the mod isn't saved."),
         ("--proto-find", "--proto-find <path part> [part ...]", "The game data's prototype paths that contain every given part. Changes nothing."),
         ("--proto", "--proto <prototype path>", "A prototype's own fields as the game data has them (parents not merged). Changes nothing."),
+        ("--material-swaps", "--material-swaps <package.upk> [out folder]", "A condition package's material swaps (which characters get which material, e.g. Vision's Intangible Density); with an out folder: all off, read back, on again, compared. Never writes the game folder."),
         ("--power-fx", "--power-fx <power class> [hero] [mod]", "What the 3D preview plays for a power class: its particle effects, beams, decals, weapon slots, mesh emitters. Changes nothing."),
         ("--anim-power", "--anim-power <hero> <animation>", "The power a hero's animation belongs to, and what the 3D preview would play for it. Changes nothing."),
         ("--attach-census", "--attach-census [package.upk ...]", "Every property the game's power and hero packages use to show, hide or swap a character's props, counted, with an example of each. Changes nothing."),

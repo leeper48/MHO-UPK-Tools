@@ -88,7 +88,8 @@ static class PowerParts
                 string part = pkg.PathOf(e), cname = pkg.ClassOf(e);
                 var walk = Walk(pkg, d, t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase) || SoundProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase)
                     || t.Name.Equals("whileactivatedattachmentclass", StringComparison.OrdinalIgnoreCase) || Settings.ContainsKey(t.Name)
-                    || t.Name.Equals("decalmat", StringComparison.OrdinalIgnoreCase) || WeaponSlotProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase));
+                    || t.Name.Equals("decalmat", StringComparison.OrdinalIgnoreCase) || WeaponSlotProps.Contains(t.Name, StringComparer.OrdinalIgnoreCase)
+                    || t.Name.Equals("replacementmaterial", StringComparison.OrdinalIgnoreCase));
                 if (walk == null || !walk.Any(t => t.Name.Equals("particlesystemtemplate", StringComparison.OrdinalIgnoreCase)))
                 {
                     // an effect whose system comes from its class's default, in this package (Kurt, 2026-11-16: Carnage's
@@ -122,11 +123,44 @@ static class PowerParts
                     string shown = orig.Length > 0 ? orig : StockSlot(packageFile, part, t.Name) ?? "";
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Weapon", t.Name.ToLowerInvariant(), $"Shows Weapon Slot \"{shown}\"", shown.Length > 0 ? $"the {shown} props" : "a weapon slot", orig));
                 }
+                // a condition's material swap for some characters (a user, 2026-11-17: Vision's Intangible Density put Vision Classic's
+                // textures on West Coast and on a mod's model): ConditionFXMaterialSwap, its replacementmaterial for the entities
+                // its entityrequired names (their classes). Off = those names set to the part's own name, which no character has,
+                // so the swap never applies and the costume keeps its own look (same size: the package's layout stays).
+                if (walk.FirstOrDefault(t => t.Name.Equals("replacementmaterial", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } rm
+                    && MaterialSwapNames(pkg, d) is { Count: > 0 } req)
+                {
+                    bool off = req.All(n => n.Equals(e.ObjectName, StringComparison.OrdinalIgnoreCase));
+                    var excl = MaterialSwapNames(pkg, d, "entityexcluded") ?? [];
+                    string who = off ? "" : string.Join(", ", req.Select(CharacterWords)) + (excl.Count > 0 ? " (not " + string.Join(", ", excl.Select(CharacterWords)) + ")" : "");
+                    list.Add(new(packageFile, part, e.ObjectName, cname, "Material", MaterialSwap, $"Material Swap: {Words(e.ObjectName)}",
+                        off ? Leaf(Ref(rm)) : $"{Leaf(Ref(rm))} on {who}", off ? "" : string.Join(",", req)));
+                }
                 foreach (var t in walk.Where(t => Settings.ContainsKey(t.Name) && t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase) && t.Start + 24 < d.Length))
                     list.Add(new(packageFile, part, e.ObjectName, cname, "Setting", t.Name.ToLowerInvariant(), Settings[t.Name].Label, Settings[t.Name].Off, d[t.Start + 24] != 0 ? "true" : ""));
             }
         list.AddRange(AnimTrails(packageFile, pkg));
         return list;
+    }
+
+    /// <summary>The Switch key of a condition's material swap (ConditionFXMaterialSwap: off = its entityrequired names point at nobody).</summary>
+    public const string MaterialSwap = "materialswap";
+
+    /// <summary>A material swap's entity names (entityrequired, or <paramref name="prop"/>): an array of names, 8 bytes each; null when it has none.</summary>
+    static List<string>? MaterialSwapNames(Package pkg, byte[] d, string prop = "entityrequired")
+    {
+        var w = Walk(pkg, d, t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase));
+        if (w?.FirstOrDefault(t => t.Name.Equals(prop, StringComparison.OrdinalIgnoreCase) && t.Type.Equals("arrayproperty", StringComparison.OrdinalIgnoreCase)) is not { } a) return null;
+        int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(a.ValueAt));
+        if (n <= 0 || a.Size != 4 + 8 * n) return null;
+        return [.. Enumerable.Range(0, n).Select(j => TagWalker.NameAt(pkg, d, a.ValueAt + 4 + 8 * j))];
+    }
+
+    /// <summary>"marvelplayer_vision_ageofultron" → "Vision Age Of Ultron" (a costume's class, for the Parts list).</summary>
+    static string CharacterWords(string cls)
+    {
+        string s = System.Text.RegularExpressions.Regex.Replace(cls, "^marvel(player|npc|agent|teamup)_", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return string.Join(" ", s.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(x => char.ToUpperInvariant(x[0]) + x[1..]));
     }
 
     /// <summary>The Switch key of an animation trail row (an effect the package's animations play: AnimSystems).</summary>
@@ -329,6 +363,21 @@ static class PowerParts
                 {
                     if (walk.FirstOrDefault(t => t.Name.Equals(props[k], StringComparison.OrdinalIgnoreCase)) is not { } t) continue;
                     if (t.Type.Equals("boolproperty", StringComparison.OrdinalIgnoreCase)) d[t.Start + 24] = (byte)(off ? 0 : 1);
+                    else if (en.Switch == MaterialSwap && t.Type.Equals("arrayproperty", StringComparison.OrdinalIgnoreCase) && t.Size >= 4
+                        && BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt)) is int nn && t.Size == 4 + 8 * nn)
+                    {
+                        // a material swap: its required characters' names, or the part's own name (no character has it)
+                        string own = pkg.Exports[i].ObjectName;
+                        var names = en.Original.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        for (int j = 0; j < nn; j++)
+                        {
+                            string name = off || j >= names.Length ? own : names[j];
+                            int ni = Array.FindIndex(pkg.Names, x => x.Equals(name, StringComparison.OrdinalIgnoreCase));
+                            if (ni < 0) throw new InvalidDataException($"{g.Key}: the name {name} isn't in the package");
+                            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 4 + 8 * j), ni);
+                            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(t.ValueAt + 8 + 8 * j), 0);
+                        }
+                    }
                     else if (t.Type.Equals("nameproperty", StringComparison.OrdinalIgnoreCase) && t.Size == 8)
                     {
                         // a weapon slot: None (no slot shown), or its name back (both are in the package's name table)
@@ -437,6 +486,7 @@ static class PowerParts
         "sound" => SoundProps,
         "attachment" => ["whileactivatedattachmentclass"],
         "decal" => ["decalmat"],
+        MaterialSwap => ["entityrequired"],
         _ => [sw],
     };
 

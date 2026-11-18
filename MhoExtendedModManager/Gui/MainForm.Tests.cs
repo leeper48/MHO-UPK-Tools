@@ -202,7 +202,7 @@ sealed partial class MainForm
         for (int i = 0; i < editor!.TabCount; i++)
         {
             editor.SelectTab(i);
-            await Task.Delay(editor.TabTitle(i) is "Packages" or "Store Images" ? 6000 : editor.TabTitle(i) is "Animations" or "Powers" ? 9000 : editor.TabTitle(i) is "Model" ? 12000 : 1500);   // icon names / previews / 3D models load in the background
+            await Task.Delay(editor.TabTitle(i) is "Packages" or "Store Images" ? 6000 : editor.TabTitle(i) is "Animations" or "Powers" or "Gear" ? 9000 : editor.TabTitle(i) is "Model" ? 12000 : 1500);   // icon names / previews / 3D models load in the background
             // (the Model tab's target props listed, for the manual's picture)
             if (editor.TabTitle(i) is "Model" && editor.ModelPageForTest is { } mpage) for (int w = 0; w < 600 && mpage.TargetPropLabels.Count == 0; w++) await Task.Delay(100);
             if (editor.TabTitle(i) is "Model") await Task.Delay(4000);
@@ -660,6 +660,51 @@ sealed partial class MainForm
         string r = await editor!.DecalSaveTest(package, png);
         File.AppendAllText(trace, r + "\n");
         return r;
+    }
+
+    /// <summary>--gear-test (scratch libraries only): the Gear page renames slot 1 and gives it an icon, saves; the saved mod
+    /// must have the string and both icon textures (40 × 40 classic, 128 × 128 More Icon Packages); then both are taken back.</summary>
+    public async Task GearTest(string outFile, string modName, string image)
+    {
+        var lines = new List<string>();
+        try
+        {
+            var m = lib?.Find(modName) ?? throw new InvalidOperationException("no such mod");
+            OpenEditor(m); pages.Select(1);
+            await Task.Delay(1500);
+            const string name = "Gear Test Name";
+            var (slot, s1) = await editor!.GearForTest(name, image);
+            if (slot == null) { lines.Add("FAIL no gear slots shown"); File.WriteAllLines(outFile, lines); return; }
+            lines.Add($"slot: {slot.Label} name id {slot.NameId} icons {slot.Texture} / {slot.HdTexture}");
+            var rowsShown = ModEditorView.GearRowsForTest;
+            lines.Add(ModEditorView.GearCopyCheck.Length > 0 ? ModEditorView.GearCopyCheck : "FAIL Copy From Slot not tried");
+            lines.Add(ModEditorView.GearAllCheck.Length > 0 ? ModEditorView.GearAllCheck : "FAIL All Five Slots at Once not found");
+            lines.Add($"{(rowsShown.Count(r => !r.Contains("Unique")) == 5 && rowsShown.Any(r => r.Contains("Unique")) ? "PASS" : "FAIL")} the page shows 5 slots and the unique items: {string.Join(", ", rowsShown)}");
+            Mod? Saved() { var l = ModLibrary.Load(lib!.DataFolder); return l.Find(modName); }
+            var a = Saved();
+            ulong nid = ModEditorView.GearTestNameId;
+            lines.Add($"{(ModEditorView.GearSlotNameLocked ? "PASS" : "FAIL")} the slot's own name (string 1) is read-only");
+            bool str = a != null && nid != 0 && Directory.EnumerateFiles(a.Folder, "eng.json").Any(f => File.ReadAllText(f).Contains(name) && File.ReadAllText(f).Contains(nid.ToString()));
+            lines.Add($"{(s1 != null ? "PASS" : "FAIL")} saved ({s1})");
+            lines.Add($"{(str ? "PASS" : "FAIL")} a unique item's name is the mod's English string {nid}");
+            ulong tid = ModEditorView.GearTestTypeId;
+            bool typeStr = a != null && tid != 0 && tid != slot.TypeId && Directory.EnumerateFiles(a.Folder, "eng.json").Any(f => File.ReadAllText(f).Contains(name + " Line") && File.ReadAllText(f).Contains(tid.ToString()));
+            lines.Add($"{(typeStr ? "PASS" : "FAIL")} the highest item version's second line (\"… – Hero\") is the mod's English string {tid} (not the slot default {slot.TypeId})");
+            bool small = a != null && a.Manifest.Replacements.Any(r => r.TextureName.Equals(slot.Texture, StringComparison.OrdinalIgnoreCase) && File.Exists(Path.Combine(a.Folder, r.DdsFileName)));
+            bool big = slot.HdTexture == null || (a != null && a.Manifest.Extra.Any(r => r.TextureName.Equals(slot.HdTexture, StringComparison.OrdinalIgnoreCase) && File.Exists(Path.Combine(a.Folder, r.DdsFileName))));
+            lines.Add($"{(small ? "PASS" : "FAIL")} the 40 × 40 icon is an icon replacement ({slot.Texture})");
+            lines.Add($"{(big ? "PASS" : "FAIL")} the 128 × 128 icon is a More Icon Packages replacement ({slot.HdTexture})");
+            // the editor closes on Save: open it again on the saved mod, take both back, save
+            OpenEditor(Saved() ?? throw new InvalidOperationException("saved mod not found")); pages.Select(1);
+            await Task.Delay(1500);
+            var (_, s2) = await editor!.GearForTest(name, null);
+            var b = Saved();
+            bool goneS = b != null && !Directory.EnumerateFiles(b.Folder, "eng.json").Any(f => File.ReadAllText(f).Contains(name));
+            bool goneI = b != null && !b.Manifest.Replacements.Any(r => r.TextureName.Equals(slot.Texture, StringComparison.OrdinalIgnoreCase)) && !b.Manifest.Extra.Any(r => r.TextureName.Equals(slot.HdTexture ?? "", StringComparison.OrdinalIgnoreCase));
+            lines.Add($"{(s2 != null && goneS && goneI ? "PASS" : "FAIL")} Game's Name / Game's Icon take them out again ({s2})");
+        }
+        catch (Exception ex) { lines.Add("FAIL " + ex); }
+        File.WriteAllLines(outFile, lines);
     }
 
     public async Task EditorSaveTest(string modName)

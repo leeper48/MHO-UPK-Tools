@@ -11,11 +11,12 @@ namespace MhoExtendedModManager.FreeCam;
 /// State kept on the camera (MarvelPlayerCamera), in fields no stock script uses; Freecam relies on the X components:
 ///   LastCamLoc.X       RB / Page Up-Down held (Freecam)
 ///   LastCamLoc.Y       camera mode: 0 free orbit (Freecam), 1 behind the hero, 2 the game's own (isometric) direction
-///   LastCamLoc.Z       gamepad camera button: 0 idle, 1 held, 2 held (already used), 3 released once (waiting for a
-///                      second press), 4 short press to do, 6 double press to do (still held), 7 (let go)
+///   LastCamLoc.Z       gamepad camera button: state × 1000 + seconds since its last press or release (state 0 idle, 1 held,
+///                      2 held (already used), 3 released once (waiting for a second press), 4 short press to do, 6 double
+///                      press to do (still held), 7 (let go)); until 0.60.538 the seconds were in LastMouseAdjVec.Z
 ///   LastMouseAdjVec.X  height offset ±250 (Freecam)
 ///   LastMouseAdjVec.Y  extra zoom steps n: distance × step^n
-///   LastMouseAdjVec.Z  seconds since the camera button's last press or release (counted every frame)
+///   LastMouseAdjVec.Z  Snap on Attack switched in game: 0 as the options set it, 1 the other way (0.60.538)
 /// Commands (script exec functions nobody binds by default, harmless stock bodies; never native ones: their script never runs):
 ///   MarvelPlayerController.CameraZoomToggle   cycle camera mode (keyboard)    (stock: toggles the zoom)
 ///   MarvelHUD.TraceAllMovieClips              snap behind (keyboard)          (stock: a Flash debug trace)
@@ -44,6 +45,9 @@ static class FreeCamPatch
     /// toggle, a focus log line). OrbitCmd (a UI debug mode) was Free Orbit's in an untested build: only listed so its key lines
     /// are taken out (Snap Behind switches to Free Orbit).</summary>
     public const string OrbitCmd = "UIDebugModeAll", BehindCmd = "MarvelGFxToggleDebugGameUI", IsoCmd = "LogFocus";
+    /// <summary>Snap on Attack on / off from the keyboard (MarvelHUD; stock: an empty art-mode toggle that nothing binds or
+    /// calls, and whose name the exe doesn't hold).</summary>
+    public const string AttackCmd = "ToggleInWorldText";
     /// <summary>Remember Camera's store: two of the HUD's config ints, unused in MHO (its HUD is Flash; Engine's canvas
     /// console messages use them), written by the HUD's SaveConfig into the game's settings.</summary>
     const string Store1 = "Engine.HUD.ConsoleFontSize", Store2 = "Engine.HUD.MessageFontOffset";
@@ -97,7 +101,15 @@ static class FreeCamPatch
             // easing; Kurt: the easing lagged and the old tilt stayed). Free Orbit stays free afterwards.
             // Selfie: the same, from the front (half a circle round), facing the hero.
             if (which is "Snap" or "Selfie") return Shortcut(which == "Selfie", hud: false);
+            if (which == "Attack") return AttackToggle(hud: false);
             return [];
+        }
+        // Snap on Attack switched: LastMouseAdjVec.Z 0 <-> 1 (0 = as the options set it)
+        List<Node> AttackToggle(bool hud)
+        {
+            Node C() => hud ? a.DynCast("MarvelPlayerCamera", a.Ctx(a.Inst("Engine.HUD.PlayerOwner"), "Engine.PlayerController.PlayerCamera")) : Cam();
+            Node V(bool write) => a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Z", write);
+            return [Asm.Let(V(true), Asm.Nat(Asm.SubF, Asm.F(1), V(false)))];
         }
         // One mode at once (the dedicated keys): Behind starts at its tilt, Isometric at the default height and zoom, as the cycle does.
         List<Node> SetMode(int m, bool hud)
@@ -268,13 +280,16 @@ static class FreeCamPatch
             Replace(pkg, "MarvelHUD." + Selfie, result, log, [.. Shortcut(selfie: true, hud: true), Asm.ReturnNothing(), Asm.End()]);
             Replace(pkg, "MarvelHUD." + BehindCmd, result, log, [.. SetMode(1, hud: true), Asm.ReturnNothing(), Asm.End()]);
             Replace(pkg, "MarvelHUD." + IsoCmd, result, log, [.. SetMode(2, hud: true), Asm.ReturnNothing(), Asm.End()]);
+            if (cfg.AttackToggleBound)
+                Replace(pkg, "MarvelHUD." + AttackCmd, result, log, [.. AttackToggle(hud: true), Asm.ReturnNothing(), Asm.End()]);
             // Snap on Attack: a power press snaps the camera behind the hero, in Free Orbit only (Locked Behind is behind already;
             // Default MHO and a pending Remember Camera restore are left alone). Two hooks, as the presses arrive two ways:
             // MarvelPlayerController.PowerButtonPressed (script exec; the keyboard's and gamepad's power slots), the snap just
             // before its ActivateAbilityInSlot (not when the UI took the key), and MarvelHUD.NotifyPressPower (a script event the
             // exe calls when a power is pressed; nothing in script calls it, so the mouse powers and the native dedicated slots
             // are expected there too: unconfirmed until seen in game). A press through both snaps twice, which looks the same.
-            if (cfg.SnapOnAttack)
+            // (Kurt, 2026-11-17) also when it's off at start but has a key or button to switch it on in game
+            if (cfg.SnapOnAttack || cfg.AttackToggleBound)
             {
                 // Only when the camera is turned more than SnapOnAttackAngle from the hero's facing (yaw difference wrapped to
                 // -32768..32767), and eased, not jumped (Kurt: on every press it felt like teleporting).
@@ -286,7 +301,12 @@ static class FreeCamPatch
                     Node Diff() => Asm.Nat(Asm.SubInt, Asm.Nat(Asm.AndInt, Asm.Nat(Asm.AddInt, Asm.Nat(Asm.SubInt, HeroYaw(), PcVar(Yaw)), Asm.I(32768)), Asm.I(65535)), Asm.I(32768));
                     int limit = (int)(cfg.SnapOnAttackAngle * DegToUnits);
                     var snap = Shortcut(selfie: false, hud, ease: true);
-                    var list = new List<Node> { Asm.IfNot(Asm.Nat(Asm.EqF, a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastCamLoc"), Vector, "Y", false), Asm.F(0)), skip) };
+                    var list = new List<Node>
+                    {
+                        // switched off in game (LastMouseAdjVec.Z 1 = the other way from the options)
+                        Asm.IfNot(Asm.Nat(Asm.EqF, a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastMouseAdjVec"), Vector, "Z", false), Asm.F(cfg.SnapOnAttack ? 0 : 1)), skip),
+                        Asm.IfNot(Asm.Nat(Asm.EqF, a.Member(a.Ctx(C(), "MarvelPlayerCamera.LastCamLoc"), Vector, "Y", false), Asm.F(0)), skip),
+                    };
                     if (limit > 0)
                     {
                         var right = new JumpLabel("Right");
@@ -470,7 +490,8 @@ static class FreeCamPatch
     /// save: when the mode, zoom (the game's step and the extra steps) or angle differ from the store and the camera isn't being
     /// turned (sticks / mouse camera at rest, RB up), the store is set and the HUD's SaveConfig writes it. Behind keeps the stored
     /// yaw (it follows the hero, so saving it would write every frame).
-    /// Store 1 = 1e9 + mode × 1e8 + step × 1e6 + (extra steps × 100 + 500000); store 2 = (pitch + 16384) &lt;&lt; 16 | (yaw &amp; 65535).
+    /// Store 1 = 1e9 + (mode + 3 × Snap on Attack switched) × 1e8 + step × 1e6 + (extra steps × 100 + 500000); store 2 = (pitch + 16384) &lt;&lt; 16 | (yaw &amp; 65535).
+    /// (Older stores have a digit 0..2: not switched.)
     /// </summary>
     static (List<Node> Code, JumpLabel Exit) Remember(Asm a, Func<Node> cam, Func<string, string, bool, Node> camVec, Func<string, Node> input, JumpLabel entry, float defaultHeight)
     {
@@ -489,7 +510,10 @@ static class FreeCamPatch
         var keepYaw = new JumpLabel("KeepYaw"); var compare = new JumpLabel("Compare"); var write = new JumpLabel("Write");
         var restoreAngle = new JumpLabel("RestoreAngle");
         // the packed current values (store 2's yaw: the stored one in Behind)
-        Node Cur1() => Asm.Nat(Asm.AddInt, Asm.Nat(Asm.AddInt, Asm.Nat(Asm.AddInt, I(Marker), Asm.Nat(MulI, Int(Mode()), I(100_000_000))),
+        Node Switched() => camVec("LastMouseAdjVec", "Z", false);
+        Node Digit() => Asm.Nat(Asm.AddInt, Int(Mode()), Asm.Nat(MulI, Int(Switched()), I(3)));
+        Node StoredDigit() => Asm.Nat(DivI, Asm.Nat(Asm.SubInt, S1(), I(Marker)), I(100_000_000));
+        Node Cur1() => Asm.Nat(Asm.AddInt, Asm.Nat(Asm.AddInt, Asm.Nat(Asm.AddInt, I(Marker), Asm.Nat(MulI, Digit(), I(100_000_000))),
             Asm.Nat(MulI, Step(), I(1_000_000))), Int(Asm.Nat(Asm.AddF, Asm.Nat(Asm.MulF, N(), Asm.F(100)), Asm.F(500000.5f))));
         Node PitchPart() => Asm.Nat(Shl, Asm.Nat(Asm.AddInt, a.Inst(Pitch), I(16384)), I(16));
         var code = new List<Node>
@@ -498,9 +522,10 @@ static class FreeCamPatch
             Asm.At(entry, Asm.IfNot(Asm.Nat(Asm.EqF, Mode(), Asm.F(-1)), save)),
             Asm.IfNot(Asm.Nat(Asm.NotEqObj, Hud(), Asm.None()), exit),                          // no HUD yet: next frame
             Asm.IfNot(Asm.Nat(Asm.GreaterEqInt, S1(), I(Marker)), none),
-            Asm.Let(camVec("LastCamLoc", "Y", true), Flt(Asm.Nat(DivI, Asm.Nat(Asm.SubInt, S1(), I(Marker)), I(100_000_000)))),
+            Asm.Let(camVec("LastMouseAdjVec", "Z", true), Flt(Asm.Nat(DivI, StoredDigit(), I(3)))),
+            Asm.Let(camVec("LastCamLoc", "Y", true), Flt(Asm.Nat(Asm.SubInt, StoredDigit(), Asm.Nat(MulI, Asm.Nat(DivI, StoredDigit(), I(3)), I(3))))),
             Asm.Let(a.Ctx(cam(), "MarvelPlayerCamera.currentSettingIndex"),
-                Asm.Nat(Asm.SubInt, Asm.Nat(DivI, Asm.Nat(Asm.SubInt, S1(), I(Marker)), I(1_000_000)), Asm.Nat(MulI, Int(Mode()), I(100)))),
+                Asm.Nat(Asm.SubInt, Asm.Nat(DivI, Asm.Nat(Asm.SubInt, S1(), I(Marker)), I(1_000_000)), Asm.Nat(MulI, StoredDigit(), I(100)))),
             Asm.LetBool(a.Ctx(cam(), "MarvelPlayerCamera.gameCamIndexChanged"), Asm.True()),
             Asm.Let(a.Inst("MarvelPlayerController.m_CameraZoomIndex"), Step()),
             Asm.Let(camVec("LastMouseAdjVec", "Y", true), Asm.Nat(Asm.MulF, Flt(Asm.Nat(Asm.SubInt,
@@ -648,14 +673,14 @@ static class FreeCamPatch
     public sealed record Tracker(string Exec, string StateField, string StateComp, string? TimerField, string? TimerComp, Func<string, string?> ActionFor);
 
     /// <summary>
-    /// Tracker 1: LastCamLoc.Z / LastMouseAdjVec.Z, MarvelHUD.ToggleTraceActorLock (stock: a debug trace pointer).
+    /// Tracker 1: LastCamLoc.Z, packed, MarvelHUD.ToggleTraceActorLock (stock: a debug trace pointer).
     /// Tracker 2: LastCamRotOffset.X / .Y (transient, no script uses it), MarvelHUD.MarvelGFXHidePvPScores.
     /// Tracker 3: LastCamRotOffset.Z, packed, MarvelHUD.MarvelGFxTogglePvPScorePanel.
     /// The PvP commands are script exec functions nothing calls and DefaultInput binds only in commented-out lines.
     /// </summary>
     public static readonly Tracker[] Trackers =
     [
-        new(PadButton, "LastCamLoc", "Z", "LastMouseAdjVec", "Z", _ => null),
+        new(PadButton, "LastCamLoc", "Z", null, null, _ => null),   // (packed since 0.60.538: LastMouseAdjVec.Z holds Snap on Attack's switch)
         new(PadButton2, "LastCamRotOffset", "X", "LastCamRotOffset", "Y", _ => null),
         new(PadButton3, "LastCamRotOffset", "Z", null, null, _ => null),
     ];

@@ -26,6 +26,7 @@ sealed partial class StorePreview
         p3.ResetViewAction = ResetView;
         p3.ColorFor = colorFor;
         p3.ForceEffects = forceEffects;
+        p3.NoEffects = noEffects;
         p3.ShowPowerBlock = powerStrip;
         p3.EffectsPlayer.HiddenEffect = hiddenEffect;
         p3.CustomEffects = () => { if (ownFxPackage == null) return false; LoadOwnEffects(); return true; };

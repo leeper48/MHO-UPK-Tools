@@ -225,6 +225,104 @@ static partial class Program
             Console.WriteLine(Gui.SpellCheck.Test(args[1]));
             return 0;
         }
+        if (args.Length == 3 && args[0].Equals("--icon-maker-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --icon-maker-test <transparent png> <out dir>: the icon maker opened again on a layer and look (gear mode), its
+            // makings saved and read back, and the eraser (a stroke, bring back, undo); pictures of both to <out dir>.
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Gui.Ui.UseDarkTheme();
+            Directory.CreateDirectory(args[2]);
+            var lines = new List<string>();
+            void Check(bool ok, string what) => lines.Add($"{(ok ? "PASS" : "FAIL")} {what}");
+            using var src0 = Model.ImagePixels.Open(args[1]);
+            var start = new Bitmap(384, 384, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(start)) g.DrawImage(src0, new Rectangle(0, 0, 384, 384));
+            var look = new Gui.PowerIconForm.Look(Color.FromArgb(70, 12, 16).ToArgb(), true, false, Color.Black.ToArgb(), 1, 20, 1.3f, 1.1f, 1, 10, 0.8f, 1.5f, Color.Black.ToArgb(), 0.4f, false, 1.2f, 3, -2);
+            using var f = new Gui.PowerIconForm(_ => null, () => null, "Sentry's Cape", gear: true, startLayer: start, startLook: look) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            f.Shown += (_, _) => f.BeginInvoke(async () =>
+            {
+                await Task.Delay(500);
+                try
+                {
+                    Check(f.LookForTest == look, "opened with the look it was given (background, glow, outline, shadow, framing)");
+                    using (var b = new Bitmap(f.Width, f.Height)) { f.DrawToBitmap(b, new Rectangle(0, 0, f.Width, f.Height)); b.Save(Path.Combine(args[2], "maker_reopened.png")); }
+                    string stem = Path.Combine(args[2], "makings", "test");
+                    f.SaveMakings(stem);
+                    var back = Gui.PowerIconForm.LoadMakings(stem);
+                    // (GDI+ writes PNGs premultiplied: colors under alpha 0 are dropped and faint pixels round; alpha must match,
+                    // colors within a few steps where they show)
+                    int worst = 0; bool alphaSame = false;
+                    if (back is { } bk0 && bk0.Layer.Width == f.LayerForTest!.Width)
+                    {
+                        var p1 = Model.ImagePixels.ReadArgb(bk0.Layer); var p2 = Model.ImagePixels.ReadArgb(f.LayerForTest);
+                        alphaSame = true;
+                        for (int i = 0; i < p1.Length; i++)
+                        {
+                            int a1 = (p1[i] >> 24) & 255, a2 = (p2[i] >> 24) & 255;
+                            if (a1 != a2) { alphaSame = false; break; }
+                            if (a1 < 32) continue;
+                            for (int sh = 0; sh < 24; sh += 8) worst = Math.Max(worst, Math.Abs(((p1[i] >> sh) & 255) - ((p2[i] >> sh) & 255)));
+                        }
+                    }
+                    Check(back is { } bk && bk.Look == f.LookForTest && alphaSame && worst <= 8, $"makings saved and read back: the same look, the layer's alpha exact, colors within {worst} steps");
+                    // the eraser on the layer (at its own size)
+                    var layer = new Bitmap(f.LayerForTest!);
+                    using var er = new Gui.IconEraseForm(layer, null, "Sentry's Cape") { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+                    Bitmap? got = null;
+                    er.Changed += b => { got?.Dispose(); got = b; };
+                    er.Show(); await Task.Delay(300);
+                    int mid = layer.Width / 2;
+                    int Alpha(Bitmap b, int x, int y) => b.GetPixel(x, y).A;
+                    int before = Alpha(layer, mid, mid);
+                    var c = er.Controls[0].Controls[0];   // the canvas
+                    float k = c.Width / (float)layer.Width;
+                    er.StrokeForTest(new Point((int)(mid * k) - 60, (int)(mid * k)), new Point((int)(mid * k) + 60, (int)(mid * k)), false, 20);
+                    int erased = got != null ? Alpha(got, mid, mid) : -1;
+                    using (var b = new Bitmap(er.Width, er.Height)) { er.DrawToBitmap(b, new Rectangle(0, 0, er.Width, er.Height)); b.Save(Path.Combine(args[2], "eraser.png")); }
+                    Check(before > 0 && erased == 0, $"a stroke erases (alpha at the middle {before} → {erased})");
+                    er.StrokeForTest(new Point((int)(mid * k), (int)(mid * k)), new Point((int)(mid * k), (int)(mid * k)), true, 8);
+                    int restored = got != null ? Alpha(got, mid, mid) : -1;
+                    Check(restored == before, $"the right button brings it back ({restored})");
+                    er.UndoForTest();
+                    Check(got != null && Alpha(got, mid, mid) == 0, "Undo takes the bring-back stroke back");
+                    er.UndoForTest();
+                    Check(got != null && Alpha(got, mid, mid) == before, "Undo again: as it was");
+                    er.RedoForTest();
+                    Check(got != null && Alpha(got, mid, mid) == 0, "Redo: erased again");
+                    er.RedoForTest();
+                    Check(got != null && Alpha(got, mid, mid) == before, "Redo again: brought back again");
+                    // zoomed in 4× at a point off the middle: a stroke there erases that layer pixel only
+                    int qx = layer.Width / 4, qy = layer.Height / 3;
+                    // (an opaque pixel away from the middle, with opaque pixels beside it)
+                    for (int yy = layer.Height / 4; yy < layer.Height * 3 / 4 && Alpha(got!, qx, qy) < 255; yy += 3)
+                        for (int xx = layer.Width / 5; xx < layer.Width / 2 - 20; xx += 3)
+                            if (Alpha(got!, xx, yy) == 255 && Alpha(got!, xx + 6, yy) == 255) { qx = xx; qy = yy; break; }
+                    er.ZoomForTest(new Point((int)(qx * k), (int)(qy * k)), 4);
+                    var at = er.CanvasPointForTest(qx + 0.5f, qy + 0.5f);
+                    int beforeQ = Alpha(got!, qx, qy);
+                    er.StrokeForTest(at, at, false, 1.5f);
+                    Check(Math.Abs(er.ZoomNow - 4) < 0.01f && beforeQ > 0 && Alpha(got!, qx, qy) == 0 && Alpha(got!, qx + 6, qy) == Alpha(layer, qx + 6, qy),
+                        $"zoomed in 4× (wheel): a small stroke erases just there ({beforeQ} → {Alpha(got!, qx, qy)}, 6 px away unchanged)");
+                    using (var b2 = new Bitmap(er.Width, er.Height)) { er.DrawToBitmap(b2, new Rectangle(0, 0, er.Width, er.Height)); b2.Save(Path.Combine(args[2], "eraser_zoomed.png")); }
+                    // Shift + click: a straight line from the last stroke's end (back at 1×, across the middle row)
+                    er.ZoomForTest(new Point(0, 0), 0.25f);
+                    int ly = mid + 70;   // (clear of the strokes above)
+                    var lineA = er.CanvasPointForTest(layer.Width * 0.3f, ly + 0.5f);
+                    var lineB = er.CanvasPointForTest(layer.Width * 0.7f, ly + 0.5f);
+                    int beside = Alpha(got!, mid, ly - 12);
+                    er.ShiftLineForTest(lineA, lineB, 3);
+                    bool lineGone = Enumerable.Range((int)(layer.Width * 0.32f), (int)(layer.Width * 0.36f)).All(x => Alpha(got!, x, ly) == 0);
+                    Check(lineGone && beside > 0 && Alpha(got!, mid, ly - 12) == beside, $"Shift + click erases the straight line between the two points (and not beside it: {beside})");
+                    er.Close();
+                }
+                catch (Exception ex) { lines.Add("FAIL " + ex); }
+                File.WriteAllLines(Path.Combine(args[2], "result.txt"), lines);
+                f.Close();
+            });
+            f.ShowDialog();
+            return 0;
+        }
         if (args.Length == 3 && args[0].Equals("--power-icon-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // The manual's screenshot: Make Icon From 3D View with a picture (a transparent PNG of a character, cropped square from
@@ -242,8 +340,10 @@ static partial class Program
                 g.DrawImage(src, new Rectangle(0, 0, size, size), new Rectangle((src.Width - side) / 2, (src.Height - side) / 2, side, side), GraphicsUnit.Pixel);
                 return b;
             }
-            Gui.PowerIconForm.ShowcaseLook();
-            using var f = new Gui.PowerIconForm(Shot, () => Environment.GetEnvironmentVariable("MHO_ICON_ANIM"), Environment.GetEnvironmentVariable("MHO_ICON_POWER") ?? "Example Power") { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            // (MHO_ICON_GEAR=1: the Gear page's gear icon, on transparency, effects at none)
+            bool gearIcon = Environment.GetEnvironmentVariable("MHO_ICON_GEAR") == "1";
+            if (!gearIcon) Gui.PowerIconForm.ShowcaseLook();
+            using var f = new Gui.PowerIconForm(Shot, () => Environment.GetEnvironmentVariable("MHO_ICON_ANIM"), Environment.GetEnvironmentVariable("MHO_ICON_POWER") ?? "Example Power", gearIcon) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {
                 await Task.Delay(800);
@@ -960,6 +1060,16 @@ static partial class Program
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             var main = new Gui.MainForm();
             main.Shown += (_, _) => main.BeginInvoke(async () => { Console.WriteLine(await main.DecalSaveTest(args[1], args[2], Path.GetFullPath(args[3]))); main.Close(); });
+            Application.Run(main);
+            return 0;
+        }
+        if (args.Length == 4 && args[0].Equals("--gear-test", StringComparison.OrdinalIgnoreCase))
+        {
+            // --gear-test <out.txt> <mod> <image>: the Gear page's rename and icon, saved and taken back (scratch libraries only)
+            if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) return 2;
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            var main = new Gui.MainForm();
+            main.Shown += (_, _) => main.BeginInvoke(async () => { await main.GearTest(args[1], args[2], args[3]); main.Close(); });
             Application.Run(main);
             return 0;
         }

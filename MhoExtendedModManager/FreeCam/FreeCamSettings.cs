@@ -36,11 +36,18 @@ sealed class FreeCamSettings
     public string IsoKey { get; set; } = "";
     public string IsoPad { get; set; } = "";
     public string IsoPress { get; set; } = "";
+    /// <summary>Snap on Attack on / off in game (Kurt, 2026-11-17): a key and a gamepad button; the Snap on Attack box is how it
+    /// starts. No key or button by default.</summary>
+    public string AttackKey { get; set; } = "";
+    public string AttackPad { get; set; } = "";
+    public string AttackPress { get; set; } = "";
+    /// <summary>Snap on Attack's code goes into the game: ticked, or switchable there.</summary>
+    public bool AttackToggleBound => AttackKey.Length > 0 || (AttackPad.Length > 0 && AttackPress.Length > 0);
 
     /// <summary>The actions in order: name for the game code, keyboard spec, gamepad button, press.</summary>
     public (string Action, string Key, string Pad, string Press)[] Actions() =>
         [("Mode", ModeKey, ModePad, ModePress), ("Snap", SnapKey, SnapPad, SnapPress), ("Selfie", SelfieKey, SelfiePad, SelfiePress),
-         ("Behind", BehindKey, BehindPad, BehindPress), ("Isometric", IsoKey, IsoPad, IsoPress)];
+         ("Behind", BehindKey, BehindPad, BehindPress), ("Isometric", IsoKey, IsoPad, IsoPress), ("Attack", AttackKey, AttackPad, AttackPress)];
 
     /// <summary>The gamepad buttons in use (button + RT setting), each with the actions on it and their press types, in
     /// the order the actions are listed (one press tracker each, up to three). Within a button each press type does one action

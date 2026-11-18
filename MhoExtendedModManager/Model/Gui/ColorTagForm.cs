@@ -92,6 +92,7 @@ sealed class ColorTagForm : Form
         KeyPreview = true;
         KeyDown += (_, e) =>
         {
+            if (Ui.TypingInSlider(this)) return;   // (Enter / Esc in a slider's typed value belong to that box: Kurt, 2026-11-17)
             if (e.KeyCode == Keys.Escape && dropping) { SetDropping(false); e.Handled = true; }
             else if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); }
             else if (e.KeyCode == Keys.Enter) Accept();
