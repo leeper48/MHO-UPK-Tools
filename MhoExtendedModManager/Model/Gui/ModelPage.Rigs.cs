@@ -19,11 +19,20 @@ sealed partial class ModelPage
     List<(BorrowedRig.Kind Kind, int Number)> OtherRigs() =>
         [.. Enum.GetValues<BorrowedRig.Kind>().Where(k => k is not BorrowedRig.Kind.Cape and not BorrowedRig.Kind.Hair && rigs.GetValueOrDefault(k) > 0).Select(k => (k, rigs[k]))];
 
-    /// <summary>The other kinds as saved ("Coat:1,Tail:2").</summary>
-    string OtherRigsText() => string.Join(",", OtherRigs().Select(x => $"{x.Kind}:{x.Number}"));
+    /// <summary>Which parts an FBX source's cloth is skinned onto the rigs from (RigSkin, Kurt 2026-11-18): "" = guessed, "-" =
+    /// none, else the part names (';'). Saved with the picks as "Skin=…" (ParsePicks skips it).</summary>
+    string rigSkin = "";
 
-    /// <summary>Every pick as saved with Undo ("Cape:2,Coat:1").</summary>
-    string RigsText() => string.Join(",", Enum.GetValues<BorrowedRig.Kind>().Where(k => rigs.GetValueOrDefault(k) > 0).Select(k => $"{k}:{rigs[k]}"));
+    string SkinEntry() => rigSkin.Length > 0 ? "Skin=" + rigSkin : "";
+
+    /// <summary>The other kinds as saved ("Coat:1,Tail:2"), and the skin choice when it isn't the guess.</summary>
+    string OtherRigsText() => string.Join(",", OtherRigs().Select(x => $"{x.Kind}:{x.Number}").Append(SkinEntry()).Where(x => x.Length > 0));
+
+    /// <summary>Every pick as saved with Undo ("Cape:2,Coat:1"), and the skin choice.</summary>
+    string RigsText() => string.Join(",", Enum.GetValues<BorrowedRig.Kind>().Where(k => rigs.GetValueOrDefault(k) > 0).Select(k => $"{k}:{rigs[k]}").Append(SkinEntry()).Where(x => x.Length > 0));
+
+    static string SkinFrom(string? text) =>
+        (text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(x => x.StartsWith("Skin=", StringComparison.Ordinal))?["Skin=".Length..] ?? "";
 
     /// <summary>The picks from saved text (cape and hair given separately, as State keeps them).</summary>
     void SetRigs(int cape, int hair, string? others, bool preview = true)
@@ -33,6 +42,7 @@ sealed partial class ModelPage
         if (hair > 0) rigs[BorrowedRig.Kind.Hair] = hair;
         foreach (var (k, n) in BorrowedRig.ParsePicks(others))
             if (k is not BorrowedRig.Kind.Cape and not BorrowedRig.Kind.Hair && n <= BorrowedRig.Donors(k).Length) rigs[k] = n;
+        rigSkin = SkinFrom(others);
         UpdateRigsButton();
         if (preview) SchedulePreview();
     }
@@ -87,8 +97,15 @@ sealed partial class ModelPage
         return pairs.Count == 0 ? "" : $"Note: {string.Join(" and ", pairs)} hang in the same place; the model's strips pair with whichever is nearer, so the other may get none.";
     }
 
-    void ShowRigsMenu()
+    async void ShowRigsMenu()
     {
+        // no source: the target's own model (the mod's, when it has one) becomes it, as Paint does (Kurt, 2026-11-18: a dress
+        // rig on a mod that already had a new model needed its source picked again)
+        if (!HasSource && ChosenPackage is CharacterList.Item pkg && !TargetIsProp() && !propMode)
+        {
+            Log($"Add Rigs: no source is picked, so {pkg.Key}'s own model becomes the source to add rigs to.");
+            if (!await UseOwnModel(pkg.Key) || IsDisposed) return;
+        }
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
         foreach (var kind in Enum.GetValues<BorrowedRig.Kind>())
         {
@@ -105,6 +122,31 @@ sealed partial class ModelPage
                 head.DropDownItems.Add(new ToolStripMenuItem(BorrowedRig.Title(kind, pick), null, (_, _) => Pick(pick)) { Checked = now == pick, ToolTipText = KindTip(kind) });
             }
             menu.Items.Add(head);
+        }
+        // an FBX source (the mod's own model, a model from Blender): which parts are cloth to skin onto the rigs (RigSkin)
+        if (sourceFbx != null && rigs.Values.Any(v => v > 0))
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            var skinHead = new ToolStripMenuItem("Skin Cloth onto the Rigs")
+            {
+                ToolTipText = "The model's cloth is weighted to the added rig's bones, so it swings with them. An MFF model's skirt or cape chains pair with a rig by themselves; a model from an FBX (the mod's own model, Blender) needs this unless it's already weighted to bones of the rig's names. Only rigs nothing rides yet are skinned.",
+            };
+            void Skin(string v) { rigSkin = v; UpdateRigsButton(); SchedulePreview(); }
+            skinHead.DropDownItems.Add(new ToolStripMenuItem("Automatic", null, (_, _) => Skin("")) { Checked = rigSkin == "", ToolTipText = "A dress, coat or loincloth: the parts that hang below the rig's top and are weighted mostly to the pelvis (the skirt, not the legs). A cape, hair, tail, chains or wings: pick the parts below." });
+            skinHead.DropDownItems.Add(new ToolStripMenuItem("None", null, (_, _) => Skin("-")) { Checked = rigSkin == "-", ToolTipText = "No skinning: the rigs move only what the model has weighted to their bones already." });
+            skinHead.DropDownItems.Add(new ToolStripSeparator());
+            var chosen = rigSkin is "" or "-" ? new List<string>() : [.. rigSkin.Split(';', StringSplitOptions.RemoveEmptyEntries)];
+            foreach (var name in parts.Rows.Cast<DataGridViewRow>().Select(r => r.Cells["part"].Value?.ToString()).OfType<string>().Distinct())
+            {
+                bool on = chosen.Contains(name, StringComparer.OrdinalIgnoreCase);
+                skinHead.DropDownItems.Add(new ToolStripMenuItem(name, null, (_, _) =>
+                {
+                    var next = chosen.Where(x => !x.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (!on) next.Add(name);
+                    Skin(next.Count == 0 ? "-" : string.Join(";", next));
+                }) { Checked = on, ToolTipText = $"Skin {name} onto the rigs (picked parts replace Automatic). Vertices of the legs, arms and hands in it keep their own weights." });
+            }
+            menu.Items.Add(skinHead);
         }
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Remove All", null, (_, _) => { rigs.Clear(); UpdateRigsButton(); SchedulePreview(); }) { Enabled = rigs.Values.Any(v => v > 0), ToolTipText = "Takes every added rig off (nothing the model or hero has is removed)." });

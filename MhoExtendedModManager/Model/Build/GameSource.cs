@@ -44,12 +44,20 @@ static class GameSource
         return mesh?.HighestDetail is { HasGeometry: true } lod && FbxExport.HasPropPieces(mesh, lod);
     }
 
-    static string ExportCore(string packageFile, Action<string> log, string? meshName)
+    /// <summary>A package file's character written as a source FBX into <paramref name="toDir"/> (Kurt, 2026-11-18: the mod's own
+    /// model as the source, to add a rig or paint weights on a model built into it earlier without picking its source again).
+    /// Written again only when that file changed.</summary>
+    public static string ExportFrom(string packagePath, string toDir, Action<string> log)
     {
-        string? modded = Modded?.Invoke(packageFile);
+        lock (exporting) return ExportCore(Path.GetFileName(packagePath), log, null, packagePath, toDir);
+    }
+
+    static string ExportCore(string packageFile, Action<string> log, string? meshName, string? fromPath = null, string? toDir = null)
+    {
+        string? modded = fromPath ?? Modded?.Invoke(packageFile);
         string stock = modded ?? BasePackage.Resolve(packageFile, true);
         string meshPath = Gui.PreviewPanel.MeshPackage(stock);
-        string outDir = Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile) + (meshName != null ? "__" + meshName : "") + (modded != null ? "__modded" : ""));
+        string outDir = toDir ?? Path.Combine(Folder, Path.GetFileNameWithoutExtension(packageFile) + (meshName != null ? "__" + meshName : "") + (modded != null ? "__modded" : ""));
         string fbx = Path.Combine(outDir, "model.fbx"), stampFile = Path.Combine(outDir, "source.txt");
         var fi = new FileInfo(meshPath);
         // the character the Model tab fits to (MhoSkeleton.Load: the chosen one, a summon's or power model's mesh, the costume's

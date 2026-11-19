@@ -1451,7 +1451,7 @@ sealed partial class ModelPage : UserControl
         var m = model; string parts = string.Join(",", picked); string? donor = Materials[Math.Max(0, material.SelectedIndex)].Value; bool sub = smooth.Checked; string? sfbx = sourceFbx; bool keepSize = keepSourceSize.Checked; float lean = LeanToUse; bool joints = jointFit.Checked;
         string? uf = unrigged;
         int capeChoice = CapeChoice, hairChoice = HairChoice;
-        var moreRigs = OtherRigs();
+        var moreRigs = OtherRigs(); string skinChoice = rigSkin;
         preview.ShowMessage(uf != null && !File.Exists(AutoRig.RiggedFbx(AutoRig.Live(uf, pkg.Key))) && !File.Exists(AutoRig.RiggedFbx(AutoRig.Kept(host.WorkFolder, uf, pkg.Key))) ? "Rigging in Blender…" : "Loading…");
         try
         {
@@ -1460,7 +1460,7 @@ sealed partial class ModelPage : UserControl
             string? modelFbx = EnsureEdits().ModelFbx is string mf && File.Exists(mf) ? mf : null;
             string? paintFile = PaintPath() is string pp && File.Exists(pp) ? pp : null;
             var prepared = await Task.Run(() => sfbx != null
-                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile, lean, capeChoice, hairChoice, moreRigs)
+                ? PreviewPanel.PrepareFbx(uf != null ? RigFor(uf, pkg.Key) : sfbx, uf != null ? null : picked.ToHashSet(StringComparer.OrdinalIgnoreCase), StartPackage(pkg.Key), donor, mapFile, ovr, modelFbx, paintFile, lean, capeChoice, hairChoice, moreRigs, skinChoice)
                 : PreviewPanel.Prepare(m!, parts, StartPackage(pkg.Key), donor, sub, modelFbx, mapFile, capeChoice, hairChoice, ovr, moreRigs, keepSize, lean, joints, paintFile));
             if (id != previewId || IsDisposed) return;   // something changed meanwhile
             preview.Show(prepared);
@@ -1471,6 +1471,7 @@ sealed partial class ModelPage : UserControl
             _ = ShowOwnRigs(StartPackage(pkg.Key));
             WatchBlender();   // this work's Blender folder (a sync that came meanwhile is applied)
             WatchRig(uf != null ? AutoRig.Live(uf, pkg.Key) : null);
+            WatchSource();   // (the Single Model's file saved again outside the app: read again)
             DateTime? fromBlender = uf != null ? rigSent : null;
             // what Automatic picked, shown in the drop-down (0.10.19, Kurt)
             material.Items[0] = prepared.Material.Length > 0 ? $"Automatic · {prepared.Material}" : "Automatic";

@@ -74,6 +74,8 @@ sealed record ImportOptions
     public PropAdjust? PropFit { get; init; }
     /// <summary>A prop's model kept as made (its size and shape: a prop of the user's own), not laid over the target's.</summary>
     public bool PropAsIs { get; init; }
+    /// <summary>An FBX source's cloth skinned onto the added rigs (RigSkin): "" = the guessed parts, "-" = none, else part names (';').</summary>
+    public string? RigSkin { get; init; }
     /// <summary>A tag in the names of everything the build adds ("mff_&lt;tag&gt;_…"; null: "mff_…"), from the target (its package
     /// and model, or the added prop's class). Without it a body and a prop from the same source (both "DefaultMaterial"), or
     /// two mods' builds, made objects under one path, and the game (and the copy into the mod) took one for both

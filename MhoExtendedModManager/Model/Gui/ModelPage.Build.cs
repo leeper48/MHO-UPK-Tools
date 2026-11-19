@@ -56,7 +56,7 @@ sealed partial class ModelPage
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
             PaintFile = PaintPath() is string paintPath && File.Exists(paintPath) ? paintPath : null,
-            Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(),
+            Hair = HairChoice, Cape = CapeChoice, Rigs = OtherRigs(), RigSkin = rigSkin,
             ModelFbx = EnsureEdits().ModelFbx is string mfb && File.Exists(mfb) ? mfb : null,
             AnimFbx = new Dictionary<string, string>(edits.Anims.Where(kv => File.Exists(kv.Value)), StringComparer.OrdinalIgnoreCase),
             Size = sizeSlider.Value, NoMod = true, PropFit = PropFitForTarget(), PropAsIs = AddedTarget?.KeepShape == true };
@@ -474,7 +474,7 @@ sealed partial class ModelPage
         {
             sb.Append('|').Append(chosenKey).Append('|').Append(sourceFbx).Append('|').Append(string.Join(",", SelectedParts()))
               .Append('|').Append(material.SelectedIndex).Append('|').Append(smooth.Checked).Append('|').Append(HairChoice).Append('|').Append(CapeChoice);
-            if (OtherRigs().Count > 0) sb.Append('|').Append(OtherRigsText());   // (only then: builds from before keep their print)
+            if (OtherRigsText() is { Length: > 0 } ort) sb.Append('|').Append(ort);   // (only then: builds from before keep their print)
             // a character from the game: its export too (Kurt, 2026-11-16: Medusa's hair maps came with a re-export, 0.60.500, but
             // the mod kept the build made before it, flat 8×8 hair, and nothing asked to build again)
             if (chosenKey?.StartsWith(GameSrc) == true) sb.Append("|export:").Append(Stamp(sourceFbx));

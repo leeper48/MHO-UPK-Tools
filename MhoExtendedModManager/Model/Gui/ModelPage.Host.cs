@@ -538,6 +538,8 @@ sealed partial class ModelPage
 
     /// <summary>The summons whose "not shaped like a person" note was logged (once each).</summary>
     readonly HashSet<string> creatureHinted = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Targets whose mod model was taken as the source by itself this session (once each: a source cleared by hand stays clear).</summary>
+    readonly HashSet<string> autoOwn = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The Character drop-down for the chosen package: shown when it holds more than one skeletal mesh.</summary>
     async void FillMeshPick()
@@ -591,6 +593,15 @@ sealed partial class ModelPage
             Log($"{key} isn't shaped like a person, so an MFF model or another hero can't be fitted to it: its own model is the source. Edit in Blender opens it there (Ctrl+S sends your changes back); or Single Model → an FBX rigged to its own bones.");
             creatureHinted.Add(key);
             _ = UseOwnModel(key);
+        }
+        // a mod whose copy already has a replacement model and no source saved for it (Kurt, 2026-11-18): that model is the
+        // source, so it can be edited (a rig added, weights painted) without picking its source again
+        else if (!creature && !HasSource && chosenKey == null && pendingState == null && !propMode && addedPick == null && !TargetIsProp()
+                 && TargetSourceKey() is string tk0 && !targetSources.ContainsKey(tk0) && autoOwn.Add(tk0)
+                 && await Task.Run(() => ReplacedModel(key)) is string copy0 && !IsDisposed && ChosenPackage?.Key == key && !HasSource && chosenKey == null)
+        {
+            Log($"{key}: this mod already has its own model in it, so that model is the source.");
+            _ = UseModModel(key, copy0);
         }
         else if (creature && creatureHinted.Add(key))
             Log($"{key} isn't shaped like a person, so an MFF model or another hero can't be fitted to it. To change it: Edit in Blender with no source picked (its own model), or Single Model → an FBX rigged to its own bones.");
@@ -807,17 +818,23 @@ sealed partial class ModelPage
     void SaveState()
     {
         if (restoring2 || !loaded) return;
-        var st = new State
+        var st = CurrentState();
+        try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, MhoExtendedModManager.JsonOpts.Indented)); }
+        catch (IOException) { }
+    }
+
+    /// <summary>The tab's choices as they are now (saved with the mod; also put back after the source is read again).</summary>
+    State CurrentState()
+    {
+        return new State
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
-            Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigs().Count > 0 ? OtherRigsText() : null,
+            Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigsText() is { Length: > 0 } rt ? rt : null,
             FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, PiecesOff = piecesOff.Any(kv => kv.Value.Count > 0) ? piecesOff.Where(kv => kv.Value.Count > 0).ToDictionary(kv => kv.Key, kv => kv.Value.Order(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             WholeChoices = petWhole.Count > 0 ? new Dictionary<string, bool>(petWhole, StringComparer.OrdinalIgnoreCase) : null, SummonEffects = summonLook.Checked ? null : false,
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
         };
-        try { Directory.CreateDirectory(host.WorkFolder); File.WriteAllText(StateFile, JsonSerializer.Serialize(st, MhoExtendedModManager.JsonOpts.Indented)); }
-        catch (IOException) { }
     }
 
     /// <summary>At the start: the mod's last choices (its Model folder) picked again: the package, Build From, the source (the

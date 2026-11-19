@@ -46,6 +46,7 @@ static class Shortcuts
         new("model.boneup", Area.ModelTab, Kind.Key, "Bone Above", "[", "The parent of the picked bone (skin-carrying bones only); while painting, the brush paints it."),
         new("model.bonedown", Area.ModelTab, Kind.Key, "Bone Below", "]", "A child of the picked bone (skin-carrying bones only); while painting, the brush paints it."),
         new("model.pickbone", Area.ModelTab, Kind.MouseClick, "Pick a Bone / Material", "Ctrl+Click", "Picks the bone under the mouse in the Bone Map tab (on the Materials tab: the material)."),
+        new("model.reload", Area.ModelTab, Kind.Key, "Reload the Source", "F5", "Reads the source model again from its file (saved in Blender or another program), keeping your parts, rigs and size; the preview is rebuilt."),
         new("model.undo", Area.ModelTab, Kind.Key, "Undo", "Ctrl+Z", "Undo in the Model tab (parts, bone map, materials, painting …)."),
         new("model.redo", Area.ModelTab, Kind.Key, "Redo", "Ctrl+Y, Ctrl+Shift+Z", "Redo in the Model tab."),
         new("paint.paint", Area.Painting, Kind.MouseDrag, "Paint", "Left Drag", "Paints the selected bone's weight."),

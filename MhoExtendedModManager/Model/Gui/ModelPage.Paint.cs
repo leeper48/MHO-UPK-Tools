@@ -31,7 +31,7 @@ sealed partial class ModelPage
     {
         if (!preview.Painting && (!HasSource || PropSourceOnBody) && ChosenPackage is CharacterList.Item pkg && !TargetIsProp())
         {
-            Log($"Paint: {(HasSource ? "the source is a prop, not a body" : "no source is picked")}, so {pkg.Key}'s own model (From the Game) becomes the source to paint; Build into Mod writes it with your paint.");
+            Log($"Paint: {(HasSource ? "the source is a prop, not a body" : "no source is picked")}, so {pkg.Key}'s own model (the mod's, else the game's) becomes the source to paint; Build into Mod writes it with your paint.");
             if (!await UseOwnModel(pkg.Key)) return;
         }
         preview.Painting = !preview.Painting;

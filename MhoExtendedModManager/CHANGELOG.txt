@@ -1,6 +1,19 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.566
+- Model tab: weight painting moves the model as you paint. Before, the weight colors changed with each stroke but a posed model kept its old shape until something else (a Bone Map change) rebuilt the preview.
+
+0.60.565
+- Model tab: a Single Model source saved again in Blender or another program (weights fixed, the mesh edited) is read again by itself, and the preview shows the change; your parts, rigs and size are kept. Before, the preview kept the old file until something else (a Bone Map change) rebuilt it. F5 reads the source again by hand.
+
+0.60.564
+- Model tab: added rigs (dress, coat, loincloth, cape …) now move an FBX source's cloth, such as the mod's own model: its cloth is weighted onto the rig's bones (Add Rigs ▾ → Skin Cloth onto the Rigs). Automatic finds a dress's, coat's or loincloth's skirt parts (the parts hanging from the pelvis, not the legs); any parts can be picked instead. Before, the rig's bones were added but nothing rode them.
+- Model tab: the mod's own model as the source is named "<Hero> (Mod's Model)" under Single Model.
+
+0.60.563
+- Model tab: a mod that already has its own model in a package (built before, or made elsewhere) uses that model as the source when no source is saved for it, so the Bone Map, Paint, Add Rigs and Edit in Blender work on it without picking the source again. Add Rigs and Paint with no source do the same, and Edit in Blender with no source opens the mod's model, not the game's.
+
 0.60.562
 - Image editor: no tooltip over the picture (it covered what you paint); the keys and mouse help is on the ? button. The brush size buttons are a paint brush with a minus or plus.
 

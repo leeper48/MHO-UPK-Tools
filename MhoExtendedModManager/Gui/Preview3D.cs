@@ -399,6 +399,7 @@ sealed partial class Preview3D : UserControl
     {
         if (shownLoaded == null || animator == null) return;
         view.SetCharacterUv(Display(shownLoaded).Uv);
+        animator.WeightsChanged();   // (painted weights: the shape follows, not only the colours)
         Pose(frames > 0 ? frame.Value * frames : 0);
     }
 

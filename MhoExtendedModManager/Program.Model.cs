@@ -194,6 +194,35 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--rig-skin-probe":
+            {
+                // --rig-skin-probe <fbx> <package> <Kind:n> (read only): an FBX source with a rig grafted on: the rig's bones, and per
+                // part its vertices, height range and the bones they're weighted to (evidence for skinning a model onto a rig)
+                if (rest.Count < 4) { Console.WriteLine("--rig-skin-probe <fbx> <package> <Kind:n>"); return 1; }
+                var sk0 = MhoExtendedModManager.Model.MhoSkeleton.Load(MhoExtendedModManager.Model.Gui.PreviewPanel.MeshPackage(rest[2]), null);
+                var (skg, rigsg) = MhoExtendedModManager.Model.BorrowedRig.GraftAll(sk0, MhoExtendedModManager.Model.BorrowedRig.ParsePicks(rest[3]), null, Console.WriteLine);
+                var rr = MhoExtendedModManager.Model.FbxReimport.LoadAny(rest[1], skg, null, _ => { }, false);
+                Console.WriteLine($"up {skg.Up}  forward {skg.Forward}  left {skg.Left}  height {skg.Height:0.0}");
+                foreach (var rig in rigsg)
+                    for (int i = 0; i < rr.Bones.Count; i++)
+                        if (rig.Bones.IsMatch(rr.Bones[i].Name))
+                            Console.WriteLine($"  rig {rr.Bones[i].Name,-24} parent {(rr.Bones[i].Parent >= 0 && rr.Bones[i].Parent < rr.Bones.Count ? rr.Bones[rr.Bones[i].Parent].Name : "-"),-24} at {rr.Bones[i].Position:0.0}");
+                foreach (var g in rr.Sections.GroupBy(x => x.Part))
+                {
+                    var pos = g.SelectMany(x => x.Pos).ToArray();
+                    var hist = g.SelectMany(x => x.Weights).SelectMany(w => w).GroupBy(w => w.Bone).Select(b => (rr.Bones[b.Key].Name, b.Sum(x => x.Weight))).OrderByDescending(x => x.Item2).Take(12);
+                    float h0 = pos.Min(v => System.Numerics.Vector3.Dot(v, skg.Up)), h1 = pos.Max(v => System.Numerics.Vector3.Dot(v, skg.Up));
+                    Console.WriteLine($"part {g.Key}: {pos.Length} vertices, height {h0:0.0} .. {h1:0.0}; " + string.Join(", ", hist.Select(x => $"{x.Name} {x.Item2:0}")));
+                }
+                foreach (var rig in rigsg) Console.WriteLine($"guess {rig.Label}: " + string.Join(", ", MhoExtendedModManager.Model.RigSkin.Guess(rr, rig, skg.Up)));
+                foreach (var n in MhoExtendedModManager.Model.RigSkin.Apply(rr, rigsg, skg.Up, rest.Count > 4 ? rest[4] : "")) Console.WriteLine("skin: " + n);
+                foreach (var g in rr.Sections.GroupBy(x => x.Part))
+                {
+                    var hist = g.SelectMany(x => x.Weights).SelectMany(w => w).GroupBy(w => w.Bone).Select(b => (rr.Bones[b.Key].Name, b.Sum(x => x.Weight))).OrderByDescending(x => x.Item2).Take(10);
+                    Console.WriteLine($"after {g.Key}: " + string.Join(", ", hist.Select(x => $"{x.Name} {x.Item2:0}")));
+                }
+                return 0;
+            }
             case "--mff-seams":
             {
                 // --mff-seams <model> [material part] (read only): per section, places where vertices meet (UV seams, mirror
@@ -657,6 +686,25 @@ static partial class Program
                 main.Shown += (_, _) => main.BeginInvoke(async () =>
                 {
                     try { code = await main.ModelBlenderTest(rest[1], rest[2], rest[3], rest[4], Console.WriteLine); }
+                    catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
+                    main.Close();
+                });
+                Application.Run(main);
+                Console.WriteLine(code == 0 ? "all checks passed" : "FAILED");
+                return code;
+            }
+            case "--model-rigskin-test":
+            {
+                // --model-rigskin-test <mod> (scratch MHO_EXTMM_HOME only): the mod's own model as the source, Dress 1 skinned onto it
+                if (rest.Count < 2) { Console.WriteLine("--model-rigskin-test <mod>"); return 1; }
+                if (Environment.GetEnvironmentVariable("MHO_EXTMM_HOME") == null) { Console.WriteLine("needs MHO_EXTMM_HOME (a scratch library)"); return 1; }
+                Environment.SetEnvironmentVariable("MFF_GUI_NOASK", "1");
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+                int code = 1;
+                var main = new Gui.MainForm();
+                main.Shown += (_, _) => main.BeginInvoke(async () =>
+                {
+                    try { code = await main.ModelRigSkinTest(rest[1], Console.WriteLine); }
                     catch (Exception ex) { Console.WriteLine("ERROR: " + ex); }
                     main.Close();
                 });

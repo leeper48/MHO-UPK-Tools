@@ -96,6 +96,8 @@ sealed class ImportBuild
             }
             r = FbxReimport.LoadAny(o.SourceFbx, fitTo, only, log, o.PropAsIs);
             if (!isProp) FbxLean.Apply(r, o.Lean);
+            // cloth onto the added rigs nothing rides (a mod's own model, a model built from MFF before: Kurt, 2026-11-18)
+            if (!isProp && rigs.Count > 0) foreach (var n in RigSkin.Apply(r, rigs, fitTo.Up, o.RigSkin)) log("skin:    " + n);
             if (MathF.Abs(r.Lean) >= 0.01f) log($"lean:    {r.Lean:+0.#;-0.#} degrees (+ forward){(float.IsNaN(o.Lean) ? ", automatic" : "")}, half at the ankles and half at the hips");
             // an FBX source's map holds only its weight smoothing (the Bone Map's Smooth Weights)
             if (o.MapFile != null) foreach (var n in WeightSmooth.Apply(r, BoneMapFile.Load(o.MapFile).Smooth)) log("  " + n);

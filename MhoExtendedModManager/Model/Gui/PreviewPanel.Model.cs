@@ -157,7 +157,7 @@ sealed partial class PreviewPanel
 
     /// <summary>An FBX as the source (0.11.3): its skeleton proportions, meshes (<paramref name="meshes"/>, null = all) and textures.</summary>
     public static Prepared PrepareFbx(string fbx, IReadOnlyCollection<string>? meshes, string packagePath, string? materialDonor, string? mapFile = null, string? overrides = null, string? modelFbx = null, string? paintFile = null, float lean = float.NaN,
-        int cape = 0, int hair = 0, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null)
+        int cape = 0, int hair = 0, IReadOnlyList<(BorrowedRig.Kind Kind, int Number)>? rigsMore = null, string? rigSkin = null)
     {
         StartStages();
         var sk = MhoSkeleton.Load(packagePath, null);
@@ -168,6 +168,7 @@ sealed partial class PreviewPanel
         (sk, var rigs) = BorrowedRig.GraftAll(sk, BorrowedRig.Picks(cape, hair, rigsMore), null, notes.Add);
         var r = FbxReimport.LoadAny(fbx, sk, meshes, _ => { }, PropAsIsNow);   // (a prop target: laid over the prop, or its own model as it is)
         if (!PropFit.IsProp(sk)) FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
+        if (!PropFit.IsProp(sk) && rigs.Count > 0) notes.AddRange(RigSkin.Apply(r, rigs, sk.Up, rigSkin));   // (cloth onto rigs nothing rides)
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });   // the mesh edited in Blender (Ctrl+S)
         if (PropFit.IsProp(sk)) PropFit.Adjust(r, sk, PropAdjustNow);   // (the Prop Fit sliders)
         Stage("fbx load");

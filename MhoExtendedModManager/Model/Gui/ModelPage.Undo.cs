@@ -232,6 +232,7 @@ sealed partial class ModelPage
         if (!typing && Shortcuts.Is("model.boneup", keyData) && StepBone(true)) return true;   // ([ / ]: up and down the bones)
         if (!typing && Shortcuts.Is("model.bonedown", keyData) && StepBone(false)) return true;
         if (!typing && Shortcuts.Is("model.paint", keyData)) { preview.Painting = !preview.Painting; return true; }   // (Paint on / off)
+        if (!typing && Shortcuts.Is("model.reload", keyData)) { ReloadSource(); return true; }   // (the source read again from disk)
         if (!typing && Shortcuts.Is("model.undo", keyData)) { Undo(); return true; }
         if (!typing && Shortcuts.Is("model.redo", keyData)) { Redo(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);

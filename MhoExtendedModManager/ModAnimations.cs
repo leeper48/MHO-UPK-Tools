@@ -283,12 +283,22 @@ sealed class MeshAnimator
         restModelToBone = [.. rest.ModelToBone];
         posed = new Matrix4x4[bones.Count]; skin = new Matrix4x4[bones.Count]; locals = new Matrix4x4[bones.Count];
         Positions = new Vector3[positions.Length]; Normals = new Vector3[normals.Length];
+        ReadWeights();
+    }
+
+    /// <summary>The weights changed in place (the Model tab's weight painting, its Undo): read again, so the next Pose moves the
+    /// vertices by them (a user, 2026-11-18: the colours followed the brush, the shape only after a rebuild).</summary>
+    public void WeightsChanged() => ReadWeights();
+
+    void ReadWeights()
+    {
+        var positions = restPos;
         // (perf patch) the weights in flat arrays, once: only the ones Skin used (weight > 0, a bone of this skeleton), in order
-        infStart = new int[positions.Length + 1];
+        var start = new int[positions.Length + 1];
         var fb = new List<int>(positions.Length * 3); var fw = new List<float>(positions.Length * 3);
         for (int v = 0; v < positions.Length; v++)
         {
-            infStart[v] = fb.Count;
+            start[v] = fb.Count;
             var inf = v < influences.Count ? influences[v] : default;
             if (inf.Bones == null) continue;
             for (int k = 0; k < inf.Bones.Count; k++)
@@ -298,11 +308,11 @@ sealed class MeshAnimator
                 fb.Add(bi); fw.Add(w);
             }
         }
-        infStart[positions.Length] = fb.Count;
-        infBone = [.. fb]; infWeight = [.. fw];
+        start[positions.Length] = fb.Count;
+        infBone = [.. fb]; infWeight = [.. fw]; infStart = start;
     }
-    readonly int[] infStart, infBone;
-    readonly float[] infWeight;
+    int[] infStart = [], infBone = [];
+    float[] infWeight = [];
 
     static Quaternion Unit(Quaternion q) { float l = q.Length(); return l > 0.0001f ? Quaternion.Normalize(q) : Quaternion.Identity; }
 

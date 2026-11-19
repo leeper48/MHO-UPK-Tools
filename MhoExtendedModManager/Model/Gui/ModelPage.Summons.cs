@@ -199,9 +199,12 @@ sealed partial class ModelPage
         ExportFbx(true, null);
     }
 
-    /// <summary>The target's own model as the source (Source → From the Game → that package), loaded; false if it didn't load.</summary>
+    /// <summary>The target's own model as the source, loaded; false if it didn't load. A mod whose copy of the package carries
+    /// a model of its own (a replacement built here or elsewhere) gives that model (Kurt, 2026-11-18: adding a dress rig to such
+    /// a mod showed an empty Bone Map, and the game's model would have replaced the mod's); else the game's (From the Game).</summary>
     async Task<bool> UseOwnModel(string file)
     {
+        if (await Task.Run(() => ReplacedModel(file)) is string copy) return await UseModModel(file, copy);
         string key = GameSrc + file;
         if (!GameMode) sourceKind.SelectedIndex = 2;
         summonsOnlySource = false; Ui.Lit(summonsSource, false);
@@ -218,6 +221,70 @@ sealed partial class ModelPage
         for (int i = 0; i < 600 && !IsDisposed && preview.AnimationNames.Count == 0; i++) await Task.Delay(100);   // (the export names the preview's animations)
         if (IsDisposed) return false;
         Log($"Source: {file}'s own model (From the Game), to change it.");
+        return true;
+    }
+
+    /// <summary>The mod's copy of <paramref name="file"/> when its model isn't the game's (other vertices or bones), else null.
+    /// Cached by the copy's size and dates.</summary>
+    string? ReplacedModel(string file)
+    {
+        if (ModCopy(file) is not string copy || !File.Exists(copy)) return null;
+        string stamp = copy + "|" + Ui.FileStamp(copy);
+        lock (replacedCache) if (replacedCache.TryGetValue(stamp, out var known)) return known ? copy : null;
+        bool replaced = false;
+        try
+        {
+            string stock = BasePackage.Resolve(file, true);
+            if (!Path.GetFullPath(stock).Equals(Path.GetFullPath(copy), StringComparison.OrdinalIgnoreCase))
+            {
+                var a = MhoSkeleton.Load(PreviewPanel.MeshPackage(copy)).Mesh;
+                var b = MhoSkeleton.Load(PreviewPanel.MeshPackage(stock)).Mesh;
+                if (a.HighestDetail is { } la && b.HighestDetail is { } lb)
+                {
+                    replaced = la.Positions.Count != lb.Positions.Count || a.Bones.Count != b.Bones.Count;
+                    for (int i = 0, step = Math.Max(1, la.Positions.Count / 512); !replaced && i < la.Positions.Count; i += step)
+                        replaced = System.Numerics.Vector3.DistanceSquared(la.Positions[i], lb.Positions[i]) > 1e-6f;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or FileNotFoundException or UnauthorizedAccessException or MhoPackageModifier.PackageFormatException) { return null; }
+        lock (replacedCache) replacedCache[stamp] = replaced;
+        return replaced ? copy : null;
+    }
+
+    static readonly Dictionary<string, bool> replacedCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The mod's own model as the source (Kurt, 2026-11-18: "editing an existing mod without having to repoint the source"):
+    /// its copy of the package written as an FBX (data\model\fbx\&lt;title&gt; (Mod's Model) on &lt;package&gt; &lt;id&gt;, the id
+    /// from the copy's bytes, so each model has its own) and picked under Single Model, so the Bone Map, Paint, Add Rigs, Edit in
+    /// Blender and Build work on it as on any MHO-boned FBX.
+    /// </summary>
+    async Task<bool> UseModModel(string file, string copy)
+    {
+        string id;
+        try { id = await Task.Run(() => { using var fs = File.OpenRead(copy); return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fs))[..8].ToLowerInvariant(); }); }
+        catch (IOException ex) { Log($"{file}: the mod's model couldn't be read ({ex.Message})."); return false; }
+        if (IsDisposed) return false;
+        string title = string.Concat((DescribePackage(file).Title + " (Mod's Model)").Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        string dir = Path.Combine(Settings.Home, "fbx", $"{title} on {Path.GetFileNameWithoutExtension(file)} {id}");
+        string fbx;
+        using (Busy.Begin($"Model: reading the mod's model in {file}"))
+            try { fbx = await Task.Run(() => GameSource.ExportFrom(copy, dir, line => BeginInvoke(() => Log(line)))); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or MhoPackageModifier.PackageFormatException)
+            { Log($"{file}: the mod's model couldn't be read as the source ({ex.Message})."); return false; }
+        if (IsDisposed) return false;
+        string key = "fbx:" + fbx;
+        kindByState = true;
+        if (!FbxMode) sourceKind.SelectedIndex = 1; else FillCharacters();
+        kindByState = false;
+        characterFilter.Text = "";
+        Reselect(characters, key);
+        if (!key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase)) FbxChosen(key, fbx);
+        for (int i = 0; i < 1200 && !IsDisposed && !(key.Equals(chosenKey, StringComparison.OrdinalIgnoreCase) && HasSource); i++) await Task.Delay(100);
+        if (IsDisposed) return false;
+        if (!HasSource) { Log($"{file}: the mod's model couldn't be read as the source."); return false; }
+        Log($"Source: the mod's own model in {file} (Single Model → {title}), so the Bone Map, Paint, Add Rigs and Edit in Blender work on it without picking its source again. Build into Mod keeps that model.");
         return true;
     }
 

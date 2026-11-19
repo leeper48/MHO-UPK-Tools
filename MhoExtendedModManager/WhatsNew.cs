@@ -50,7 +50,7 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ModelFixes566(), ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
@@ -59,6 +59,16 @@ static class WhatsNew
     /// and Shape Keys, Weapon parts, idle buttons, game characters onto others (Medusa on Carnage).</summary>
     /// <summary>0.60.537 (Kurt, 2026-11-17): the Visual Update image, Swap Model on telescoping staffs, the folded Prop Fit heading.</summary>
     /// <summary>0.60.556 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
+    /// <summary>0.60.566 (Kurt, 2026-11-18): weight painting moves the model, a saved source reloads, the mod's own model as the source.</summary>
+    static Notice ModelFixes566() => new(
+        "0.60.566-model-fixes", "0.60.566",
+        "[!]Model tab" + nl +
+        "  • Weight painting changes the model's shape as you paint, in any pose. Before, the weight colors changed, but the posed model only caught up after something else rebuilt the preview (thanks, MonarchOP)." + nl +
+        "  • A model you picked as the source and then saved again in Blender or another program is read again by itself, and the preview shows the change; your parts, rigs and size are kept. F5 reloads it by hand." + nl +
+        "  • A mod that already has its own model in a package uses that model as the source when none is saved, so the Bone Map, Paint, Add Rigs and Edit in Blender work on it without picking the source again." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "model");
+
     static Notice ImageEditor() => new(
         "0.60.562-image-editor", "0.60.562",
         "[!]New: a built-in image editor" + nl +
