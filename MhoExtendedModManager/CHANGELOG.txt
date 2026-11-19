@@ -1,6 +1,9 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.567
+- Test build: 0.60.566 rebuilt with no changes, because Windows Defender's machine-learning check flagged the 0.60.566 exe on one PC (Trojan:Win32/Bearfoos.A!ml, a false positive; reported to Microsoft).
+
 0.60.566
 - Model tab: weight painting moves the model as you paint. Before, the weight colors changed with each stroke but a posed model kept its old shape until something else (a Bone Map change) rebuilt the preview.
 
