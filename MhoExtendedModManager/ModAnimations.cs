@@ -343,6 +343,11 @@ sealed class MeshAnimator
         return (last, a.DurationSeconds > 0 ? a.DurationSeconds : last / 30f);
     }
 
+    /// <summary>The ankles keep the model's own shin length, as a build makes them (HairAnims.KeepLegs): the Model tab, its Feet
+    /// measuring, cape matching and the other fitting tools (as before 0.60.591). Off (the Mods tab's preview): a set's listed
+    /// ankles take the animation's positions, as the game applies them.</summary>
+    public bool LegsAsBuilt { get; set; } = true;
+
     /// <summary>Poses the mesh at a frame of <paramref name="a"/> (null: the rest pose) into Positions / Normals.</summary>
     public void Pose(BoneAnimation? a, float frame)
     {
@@ -355,9 +360,11 @@ sealed class MeshAnimator
             {
                 // Rotation-only sets: the animation's position only for its listed bones (and the root).
                 var tb = tbAll;
-                // Not the ankles: hulk_v2_as lists them, which sank a shorter-legged model 8 units in the preview, but taking them
-                // off the list changed nothing in game (Spider-Punk on Planet Hulk, 2026-11-01; why isn't known, UE3 would apply them).
-                if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name) && b.Name is not ("g_l_ankle" or "g_r_ankle")) p = Sample(t.PositionKeys, frame, p);
+                // The ankles as the game applies them (Kurt, 2026-11-20, ULTRAVISION on Ultron: with them in the set's list the
+                // game gave Vision Ultron's shins and the feet sank; with them left out they stood on the floor. An earlier test,
+                // Spider-Punk on Planet Hulk 2026-11-01, seemed to show the game ignoring them). LegsAsBuilt (the Model tab):
+                // the model's own shins, as Build keeps them (HairAnims.KeepLegs).
+                if (tb == null || i == 0 || b.ParentIndex < 0 || tb.Contains(b.Name) && !(LegsAsBuilt && b.Name is "g_l_ankle" or "g_r_ankle")) p = Sample(t.PositionKeys, frame, p);
                 var keys = t.RotationKeys;
                 // A single rotation key: the bind-pose rule (SingleKey) only for the root and *_offset bones, where it was
                 // confirmed; a posed bone keeps its stored rotation. Checked 2026-10-03 (--singlekey-census): where the two

@@ -58,6 +58,9 @@ sealed class ImportBuild
         string? pkgOut = WritePackage(basePackage, export);
         if (pkgOut == null) return null;
         if ((rigs.Count > 0 || o.AnimFbx is { Count: > 0 }) && !HairAnimation(pkgOut)) return null;
+        // (no rig or edit: the legs are kept on their own, when the hero's animations would stretch them; HairAnims.Add does it
+        // with the rigs otherwise)
+        else if (rigs.Count == 0 && o.AnimFbx is not { Count: > 0 } && !PropFit.IsProp(sk) && !KeepLegs(pkgOut)) return null;
         DropOldEdits(pkgOut);
         var result = o.NoMod ? new Result(pkgOut, "", "", "") : WriteMod(pkgOut);
         CheckReadBack(native);
@@ -121,6 +124,7 @@ sealed class ImportBuild
             foreach (var n in r.Notes.Where(n => n.StartsWith("prop:", StringComparison.Ordinal))) log(n.Replace("prop: ", "prop:    "));
         }
         if (o.ModelFbx != null) { log("mesh from the edited FBX: " + o.ModelFbx); FbxReimport.ApplyAny(r, o.ModelFbx, sk, log); }
+        if (!PropFit.IsProp(sk) && AnkleTurn.Apply(r, o.Ankle) is string an) log(an);   // (the Ankle slider; after a Blender edit, so it holds)
         if (PropFit.IsProp(sk) && o.PropFit is { IsNone: false } pfit) { PropFit.Adjust(r, sk, pfit); log("prop:    " + r.Notes[^1]["prop fit: ".Length..].Insert(0, "fit ")); }   // the Prop Fit sliders
         MaterialOverrides.Apply(r, o.MaterialOverrides, line => log("  " + line));   // the Materials tab's files
         if (WeightPaint.Apply(r, o.PaintFile) is { } paintNote) log("paint:   " + paintNote["weight paint: ".Length..]);
@@ -405,6 +409,22 @@ sealed class ImportBuild
             return true;
         }
         catch (InvalidDataException ex) { log("PACKAGE PROBLEM: animations: " + ex.Message); return false; }
+    }
+
+    /// <summary>The model's own shin length kept (HairAnims.KeepLegs, Kurt 2026-11-20: ULTRAVISION's feet sank into the floor on
+    /// Ultron's longer shins); false (logged) when it couldn't be written.</summary>
+    bool KeepLegs(string pkgOut)
+    {
+        try
+        {
+            if (HairAnims.KeepLegs(pkgOut, Path.GetFileName(package), builtBones, log) is not { } res) return true;
+            Protected.CheckWrite(pkgOut);
+            File.WriteAllBytes(pkgOut, res.Package);
+            log($"anims:   {res.Sets} animation set(s) copied with the model's own legs; package {new FileInfo(pkgOut).Length:N0} bytes");
+            return true;
+        }
+        catch (InvalidDataException ex) when (ex.Data.Contains(HairAnims.NoAnimationListKey)) { return true; }   // (a power's model: plays the power's sets)
+        catch (InvalidDataException ex) { log("PACKAGE PROBLEM: legs: " + ex.Message); return false; }
     }
 
     /// <summary>The hero's base package (UC__MarvelPlayer_&lt;Hero&gt;_SF.upk, the game's) for a costume package; null otherwise.</summary>

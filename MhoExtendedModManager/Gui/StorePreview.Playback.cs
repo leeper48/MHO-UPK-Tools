@@ -87,7 +87,8 @@ sealed partial class StorePreview
         int req = ++request;
         string? cooked = CookedFolder;
         bool plain = overridesOff;
-        Task.Run(() => { using var busy = Busy.Begin("3D view: loading the model"); try { var l = ModMeshes.Load(r, cooked, out string why, componentMaterials: !plain); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
+        var scalePkgs = mod != null ? ModPackages(mod) : [];
+        Task.Run(() => { using var busy = Busy.Begin("3D view: loading the model"); try { var l = ModMeshes.Load(r, cooked, out string why, componentMaterials: !plain); if (l != null) lock (meshScales) meshScales[key] = MeshScale.Of(r.File, scalePkgs, cooked); return (l, why); } catch (Exception ex) { return ((ModMeshes.Loaded?)null, ex.Message); } }).ContinueWith(t =>
         {
             if (IsDisposed || req != request || p3 == null) return;
             var (loaded, why) = t.Result;
@@ -100,13 +101,16 @@ sealed partial class StorePreview
         void Show(ModMeshes.Loaded l)
         {
             if (p3 == null || mod == null) return;
-            var animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents) { Shift = l.MeshTransform.Translation };   // (the mesh's Origin: the game draws the model moved by it; the Model tab's Feet slider writes it)
+            var animator = new MeshAnimator(l.Bones, l.Positions, l.Normals, l.Influences, l.Tangents) { Shift = l.MeshTransform.Translation, LegsAsBuilt = false };   // (the ankles as the game moves them: 0.60.591)   // (the mesh's Origin: the game draws the model moved by it; the Model tab's Feet slider writes it)
             string? cooked2 = CookedFolder;
             // The hero whose animations these are: UC__MarvelPlayer_<Hero>_… (a moved costume plays its target hero's).
             string? hero = HeroOf.Package(r.Package, cooked2);
             var ctx = new PreviewContext(hero, cooked2, r, meshes, ModPackages(mod, skip: true), () => Model.ConditionSwaps.ClassOf(r.Package), c => SwapsFor(c, r))
             { PropPackages = ModPackages(mod) };
             p3.FullTitle = $"Preview: {mod.Name}";
+            // the size the game draws it at (the costume's Scale; Kurt, 2026-11-20: it showed at 100 % beside the barrel)
+            float sc; lock (meshScales) sc = meshScales.TryGetValue(key, out float ms) ? ms : 1;
+            p3.View.ModelScale = sc;
             p3.ShowCharacter(l, animator, [], ctx, null, 0, false, StartView(r), samePowers: false);
             shownMesh = r.Key;
             Invalidate();
@@ -222,6 +226,9 @@ sealed partial class StorePreview
 
     /// <summary>Esc (Kurt): pauses a playing animation; false when nothing was playing (Esc then does its usual job).</summary>
     public bool PausePlayback() => show3D && p3 != null && p3.PausePlayback();
+
+    /// <summary>Each loaded model's size in game (MeshScale), by the mesh cache's key.</summary>
+    static readonly Dictionary<string, float> meshScales = [];
 
     /// <summary>Into or out of full screen (the 3D view; F11).</summary>
     public void ToggleFull() { if (p3 != null && (show3D || p3.IsFull)) p3.ToggleFull(); }

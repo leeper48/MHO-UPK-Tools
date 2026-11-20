@@ -678,6 +678,17 @@ static class CrossMove
                 try { if (Model.PartMotion.Apply(file, target.Package, meshName, mod, srcFile, source.Class.Split('_')[1], xp.Parts, game.Cooked, log.Add, Path.Combine(game.Cooked, "UC__MarvelPlayer_" + target.Class.Split('_')[1] + "_SF.upk")) is { } moved) File.WriteAllBytes(file, moved); }
                 catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException or IndexOutOfRangeException or AnimExportCli.Packages.InvalidPackageException)
                 { log.Add("parts:   no motion added: " + ex.Message); }
+            // the model's own legs (Kurt, 2026-11-20: the target hero's animations gave Vision Ultron's shins and his feet sank
+            // into the floor): copies of the target's sets without the ankles' positions, when they'd stretch them (done already
+            // when the parts got motion above: those copies leave them out too)
+            if (!log.Any(x => x.StartsWith("anims:   legs:", StringComparison.Ordinal)))
+                try
+                {
+                    var legsSk = Model.MhoSkeleton.Load(file, meshName.Split('.')[^1]);
+                    if (Model.HairAnims.KeepLegs(file, target.Package, legsSk.Bones, log.Add) is { } legs) { File.WriteAllBytes(file, legs.Package); log.Add($"legs:    {legs.Sets} animation set(s) copied with the model's own shin length"); }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException or IndexOutOfRangeException or AnimExportCli.Packages.InvalidPackageException)
+                { log.Add("legs:    left as the target's animations have them: " + ex.Message); }
             // The grafted model keeps the source's path (rescue.rescue on Iron Man Extremis), which other stock packages
             // also carry (Rescue's team-up): whichever loads first would show. Made unique (Kurt, 2026-10-11).
             var unique = UniqueNames.PlanFor(file, stock, target.Package, UniqueNames.Shared(UniqueNames.Folder(game.Cooked)),

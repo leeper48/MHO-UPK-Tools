@@ -63,6 +63,11 @@ static class PreviewControls
         Form? form;
         Control? homeParent;
         int homeIndex;
+        // how it sat at home (Kurt, 2026-11-20: the Mods tab's preview, placed by its card and not docked, stayed at its card's
+        // size in the full screen window's corner): it fills the window, then goes back as it was
+        DockStyle homeDock;
+        Rectangle homeBounds;
+        AnchorStyles homeAnchor;
         public bool IsFull => form != null;
         /// <summary>Closes the full screen window (the preview is being disposed).</summary>
         public void Dispose() { form?.Dispose(); form = null; }
@@ -78,6 +83,9 @@ static class PreviewControls
                 {
                     c.Parent = homeParent;
                     homeParent.Controls.SetChildIndex(c, homeIndex);
+                    c.Dock = homeDock;
+                    if (homeDock == DockStyle.None) { c.Anchor = homeAnchor; c.Bounds = homeBounds; }
+                    homeParent.PerformLayout();
                 }
                 f.Close(); f.Dispose();
                 changed?.Invoke();
@@ -88,6 +96,7 @@ static class PreviewControls
             var owner = c.FindForm();
             homeParent = c.Parent;
             homeIndex = homeParent.Controls.GetChildIndex(c);
+            homeDock = c.Dock; homeBounds = c.Bounds; homeAnchor = c.Anchor;
             var nf = new Form
             {
                 FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = Screen.FromControl(c).Bounds,
@@ -102,6 +111,7 @@ static class PreviewControls
             nf.FormClosing += (_, e) => { if (form == nf && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Toggle(c, title, pause, togglePlay, focus, padding, changed); } };
             form = nf;
             c.Parent = nf;
+            c.Dock = DockStyle.Fill;
             nf.Show(owner);
             focus?.Focus();
             changed?.Invoke();

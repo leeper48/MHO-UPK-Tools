@@ -116,7 +116,7 @@ sealed class PowerLooks
 }
 
 /// <summary>A power button's right-click menu (Kurt, 2026-11-17).</summary>
-enum PowerMenuAction { Rename, ReplaceIcon, MakeIcon, ModifyAnimation, Borrow, ResetBorrow, Color, Dark, GamesColors, Parts }
+enum PowerMenuAction { Rename, ReplaceIcon, MakeIcon, ModifyAnimation, Borrow, ResetBorrow, Color, Dark, GamesColors, Parts, ModelAdjust }
 
 /// <summary>A power's right-click menu, the same on every tab (Kurt, 2026-11-17: the shortcuts first, then the Powers tab's own
 /// actions for the power).</summary>
@@ -136,6 +136,8 @@ static class PowerMenuItems
         Add("Make Icon From 3D View", PowerMenuAction.MakeIcon, "Take a snapshot of the 3D view playing this power, on a background color of your choice, as the power's icon.");
         if (pw.Animations.Count > 0) Add("Change Its Animations", PowerMenuAction.ModifyAnimation, "Open the Animations tab on this power's animations, to swap them for another character's.");
         if (pw.Animations.Count > 0) Add("Borrow Power", PowerMenuAction.Borrow, "Give this power another power's look (its animation, effects, sounds and props), on the Powers tab.");
+        // Model Adjust (Kurt, 2026-11-20): the Editor's Model tab (fit, Feet, Lean, Ankle, props)
+        Add("Model Adjust", PowerMenuAction.ModelAdjust, "Open the Editor's Model tab, to adjust the model (its fit, Size, Feet, Lean and Ankle, its props).");
         // (Kurt, 2026-11-17: Borrow Power only; Reset, Color, Dark, Game's Colors and Parts dropped from the menu)
         return menu;
     }

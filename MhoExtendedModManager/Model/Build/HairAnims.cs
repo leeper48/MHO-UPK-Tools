@@ -76,20 +76,13 @@ static class HairAnims
             return a;
         }
         overrides ??= new Dictionary<string, string>();
-        if (hair.Count == 0 && overrides.Count == 0) throw new InvalidDataException("no borrowed hair bones and no replaced animations");
-        bool all = hair.Count > 0;   // every animation of a set (hair), else only the replaced ones
-        string Suffix = all ? "_mffhair" : "_mffedit";
-        var fileFor = (string name) =>
-        {
-            string f = name.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? name : name + ".upk";
-            if (f.Equals(packageFile, StringComparison.OrdinalIgnoreCase)) return ((string, bool)?)(builtPath, true);
-            // the hero's package from the mod first (its borrowed powers' sets: Kurt, 2026-10-23, an edited borrowed flight
-            // stopped the build, "the costume plays no animation named movement_run_flying")
-            if (MhoAnim.BaseLookup?.Invoke(f) is string mine && File.Exists(mine)) return ((string, bool)?)(mine, true);
-            try { string p = BasePackage.Resolve(f, true); return File.Exists(p) ? (p, false) : null; }
-            catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return null; }   // a group, not a file
-        };
+        var fileFor = FileFor(builtPath, packageFile);
         var ca = CostumeAnims.Read(builtPath, packageFile, fileFor) ?? throw NoAnimationList("the costume's animation list doesn't read");
+        // the ankles the animations would stretch to another leg length (KeepLegs): their positions left out in the copies
+        var keep = StretchedAnkles(ca, bones, out string? keepNote);
+        if (hair.Count == 0 && overrides.Count == 0 && keep.Count == 0) throw new InvalidDataException("no borrowed hair bones, no replaced animations and no leg lengths to keep");
+        bool all = hair.Count > 0 || keep.Count > 0;   // every animation of a set (hair, kept legs), else only the replaced ones
+        string Suffix = all ? "_mffhair" : "_mffedit";
         // a replaced animation goes into the set the game plays it from (the last set holding its name)
         var winners = overrides.Keys.Select(n => ca.Anims.FirstOrDefault(a => a.Name.Equals(n, StringComparison.OrdinalIgnoreCase))).ToList();
         foreach (var (n, w) in overrides.Keys.Zip(winners)) if (w == null) throw new InvalidDataException($"the costume plays no animation named \"{n}\"");
@@ -97,6 +90,7 @@ static class HairAnims
         if (copy.Count == 0) throw new InvalidDataException("the costume plays no animation set of its hero's or its own");
         foreach (var w in winners) if (w!.From.Kind == CostumeAnims.Source.Shared && !copy.Contains(w.From)) copy.Add(w.From);
         var lines = new List<string>();
+        if (keepNote != null) lines.Add(keepNote);
         string cls = ca.Class.ToLowerInvariant();
         if (all) foreach (var s in ca.Sets.Except(copy)) lines.Add($"set {s.Path} ({s.Kind}, {s.Sequences.Count} animations) not copied: the borrowed rigs keep their rest pose there");
 
@@ -181,7 +175,8 @@ static class HairAnims
             if (nTracks != from.TrackBoneNames.Count) throw new InvalidDataException($"{from.Path}: {nTracks} track names in the set, {from.TrackBoneNames.Count} read");
             var add = hair.Where(h => !from.TrackBoneNames.Contains(h, StringComparer.OrdinalIgnoreCase)).ToList();
             bool replacesHere = from.Sequences.Any(x => overrides.ContainsKey(x.Name));
-            if (add.Count == 0 && !replacesHere)
+            bool dropsHere = from.TranslationBones != null && keep.Any(from.TranslationBones.Contains);
+            if (add.Count == 0 && !replacesHere && !dropsHere)
             {
                 // (an animation swap from the hair's own character, Medusa's run on Carnage): its own hair tracks play; it stays
                 // where it is in the list (the copies go right after their own originals, so they don't take its names back)
@@ -240,7 +235,8 @@ static class HairAnims
                     foreach (var h in add) keys[h] = [bones.First(b => b.Name.Equals(h, StringComparison.OrdinalIgnoreCase)).Orientation];
                     still = true;
                 }
-                byte[] nqd = AppendTracks(pkg, qd, qt, add.Select(h => (places[h], keys[h])).ToList(), frames, seqName, out var writtenKeys);
+                List<Quaternion[]> writtenKeys = [];
+                byte[] nqd = add.Count == 0 ? qd : AppendTracks(pkg, qd, qt, add.Select(h => (places[h], keys[h])).ToList(), frames, seqName, out writtenKeys);   // (only the legs kept: the animation as it is)
                 if (writtenKeys.Zip(add).Any(z => z.First.Length != keys[z.Second].Length)) still = true;
                 if (still) statics++;
                 for (int i = 0; i < add.Count; i++) keys[add[i]] = writtenKeys[i];
@@ -258,12 +254,16 @@ static class HairAnims
             // a rotation-only set (the default) applies positions only to the bones it names: the moving hair bones added
             var usePos = from.TranslationBones != null ? add.Where(h => posBones.Contains(h) && !from.TranslationBones.Contains(h)).ToList() : [];
             byte[]? newUse = null;
-            if (usePos.Count > 0)
+            if (usePos.Count > 0 || dropsHere)
             {
                 var useTag = stags.FirstOrDefault(t => t.Name.Equals("UseTranslationBoneNames", StringComparison.OrdinalIgnoreCase));
                 int had = useTag != null ? BinaryPrimitives.ReadInt32LittleEndian(sd.AsSpan(useTag.ValueAt)) : 0;
-                byte[] list = [.. BitConverter.GetBytes(had + usePos.Count), .. useTag != null ? sd.AsSpan(useTag.ValueAt + 4, had * 8).ToArray() : [],
+                // the entries kept (8 bytes each: name, number), the kept legs' ankles left out (they take the model's own shin)
+                var kept = Enumerable.Range(0, had).Select(k => sd.AsSpan(useTag!.ValueAt + 4 + 8 * k, 8).ToArray())
+                    .Where(e => { int ni = BinaryPrimitives.ReadInt32LittleEndian(e); return ni < 0 || ni >= pkg.Names.Length || !keep.Contains(pkg.Names[ni]); }).ToList();
+                byte[] list = [.. BitConverter.GetBytes(kept.Count + usePos.Count), .. kept.SelectMany(e => e),
                     .. usePos.SelectMany(h => BitConverter.GetBytes((long)NameIdx(h)))];
+                if (dropsHere) lines.Add($"{from.Path}: {had - kept.Count} ankle(s) take the model's own shin length (left out of the copy's UseTranslationBoneNames)");
                 if (useTag != null) editList.Add((useTag, list));
                 else
                 {
@@ -370,7 +370,7 @@ static class HairAnims
         if (problems.Count > 0) throw new InvalidDataException("the package with the hair animation didn't verify: " + string.Join("; ", problems.Take(3)));
 
         // 3. Read back: every copied sequence decoded from the output; body tracks as the source's, hair as built.
-        if (Environment.GetEnvironmentVariable("MFF_ANIMS_KEEP") is { Length: > 0 } keep) File.WriteAllBytes(keep, output);   // diagnostics: the package even when the check fails
+        if (Environment.GetEnvironmentVariable("MFF_ANIMS_KEEP") is { Length: > 0 } keepFile) File.WriteAllBytes(keepFile, output);   // diagnostics: the package even when the check fails
         Check(output, expect, lines);
         // as the game looks them up (last set first): every animation of a copied set now comes from its copy
         string tmp = Path.Combine(Path.GetTempPath(), $"mff_hair_{Environment.ProcessId}_{packageFile}");
@@ -392,6 +392,60 @@ static class HairAnims
         finally { try { File.Delete(tmp); } catch (IOException) { } }
         foreach (var l in lines) log("anims:   " + l);
         return new Result(output, setRefs.Count, sequences, statics, lines);
+    }
+
+    /// <summary>Where a set's package is: the built one, the mod's copy of the hero's package, else the game's.</summary>
+    static Func<string, (string Path, bool FromMod)?> FileFor(string builtPath, string packageFile) => name =>
+    {
+        string f = name.EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? name : name + ".upk";
+        if (f.Equals(packageFile, StringComparison.OrdinalIgnoreCase)) return (builtPath, true);
+        // the hero's package from the mod first (its borrowed powers' sets: Kurt, 2026-10-23, an edited borrowed flight
+        // stopped the build, "the costume plays no animation named movement_run_flying")
+        if (MhoAnim.BaseLookup?.Invoke(f) is string mine && File.Exists(mine)) return (mine, true);
+        try { string p = BasePackage.Resolve(f, true); return File.Exists(p) ? (p, false) : null; }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return null; }   // a group, not a file
+    };
+
+    static readonly string[] Ankles = ["g_l_ankle", "g_r_ankle"];
+
+    /// <summary>
+    /// The ankles the costume's animations would stretch (Kurt, 2026-11-20, ULTRAVISION on Ultron: the feet sank into the floor
+    /// in game): a rotation-only set that lists an ankle in UseTranslationBoneNames gives it the animation's position, the shin
+    /// length of the hero it was made for (Ultron's 27.8 on Vision's 21.0), so a model with other legs gets the hero's shins
+    /// and its feet go through the floor. Confirmed in game: with the ankles left out of the list the feet stood on the floor.
+    /// An ankle counts when the shin it would get differs from the model's own by more than 3 %.
+    /// </summary>
+    static HashSet<string> StretchedAnkles(CostumeAnims ca, IReadOnlyList<MeshBone> bones, out string? note)
+    {
+        note = null;
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var said = new List<string>();
+        foreach (string ankle in Ankles)
+        {
+            var mb = bones.FirstOrDefault(b => b.Name.Equals(ankle, StringComparison.OrdinalIgnoreCase));
+            if (mb == null || mb.Position.Length() < 1e-3f) continue;
+            // the animation the costume plays as its idle, else the first one, from a set that gives the ankle its position
+            var a = ca.Anims.FirstOrDefault(x => x.Name.Equals("idle", StringComparison.OrdinalIgnoreCase) && x.From.TranslationBones?.Contains(ankle) == true)
+                ?? ca.Anims.FirstOrDefault(x => x.From.TranslationBones?.Contains(ankle) == true);
+            if (a == null) continue;
+            var anim = ModAnimations.Load(a.Ref);
+            if (anim == null || !anim.Tracks.TryGetValue(ankle, out var t) || t.PositionKeys.Count == 0) continue;
+            float own = mb.Position.Length(), got = t.PositionKeys[0].Position.Length();
+            if (MathF.Abs(got - own) <= 0.03f * own) continue;
+            result.Add(ankle);
+            said.Add($"{ankle} {got:0.0} (the model's {own:0.0})");
+        }
+        if (result.Count > 0) note = $"legs: the animations' shin lengths ({string.Join(", ", said)}) aren't the model's: the copies leave the ankles' positions out, so the model keeps its own legs and its feet stay on the floor";
+        return result;
+    }
+
+    /// <summary>The costume's animation sets copied with the model's own shin length kept (<see cref="StretchedAnkles"/>), when its
+    /// animations would stretch it; null when they wouldn't (nothing to do). A build with rigs or edits does it in <see cref="Add"/>.</summary>
+    public static Result? KeepLegs(string builtPath, string packageFile, IReadOnlyList<MeshBone> bones, Action<string> log)
+    {
+        var ca = CostumeAnims.Read(builtPath, packageFile, FileFor(builtPath, packageFile));
+        if (ca == null || StretchedAnkles(ca, bones, out _).Count == 0) return null;
+        return Add(builtPath, packageFile, bones, new HashSet<string>(), [], log);
     }
 
     /// <summary>A name no export has yet (…_2, _3 … when taken).</summary>

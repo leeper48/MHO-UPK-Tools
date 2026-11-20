@@ -56,6 +56,8 @@ sealed partial class ModelPage : UserControl
     bool restoringLean;
     /// <summary>The Lean to fit with: the user's, else automatic (NaN: worked out in the fit).</summary>
     float LeanToUse => leanCustom ?? float.NaN;
+    // Ankle (Kurt, 2026-11-20: toes still pointed up in some animations): the feet turned at the ankles, + toes down
+    readonly LightSlider ankleSlider = new() { Label = "Ankle", Min = -45, Max = 45, Step = 0.5f, Mark = 0, Home = () => 0, Dock = DockStyle.Top, Value = 0 };
     bool restoringFeet;
     readonly LightSlider sizeSlider = new() { Label = "Size", Min = 0.05f, Max = 4f, Step = 0.01f, Mark = 1f, Home = () => 1f, Dock = DockStyle.Top };
     /// <summary>A cape / long hair borrowed from other heroes (preview prototype; Kurt: generic numbers, matched motion).</summary>
@@ -318,11 +320,13 @@ sealed partial class ModelPage : UserControl
         jointFit.Margin = new Padding(2, 4, 0, 0);
         checks.Controls.Add(matchSteps); checks.Controls.Add(keepSourceSize); checks.Controls.Add(jointFit); checks.Controls.Add(summonLook);
         summonLook.Margin = new Padding(2, 4, 0, 0);
-        sizeBox.RowCount = 4;
+        sizeBox.RowCount = 5;
+        ankleSlider.Height = sizeSlider.Height; ankleSlider.Dock = DockStyle.Fill; ankleSlider.Margin = new Padding(0, 2, 0, 0);
+        ankleSlider.Format = v => $"{v:+0.0;-0.0;0}°";
         leanSlider.Height = sizeSlider.Height; leanSlider.Dock = DockStyle.Fill; leanSlider.Margin = new Padding(0, 2, 0, 0);
         leanSlider.Home = () => leanAuto;
         leanSlider.Format = v => $"{v:+0.0;-0.0;0}°" + (leanCustom == null && MathF.Abs(v - leanAuto) < 0.05f ? " Auto" : "");
-        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(feetSlider, 0, 1); sizeBox.Controls.Add(leanSlider, 0, 2); sizeBox.Controls.Add(checks, 0, 3);
+        sizeBox.Controls.Add(sizeSlider, 0, 0); sizeBox.Controls.Add(feetSlider, 0, 1); sizeBox.Controls.Add(leanSlider, 0, 2); sizeBox.Controls.Add(ankleSlider, 0, 3); sizeBox.Controls.Add(checks, 0, 4);
         // (a prop target: the Prop Fit sliders in its place, Kurt 2026-10-26)
         var sizeHolder = new TableLayoutPanel { ColumnCount = 1, RowCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Color.Transparent, Margin = new Padding(0), Dock = DockStyle.Fill };
         sizeHolder.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -403,6 +407,8 @@ sealed partial class ModelPage : UserControl
         Ui.TipTitled(jointFit, "Game Joint Blend", "Shares the skin around the hips, knees, shoulders and elbows between the limb and the body the way the target's own game model does, over a wide band, instead of the MFF model's narrow handover. It stops the seat creasing and the shoulders and thighs bulging when the hero moves. The pelvis also turns where the game's does. Test feature: compare it in the preview (Look ▾ → Weights shows the result), then in game. The preview shows it after a moment; Build writes it. (MFF models only.)");
         jointFit.CheckedChanged += (_, _) => { SaveState(); SchedulePreview(); };
         Ui.TipTitled(leanSlider, "Lean", "Tips the model forward (+) or back (−), in degrees: half at the ankles (the legs stay straight), half at the hips; the soles stay flat. It starts at the automatic amount (Auto): the head over the feet as the hero's own model stands. Double-click: back to automatic. The preview shows it after a moment; Build writes it.");
+        Ui.TipTitled(ankleSlider, "Ankle", "Turns the model's feet at the ankles, in degrees: + points the toes down, − up. For a model whose toes point up (or down) in some animations: the turn holds in every animation, and the skin just above the ankle blends into it. 0 = as fitted. Double-click: back to 0. The preview shows it after a moment; Build writes it.");
+        ankleSlider.Committed += () => { ankleSlider.Invalidate(); SaveState(); SchedulePreview(); };
         leanSlider.Committed += () =>
         {
             if (restoringLean) return;
@@ -1388,6 +1394,7 @@ sealed partial class ModelPage : UserControl
         UpdatePropFitUi();
         UpdateSummonLook();
         PreviewPanel.PropAdjustNow = PropFitForTarget();   // (a prop target: the Prop Fit sliders)
+        PreviewPanel.AnkleNow = ankleSlider.Value;
         PreviewPanel.HeldNow = ChosenPackage is CharacterList.Item hp ? (ModCopy(hp.Key), WorkedModels(hp.Key)) : null;   // (the body and its prop together)
         PreviewPanel.AddedFitNow = AddedTarget is { } at ? PowerBorrow.FitMatrix(at.Fit, at.Class) : null;   // (an added prop: shown with its fit)
         PreviewPanel.PropAsIsNow = AddedTarget?.KeepShape == true;   // (a prop of the user's own: as made)

@@ -52,7 +52,7 @@ sealed partial class ModelPage
         string? print = Fingerprint();
         bool ok = false;
         using var busy = Busy.Begin($"Model: building onto {ChosenPackage?.Key}");
-        var options = new ImportOptions { Parts = string.Join(",", picked), FeetShift = feetCustom ?? (feetKnown ? feetAuto : null), FeetMeasured = feetCustom == null && feetKnown, KeepSourceSize = keepSourceSize.Checked, Lean = LeanToUse, JointFit = jointFit.Checked, Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
+        var options = new ImportOptions { Parts = string.Join(",", picked), FeetShift = feetCustom ?? (feetKnown ? feetAuto : null), FeetMeasured = feetCustom == null && feetKnown, KeepSourceSize = keepSourceSize.Checked, Lean = LeanToUse, Ankle = ankleSlider.Value, JointFit = jointFit.Checked, Material = Materials[Math.Max(0, material.SelectedIndex)].Value, Subdivide = smooth.Checked, SourceFbx = sourceFbx,
             MapFile = MapPath() is string mp && File.Exists(mp) ? mp : null,   // (an FBX source's: its smoothing)
             MaterialOverrides = OverridesFile(),
             PaintFile = PaintPath() is string paintPath && File.Exists(paintPath) ? paintPath : null,
@@ -467,6 +467,7 @@ sealed partial class ModelPage
         var sb = new System.Text.StringBuilder();
         sb.Append(pkg.Key).Append('|').Append(MhoSkeleton.ChosenFor(pkg.Key)).Append('|').Append(FromStock).Append('|').Append(sizeSlider.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(matchSteps.Checked).Append('|').Append(feetCustom?.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) ?? "auto").Append('|').Append(keepSourceSize.Checked).Append('|').Append(leanSlider.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)).Append(jointFit.Checked ? "|joints" : "").Append(PaintText() is string paintText ? "|paint" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(paintText)))[..10] : "");
         if (PropFitForTarget() is { IsNone: false } pfp) sb.Append("|propfit").Append(pfp);   // (only then: builds from before keep their print)
+        if (MathF.Abs(ankleSlider.Value) >= 0.01f) sb.Append("|ankle").Append(ankleSlider.Value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture));   // (only then: builds from before keep their print)
         // a whole pet / whole character (Kurt, 2026-11-10: after building Ant-Man whole into Dark Pact's demon, leaving the tab asked
         // to build again: the whole build kept no print), and for a summon whether it keeps its effects
         if (PetPair(pkg.Key) is string wp && petWhole.TryGetValue(wp, out bool wwhole) && wwhole) sb.Append("|whole").Append(IsWholeSummon(pkg.Key) && summonLook.Checked ? "|keepfx" : "");

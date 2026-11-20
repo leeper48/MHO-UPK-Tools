@@ -134,6 +134,7 @@ sealed partial class PreviewPanel
         var file = mapFile != null ? BoneMapFile.Load(mapFile) : null;
         var r = Retarget.Run(model, picked, sk, file, RetargetOptions.FromEnvironment() is var ro ? ro with { KeepSourceSize = keepSourceSize, Lean = lean, JointFit = jointFit || ro.JointFit } : null);
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });
+        if (!PropFit.IsProp(sk)) AnkleTurn.Apply(r, AnkleNow);   // (the Ankle slider)
         if (PropFit.IsProp(sk)) PropFit.Adjust(r, sk, PropAdjustNow);   // (the Prop Fit sliders)
         Stage("retarget");
         MaterialOverrides.Apply(r, overrides);
@@ -151,6 +152,9 @@ sealed partial class PreviewPanel
         }
         return p;
     }
+
+    /// <summary>The Ankle slider the next preview uses (degrees, + toes down; set by the Model tab before it prepares one).</summary>
+    public static float AnkleNow { get; set; }
 
     /// <summary>The Prop Fit sliders the next preview of a prop target uses (set by the Model tab before it prepares one).</summary>
     public static PropAdjust? PropAdjustNow { get; set; }
@@ -170,6 +174,7 @@ sealed partial class PreviewPanel
         if (!PropFit.IsProp(sk)) FbxLean.Apply(r, lean);   // (an edit from Blender below holds the lean it was exported with)
         if (!PropFit.IsProp(sk) && rigs.Count > 0) notes.AddRange(RigSkin.Apply(r, rigs, sk.Up, rigSkin));   // (cloth onto rigs nothing rides)
         if (modelFbx != null) FbxReimport.ApplyAny(r, modelFbx, sk, _ => { });   // the mesh edited in Blender (Ctrl+S)
+        if (!PropFit.IsProp(sk)) AnkleTurn.Apply(r, AnkleNow);   // (the Ankle slider)
         if (PropFit.IsProp(sk)) PropFit.Adjust(r, sk, PropAdjustNow);   // (the Prop Fit sliders)
         Stage("fbx load");
         MaterialOverrides.Apply(r, overrides);

@@ -22,6 +22,8 @@ sealed record ImportOptions
     public bool KeepSourceSize { get; init; }
     /// <summary>Lean (RetargetOptions.Lean): the body above the feet turned at the ankles, degrees, + forward.</summary>
     public float Lean { get; init; }   // (NaN: the automatic one)
+    /// <summary>Ankle (AnkleTurn): the fitted model's feet turned at the ankles, degrees, + toes down.</summary>
+    public float Ankle { get; init; }
     /// <summary>Game Joint Blend (RetargetOptions.JointFit).</summary>
     public bool JointFit { get; init; }
     /// <summary>The Model tab's weight paint (WeightPaint), applied last; null = none.</summary>

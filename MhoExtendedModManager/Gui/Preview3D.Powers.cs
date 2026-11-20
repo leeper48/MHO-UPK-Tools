@@ -227,6 +227,8 @@ sealed partial class Preview3D
     [
         new ToolStripMenuItem("Change This Animation", null, (_, _) => PowerMenu?.Invoke(new Fx.PowerList.Power(AnimPrefix + anim, label, null, [anim]), PowerMenuAction.ModifyAnimation))
             { ToolTipText = $"Open the Editor's Animations tab on {anim}, to swap it for another character's." },
+        new ToolStripMenuItem("Model Adjust", null, (_, _) => PowerMenu?.Invoke(new Fx.PowerList.Power(AnimPrefix + anim, label, null, [anim]), PowerMenuAction.ModelAdjust))
+            { ToolTipText = "Open the Editor's Model tab, to adjust the model (its fit, Size, Feet, Lean and Ankle, its props)." },
     ];
 
     /// <summary>The animation picked now, or null (rest pose).</summary>

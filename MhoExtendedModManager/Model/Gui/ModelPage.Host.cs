@@ -773,6 +773,8 @@ sealed partial class ModelPage
         public bool MatchSteps { get; set; } = true;
         /// <summary>The Feet slider when moved off its automatic amount (null: automatic).</summary>
         public float? FeetCustom { get; set; }
+        /// <summary>The Ankle slider (degrees, + toes down; 0 = as fitted).</summary>
+        public float Ankle { get; set; }
         /// <summary>Keep the Source's Size (ImportOptions.KeepSourceSize).</summary>
         public bool KeepSourceSize { get; set; }
         /// <summary>Lean (ImportOptions.Lean), degrees: the one used before 0.60.136 (always the user's, 0 = none).</summary>
@@ -827,7 +829,7 @@ sealed partial class ModelPage
         {
             Source = chosenKey, Package = ChosenPackage?.Key, Parts = SelectedParts(), Subdivide = smooth.Checked,
             Material = Math.Max(0, material.SelectedIndex), Cape = CapeChoice, Hair = HairChoice, Rigs = OtherRigsText() is { Length: > 0 } rt ? rt : null,
-            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, PiecesOff = piecesOff.Any(kv => kv.Value.Count > 0) ? piecesOff.Where(kv => kv.Value.Count > 0).ToDictionary(kv => kv.Key, kv => kv.Value.Order(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
+            FromStock = FromStock, Built = [.. built.Keys.Order(StringComparer.OrdinalIgnoreCase)], Size = sizeSlider.Value, MatchSteps = matchSteps.Checked, FeetCustom = feetCustom, Ankle = ankleSlider.Value, KeepSourceSize = keepSourceSize.Checked, Lean = leanCustom ?? 0, LeanCustom = leanCustom, LeanVersion = 2, JointFit = jointFit.Checked, BuildOnBlenderSave = buildOnSave.Checked, CopyOthers = copyOthers.Count > 0 ? new(copyOthers) : null, PropFits = propFits.Count > 0 ? new(propFits) : null, PiecesOff = piecesOff.Any(kv => kv.Value.Count > 0) ? piecesOff.Where(kv => kv.Value.Count > 0).ToDictionary(kv => kv.Key, kv => kv.Value.Order(StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase) : null, TargetSources = RememberTargetSource(), TargetMaterials = targetMaterials.Count > 0 ? new(targetMaterials) : null,
             BuiltPrints = new Dictionary<string, string>(builtPrint), Added = [.. added.Order(StringComparer.OrdinalIgnoreCase)],
             WholeChoices = petWhole.Count > 0 ? new Dictionary<string, bool>(petWhole, StringComparer.OrdinalIgnoreCase) : null, SummonEffects = summonLook.Checked ? null : false,
             Meshes = host.Packages.Select(p => (p.File, M: MhoSkeleton.ChosenFor(p.File))).Where(x => x.M != null).ToDictionary(x => x.File, x => x.M!, StringComparer.OrdinalIgnoreCase),
@@ -859,6 +861,13 @@ sealed partial class ModelPage
         FillPackages();
         if (st.Package != null) Reselect(packages, st.Package);
         restoring2 = false;
+        // a source picked but never built into the mod (Kurt, 2026-11-20: Sentry Classic opened on U.S. Agent, picked once and
+        // left): the tab shows what's in the mod instead, its own model as the source (the target's check below picks it)
+        if (st.Source != null && st.Built.Count == 0 && (st.TargetSources == null || st.TargetSources.Count == 0))
+        {
+            Log($"The source picked last time ({st.Source}) was never built into this mod, so the tab starts from the mod's own model.");
+            st.Source = null;
+        }
         if (st.Source == null) { if (st.Package != null) AssumeBuilt(); return; }
         pendingState = st;
         SelectSourceKey(st.Source);
@@ -996,7 +1005,7 @@ sealed partial class ModelPage
         petWhole.Clear();
         if (st.WholeChoices != null) foreach (var kv in st.WholeChoices) petWhole[kv.Key] = kv.Value;
         summonLook.Checked = st.SummonEffects != false;
-        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; leanCustom = st.LeanVersion >= 2 ? st.LeanCustom : st.Lean; restoringLean = true; leanSlider.Value = leanCustom ?? leanAuto; restoringLean = false; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
+        sizeSlider.Value = st.Size > 0 ? st.Size : 1; preview.Size = sizeSlider.Value; matchSteps.Checked = st.MatchSteps; keepSourceSize.Checked = st.KeepSourceSize; jointFit.Checked = st.JointFit; ankleSlider.Value = st.Ankle; leanCustom = st.LeanVersion >= 2 ? st.LeanCustom : st.Lean; restoringLean = true; leanSlider.Value = leanCustom ?? leanAuto; restoringLean = false; feetCustom = st.FeetCustom; preview.FeetShift = st.FeetCustom; if (st.FeetCustom is float fc) feetSlider.Value = fc;
         restoring2 = false;
         AssumeBuilt();
         SchedulePreview();

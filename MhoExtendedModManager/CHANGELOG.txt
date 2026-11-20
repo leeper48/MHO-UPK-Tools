@@ -1,6 +1,26 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.592
+- Model tab: the automatic Feet amount is measured with the model's own shins, as Build now keeps them. In 0.60.591 it still measured with the hero's longer shins and lifted the model (Vision on Ultron: +7.5 instead of about +1).
+
+0.60.591
+- Feet in the floor after a move to another hero or a Model tab build: a model with other leg lengths than the hero's (Vision on Ultron) got the hero's shins from his animations in game, and its feet went through the floor. A build or a move now gives the costume its own copies of the hero's animations that keep the model's own shins. Only that costume changes. Rebuild (or move again) a mod made before to get it.
+- 3D preview (Mods tab): the ankles move as the game moves them, so a model with the hero's shins shows its feet in the floor as in game. The Model tab's preview shows the model as Build makes it.
+
+0.60.590
+- Mods tab and the Editor's 3D views: a costume shows at the size the game draws it, its Scale (the Model tab's Size, or the game's own: Carnage 110 %, Ultron Age of Ultron Movie 93.8 %), next to the barrel. Before, every mod showed at 100 %.
+
+0.60.589
+- Mods tab: full screen (⛶ / F11) fills the screen again. The 3D view kept its card's size in the window's corner.
+
+0.60.588
+- Model tab: a source picked for a mod but never built into it is no longer picked again when the tab opens. The tab starts from what's in the mod: its own model as the source, on its package.
+
+0.60.587
+- Model tab: a new Ankle slider under Lean turns the model's feet at the ankles (+ toes down, − toes up), for a model whose toes point up in some animations. It holds in every animation; the preview shows it and Build writes it.
+- 3D preview: Model Adjust in the right-click menu of the power buttons (and Idle, Walk …, and the Powers tab's tiles) opens the Editor's Model tab.
+
 0.60.586
 - 3D preview: a new power (or Idle, Walk …) button now shows its animation's first frame, paused; click it again to play. Look ▾ → Power Buttons Start Paused (on by default) switches back to playing at once. The same in every 3D view (the Mods, Powers and Model tabs).
 

@@ -22,7 +22,7 @@ sealed partial class ModEditorView
     /// <summary>The Mods tab's power buttons: the Powers tab opens on the power, then the action is done there.</summary>
     public async void PowerAction(string prototype, PowerMenuAction action)
     {
-        if (action == PowerMenuAction.ModifyAnimation) { DoPowerAction(prototype, action, null, onPowersTab: false); return; }
+        if (action is PowerMenuAction.ModifyAnimation or PowerMenuAction.ModelAdjust) { DoPowerAction(prototype, action, null, onPowersTab: false); return; }
         ShowPage("Powers");
         // (the tab fills its powers in the background the first time it shows)
         for (int i = 0; i < 300 && !IsDisposed && !powerList.Items.OfType<Fx.PowerList.Power>().Any(p => p.Part == null && Same(p.Prototype, prototype)); i++) await Task.Delay(100);
@@ -67,7 +67,7 @@ sealed partial class ModEditorView
     {
         if (game == null) return;
         // one animation (an idle / walk button, ▶): its Animations tab row
-        if (proto.StartsWith(Preview3D.AnimPrefix, StringComparison.Ordinal)) { if (action == PowerMenuAction.ModifyAnimation) ShowAnimation(proto[Preview3D.AnimPrefix.Length..]); return; }
+        if (proto.StartsWith(Preview3D.AnimPrefix, StringComparison.Ordinal)) { if (action == PowerMenuAction.ModifyAnimation) ShowAnimation(proto[Preview3D.AnimPrefix.Length..]); else if (action == PowerMenuAction.ModelAdjust) ShowPage("Model"); return; }
         var p = PowerByProto(proto) ?? new Fx.PowerList.Power(proto, Path.GetFileNameWithoutExtension(proto), null, []);
         switch (action)
         {
@@ -77,6 +77,7 @@ sealed partial class ModEditorView
                 break;
             case PowerMenuAction.MakeIcon: MakePowerIcon(p, view, onPowersTab); break;
             case PowerMenuAction.ModifyAnimation: ShowPowerAnimations(p); break;
+            case PowerMenuAction.ModelAdjust: ShowPage("Model"); break;
             // the Powers tab's own actions act on the selected power (PowerAction selected it)
             case PowerMenuAction.Borrow: PickBorrow(); break;
             case PowerMenuAction.ResetBorrow: RemoveBorrow(); break;

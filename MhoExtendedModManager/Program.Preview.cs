@@ -4641,7 +4641,7 @@ static partial class Program
                 if (fr == null) { Console.WriteLine("no meshes"); return 1; }
                 var fl = ModMeshes.Load(fr, fc, out string fwhy);
                 if (fl == null) { Console.WriteLine("mesh: " + fwhy); return 1; }
-                var fa = new MeshAnimator(fl.Bones, fl.Positions, fl.Normals, fl.Influences);
+                var fa = new MeshAnimator(fl.Bones, fl.Positions, fl.Normals, fl.Influences) { LegsAsBuilt = Environment.GetEnvironmentVariable("MHO_FOOT_BUILT") == "1" };   // (as the game: the set's ankles)
                 int pelvis = fa.BoneIndex(Environment.GetEnvironmentVariable("MHO_FOOT_BONE") is { Length: > 0 } fbn ? fbn : "g_pelvis"), froot = 0;
                 void Show(string what)
                 {
