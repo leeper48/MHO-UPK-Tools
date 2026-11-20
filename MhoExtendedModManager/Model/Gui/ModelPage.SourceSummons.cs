@@ -18,6 +18,9 @@ sealed partial class ModelPage
     Control sourceSummonsPanel = null!;
     /// <summary>The hero and costume class (null: the hero's group row) the panel shows.</summary>
     (string Hero, string? Costume)? summonsFor;
+    /// <summary>A team-up's or NPC's package picked above (Kurt, 2026-11-20: Robbie Reyes's car as the source for Ghost Rider's
+    /// bike): the panel lists every model in it, a click makes that one model the source.</summary>
+    string? modelsOf;
     bool fillingSummons;
 
     /// <summary>The Source column's list: the characters above, the summons panel below (shown for From the Game → Heroes).</summary>
@@ -77,7 +80,8 @@ sealed partial class ModelPage
     /// <summary>The panel shows only for From the Game → Heroes (the list above takes the whole column otherwise).</summary>
     void ShowSummonsPanel()
     {
-        bool on = propMode || GameMode && sourceKindTab == 0;   // (props always; summons while they're shown: WhatsNew.Summons)
+        // (props always; summons on Heroes; a team-up's or NPC's models on those tabs)
+        bool on = propMode || GameMode && sourceKindTab is 0 or 1 or 2;
         if (propMode) FillPropSource();
         if (sourceSummonsPanel.Visible == on && sourceSplit.RowStyles[1].Height == (on ? 33 : 0)) return;
         sourceSummonsPanel.Visible = on;
@@ -91,6 +95,8 @@ sealed partial class ModelPage
     {
         if (propMode) { FillPropSource(); return; }
         if (!GameMode || characters.SelectedItem is not CharacterList.Item it) return;
+        modelsOf = null;
+        if (it.Key.StartsWith(GameSrc) && SplitGameKey(it.Key).Mesh == null && KindOf(it.Key[GameSrc.Length..]) is 1 or 2) { modelsOf = it.Key[GameSrc.Length..]; FillSourceSummons(); return; }
         if (it.Header && it.Key.StartsWith("group:game ")) summonsFor = (it.Key["group:game ".Length..], null);
         else if (it.Key.StartsWith(GameSrc) && KindOf(it.Key[GameSrc.Length..]) == 0)
         {
@@ -121,7 +127,24 @@ sealed partial class ModelPage
     {
         fillingSummons = true;
         sourceSummons.BeginUpdate(); sourceSummons.Items.Clear();
-        if (summonsFor is not var (hero, costume))
+        if (modelsOf is string mfile && GameMode && sourceKindTab is 1 or 2)
+        {
+            // every model in the package (its character, a car, a weapon …): one of them as the source
+            sourceSummonsTitle.Text = $"MODELS IN {DescribePackage(mfile).Title.ToUpperInvariant()} · CLICK ONE TO USE IT AS THE SOURCE";
+            List<string> names = [];
+            string? body = null;
+            try
+            {
+                string path = BasePackage.Resolve(mfile, true);
+                names = MhoSkeleton.List(path).Select(m => m.Name).ToList();
+                if (names.Count > 1) body = MhoSkeleton.Load(path, body: true).Name;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or FileNotFoundException or MhoPackageModifier.PackageFormatException) { }
+            foreach (string n in names.OrderBy(n => n.Equals(body, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(n => n, StringComparer.OrdinalIgnoreCase))
+                sourceSummons.Items.Add(new CharacterList.Item($"{GameSrc}{mfile}|{n}", PropLabel(n), (n.Equals(body, StringComparison.OrdinalIgnoreCase) ? "The character · " : "") + mfile, ThumbKey: mfile));
+            if (names.Count == 0) sourceSummons.Items.Add(new CharacterList.Item("label:none", "No models read", "", Label: true));
+        }
+        else if (summonsFor is not var (hero, costume))
         {
             sourceSummonsTitle.Text = Summons.Count > 0 ? "SUMMONS AND PROPS" : "PROPS";
             sourceSummons.Items.Add(new CharacterList.Item("label:pick", "Pick a hero or a costume above", "", Label: true));

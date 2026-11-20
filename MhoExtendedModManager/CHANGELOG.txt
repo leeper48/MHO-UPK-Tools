@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.70.3
+- Release of 0.70.1–0.70.3 (What's New notice, the manual's prop-swap walkthrough).
+- 3D preview: fixed a crash ("Index was outside the bounds of the array") when moving the Frame slider with props shown after the target's props changed: a prop could take another prop's animation.
+
+0.70.2
+- Model tab, Source → From the Game → Team-Ups or NPCs: the panel under the list shows every model in the package picked (its character, a car, a weapon …); a click makes that one model the source. Robbie Reyes's car can then be swapped onto Ghost Rider's bike.
+
+0.70.1
+- Model tab: a prop's model with more bones than a weapon (Ghost Rider's bike, 24 bones, and his chains, 26) counts as a prop, so Swap Model replaces it (on the hero's base package, where its model is). The new model is laid over the bike and rides on its frame, so it shows only when the bike does (Ride).
+
 0.60.600
 - Release of 0.60.568–0.60.599 (What's New notice, manual walkthroughs and screenshots).
 

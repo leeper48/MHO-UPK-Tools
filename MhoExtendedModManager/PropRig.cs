@@ -422,7 +422,11 @@ sealed class PropRig
             // The mesh's own RotOrigin, the attachment's OffsetRotation, then the bone (UE3's order).
             var mat = m.MeshTransform * (pi < offsets.Count ? offsets[pi] : Matrix4x4.Identity) * (bone < 0 ? Matrix4x4.Identity : animator.BoneMatrix(bone));
             var mo = pi < motion.Count ? motion[pi] : null;
-            if (pi < visible.Length && !visible[pi++])
+            // (each prop its own entries: the index moves on for every prop; it stopped when the visibility list was shorter,
+            // and a later prop took another's animation, whose vertex count didn't match: a crash, Kurt 2026-11-20)
+            bool shown = pi >= visible.Length || visible[pi];
+            pi++;
+            if (!shown)
             {
                 // Hidden (not this power's weapon): every vertex on one point, so its triangles have no area and aren't drawn.
                 var c = mat.Translation;
@@ -436,7 +440,7 @@ sealed class PropRig
                 // (on the character's skeleton: its posed bones, as the game copies them; else its own animation)
                 if (mo.ParentAnim) mo.Anim.PoseFrom(animator);
                 else mo.Anim.Pose(mo.Seq, mo.Seq != null && animSeconds > 0 ? (float)(Math.Clamp(lastSeconds / animSeconds, 0, 1) * mo.Frames) : 0);
-                sp = mo.Anim.Positions; sn = mo.Anim.Normals; st = mo.Anim.Tangents;
+                if (mo.Anim.Positions.Length == m.Positions.Length) { sp = mo.Anim.Positions; sn = mo.Anim.Normals; st = mo.Anim.Tangents; }   // (else its rest pose)
             }
             int propAt = at;
             for (int v = 0; v < m.Positions.Length; v++, at++)

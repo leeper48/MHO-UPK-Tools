@@ -49,7 +49,32 @@ static class PropFit
     {
         if (sk.Find("g_pelvis") >= 0) return false;
         if (sk.Bones.Count <= 12) return true;
-        return sk.Bones.Count <= 24 && sk.Find("staff_root") >= 0 && sk.Find("g_sidea1") >= 0;
+        if (sk.Bones.Count <= 24 && sk.Find("staff_root") >= 0 && sk.Find("g_sidea1") >= 0) return true;
+        // a model a prop of the package shows (an attachment's ModelMesh), whatever its bone count (Monarch, 2026-11-20: Ghost
+        // Rider's bike, 24 bones, and chains, 26, couldn't be swapped: Swap Model stayed grayed out on every package)
+        return IsAttachmentModel(sk.Package, sk.Name);
+    }
+
+    static readonly Dictionary<string, HashSet<string>> attachmentModels = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether <paramref name="mesh"/> is the model one of <paramref name="package"/>'s attachments shows (read once per
+    /// file version).</summary>
+    static bool IsAttachmentModel(string package, string mesh)
+    {
+        if (string.IsNullOrEmpty(package) || !File.Exists(package)) return false;
+        string key;
+        try { var fi = new FileInfo(package); key = $"{fi.FullName}|{fi.Length}|{fi.LastWriteTimeUtc.Ticks}"; }
+        catch (IOException) { return false; }
+        HashSet<string>? set;
+        lock (attachmentModels) attachmentModels.TryGetValue(key, out set);
+        if (set == null)
+        {
+            set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try { foreach (var a in MhoExtendedModManager.ModMeshes.Attachments(package)) if (a.Mesh is { Length: > 0 } m) set.Add(m.Split('.').Last()); }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or MhoPackageModifier.PackageFormatException) { }
+            lock (attachmentModels) attachmentModels[key] = set;
+        }
+        return set.Contains(mesh.Split('.').Last());
     }
 
     static Vector3 Mirror(Vector3 v) => new(v.X, -v.Y, v.Z);
