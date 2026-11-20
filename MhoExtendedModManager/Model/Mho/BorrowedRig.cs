@@ -92,6 +92,33 @@ sealed class BorrowedRig
         _ => ["UC__MarvelTeamUp_Angel_SF.upk", "UC__MarvelTeamUp_ArchAngel_SF.upk", "UC__MarvelTeamUp_Wasp_SF.upk", "UC__MarvelPlayer_BlackBolt_SF.upk"],
     };
 
+    /// <summary>
+    /// The kinds of moving part the hero itself has bones for (its animations move them): those in this package's skeleton that
+    /// the game's own copy of the package has too (Kurt, 2026-11-19: a costume moved from Vision onto Ultron brings Vision's cape
+    /// bones, which Ultron's animations don't move, so a rig may take their place). The package's own kinds when the game's copy
+    /// can't be read (a costume package without a model of its own).
+    /// </summary>
+    public static HashSet<Kind> HeroKinds(string package, MhoSkeleton? loaded = null)
+    {
+        static HashSet<Kind> In(MhoSkeleton s) => Enum.GetValues<Kind>().Where(k => s.Bones.Any(b => Pattern(k).IsMatch(b.Name))).ToHashSet();
+        var here = In(loaded ?? MhoSkeleton.Load(package, null));
+        if (here.Count == 0) return here;
+        string file = Regex.Replace(Path.GetFileName(package), "^[0-9a-f]{6}_", "", RegexOptions.IgnoreCase);
+        try
+        {
+            string stock = BasePackage.Resolve(file, true);
+            if (Path.GetFullPath(stock).Equals(Path.GetFullPath(package), StringComparison.OrdinalIgnoreCase)) return here;
+            HashSet<Kind> game;
+            lock (stockKinds)
+                if (!stockKinds.TryGetValue(stock, out game!)) stockKinds[stock] = game = In(MhoSkeleton.Load(stock, null, body: true));
+            here.IntersectWith(game);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException) { }
+        return here;
+    }
+
+    static readonly Dictionary<string, HashSet<Kind>> stockKinds = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every rig asked for (cape, hair, then the rest in turn) grafted on: the skeleton and the rigs, each logged.</summary>
     public static (MhoSkeleton Skeleton, List<BorrowedRig> Rigs) GraftAll(MhoSkeleton sk, IEnumerable<(Kind Kind, int Number)> picks, MffModel? m, Action<string> log)
     {
@@ -223,7 +250,14 @@ sealed class BorrowedRig
         if (mega) number = 3;
         var rigPattern = mega ? BackHair : Pattern(part);
         if (!medusa && (number < 1 || number > donors.Length)) { note = $"no {label}"; return (sk, null); }
-        if (sk.Bones.Any(b => Pattern(part).IsMatch(b.Name))) { note = $"{sk.Name} has {part.ToString().ToLowerInvariant()} bones of its own: {label} isn't used"; return (sk, null); }
+        bool foreign = false;
+        if (sk.Bones.Any(b => Pattern(part).IsMatch(b.Name)))
+        {
+            if (HeroKinds(sk.Package, sk).Contains(part)) { note = $"{sk.Name} has {part.ToString().ToLowerInvariant()} bones of its own: {label} isn't used"; return (sk, null); }
+            // bones that came with a moved costume (the game's copy of this package has none): nothing moves them here, so the
+            // donor's rig, when they are its bones, is taken in place below
+            foreign = true;
+        }
         if (sk.Find("g_pelvis") < 0) { note = $"{sk.Name} isn't a body (a prop): {label} isn't used"; return (sk, null); }
         string pkg = BasePackage.Resolve(medusa ? MedusaDonor : donors[number - 1], true);
         var donor = MhoSkeleton.Load(pkg, null);
@@ -239,10 +273,28 @@ sealed class BorrowedRig
                 if (donorDrop > 0.005f) stretch = Math.Clamp(modelHairDrop / donorDrop, 1, 8);
             }
         }
-        // a hero with its own cape / hair bones keeps them (and their hand-animated motion); nothing is added
-        if (sk.Bones.Any(b => rigPattern.IsMatch(b.Name))) { note = $"{label}: not added, {sk.Name} has its own {part.ToString().ToLowerInvariant()} bones (kept, with their own motion)"; return (sk, null); }
-        var grafted = sk.WithRig(donor, rigPattern, out var corrections, stretch);
-        if (grafted == null) { note = $"{label} couldn't be added to {sk.Name}"; return (sk, null); }
+        MhoSkeleton? grafted;
+        Dictionary<string, Matrix4x4> corrections = [];
+        string replaced = "";
+        if (foreign)
+        {
+            // the bones a moved costume brought along, taken as this rig where they are (the package's bone list unchanged)
+            grafted = mega ? null : sk.AdoptRig(donor, rigPattern, out corrections);
+            if (grafted == null)
+            {
+                int match = Enumerable.Range(1, donors.Length).FirstOrDefault(n => n != number && sk.AdoptRig(MhoSkeleton.Load(BasePackage.Resolve(donors[n - 1], true), null), Pattern(part), out _) != null);
+                note = $"{label} isn't used: {sk.Name} has {part.ToString().ToLowerInvariant()} bones that came with the costume, and they aren't {label}'s" + (match > 0 ? $" (they are {Title(part, match)}'s: pick that one)" : "");
+                return (sk, null);
+            }
+            replaced = $", on the {grafted.Borrowed.Count - sk.Borrowed.Count} {part.ToString().ToLowerInvariant()} bones that came with the costume";
+        }
+        else
+        {
+            // a hero with its own cape / hair bones keeps them (and their hand-animated motion); nothing is added
+            if (sk.Bones.Any(b => rigPattern.IsMatch(b.Name))) { note = $"{label}: not added, {sk.Name} has its own {part.ToString().ToLowerInvariant()} bones (kept, with their own motion)"; return (sk, null); }
+            grafted = sk.WithRig(donor, rigPattern, out corrections, stretch);
+            if (grafted == null) { note = $"{label} couldn't be added to {sk.Name}"; return (sk, null); }
+        }
         CapeMatch lib;
         lock (libraries)
             if (!libraries.TryGetValue(pkg + "|" + part + (mega ? "|back" : ""), out lib!))
@@ -253,7 +305,7 @@ sealed class BorrowedRig
                 libraries[pkg + "|" + part + (mega ? "|back" : "")] = lib = CapeMatch.Build(donor.Bones, rigBones, anims);
             }
         int added = grafted.Bones.Count - sk.Bones.Count;
-        note = $"{label}: {added} bones added{(stretch > 1.01f ? $", strands stretched ×{stretch:0.0} to the model's hair" : "")}, motion matched from {lib.Frames} frames";
+        note = $"{label}: {(foreign ? "" : $"{added} bones added, ")}{(stretch > 1.01f ? $"strands stretched ×{stretch:0.0} to the model's hair, " : "")}motion matched from {lib.Frames} frames{replaced}";
         // Mega Hair is heavier: Angela's run swings her (short) hair root ±30° every 3 frames, and stretched ×5 that flicked a
         // waist-long mane side to side (Kurt, 0.15.2, movement_run 30-60). A wider smoothing window takes out that fast swing
         // and keeps the slow sway (MFF_MEGA_SMOOTH, frames each side).

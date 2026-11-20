@@ -478,10 +478,33 @@ static partial class Program
                     return 1;
                 }
             }
+            case "--move-parts":
+            {
+                // Read only: the move check (the Move window's "Parts the target can't move"). --move-parts <mod> <Hero/Costume>
+                var pm = rest.Count > 2 ? lib.Find(rest[1]) : null;
+                string? pgr = settings.ResolvedGameRoot(data);
+                if (pm == null || pgr == null || !Settings.IsGameRoot(pgr)) { Console.WriteLine("--move-parts <mod> <Hero/Costume>"); return 1; }
+                var pall = Costume.All(pgr)!;
+                if (CostumeMove.Single(pm, pall, allowBase: true) is not { } pone) { Console.WriteLine("not a single-costume mod"); return 1; }
+                var pt = pall.FirstOrDefault(c => c.Short.Replace(".prototype", "", StringComparison.OrdinalIgnoreCase).Equals(rest[2], StringComparison.OrdinalIgnoreCase) || c.Class.Equals(rest[2], StringComparison.OrdinalIgnoreCase));
+                if (pt == null) { Console.WriteLine($"no costume '{rest[2]}'"); return 1; }
+                var pgame = new GameState(pgr, data);
+                string? pstock = new Originals(lib.DataFolder, pgame).Find(pt.Package);
+                if (pstock == null) { Console.WriteLine($"no stock copy of {pt.Package}"); return 1; }
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var res = CrossMove.ExtraParts(pm, pone.File, pone.Costume, pt, pstock, pgame.Cooked);
+                Console.WriteLine($"{pone.Costume.Short} → {pt.Short} ({sw.ElapsedMilliseconds} ms)");
+                if (res is not { } pr) { Console.WriteLine("can't be read"); return 1; }
+                foreach (var x in pr.Parts) Console.WriteLine($"  {x.Kind}: {x.Bones} bone(s), driven by {(x.Driver.Length > 0 ? x.Driver : "nothing")}, {(x.Moves ? "moves" : "stays still")}");
+                if (pr.Parts.Count == 0) Console.WriteLine("  no parts the target lacks");
+                Console.WriteLine("  APEX cloth: " + (pr.Apex ? "yes" : "no"));
+                Console.WriteLine(Gui.MoveCostumeForm.PartsText(pr.Parts, pr.Apex, pt.Short.Split('/')[0], CostumeMove.IsBase(pt), pone.Costume.Short.Split('/')[0]));
+                return 0;
+            }
             case "--cross-move":
             {
                 // Test (cross-hero move, phase 2): the target costume's stock package with the mod's main mesh in it, written to a
-                // folder (never the game's). --cross-move <mod> <Hero/Costume, e.g. Storm/ClassicBlack> --build <folder> [--create | --update-copy] [--name <text>]
+                // folder (never the game's). --cross-move <mod> <Hero/Costume, e.g. Storm/ClassicBlack> --build <folder> [--create | --update-copy] [--name <text>] [--no-part-motion]
                 var xm = rest.Count > 2 ? lib.Find(rest[1]) : null;
                 string? xgr = settings.ResolvedGameRoot(data);
                 int xb = rest.IndexOf("--build");
@@ -506,7 +529,8 @@ static partial class Program
                 var xlog = new List<string>();
                 try
                 {
-                    byte[] built = CrossMove.Build(modPkg, meshName, xstock, xt.Class, baseHero, xlog, sounds: false, sourceClass: one.Costume.Class, cooked: xgame.Cooked);
+                    bool xvoice = !rest.Contains("--no-voice");   // (--no-voice: the Move window's Copy the Voice unticked)
+                    byte[] built = CrossMove.Build(modPkg, meshName, xstock, xt.Class, baseHero, xlog, sounds: false, sourceClass: one.Costume.Class, cooked: xgame.Cooked, voice: xvoice, modelOnly: CostumeMove.IsBase(xt));
                     foreach (var l in xlog) Console.WriteLine("  " + l);
                     Directory.CreateDirectory(xout);
                     string f = Path.Combine(xout, xt.Package);
@@ -519,8 +543,8 @@ static partial class Program
                         if (rest.Contains("--update-copy") && existing == null) { Console.WriteLine($"no mod named \"{CrossMove.NewName(xm, xt)}\""); return 1; }
                         var clog = new List<string>();
                         string? made = CrossMove.CreateMod(lib, xm, one.File, one.Costume, xt, xall, xgame, new StockCatalog(lib, xgame), clog, out string? merr, rest.Contains("--update-copy") ? existing : null,
-                            rest.IndexOf("--name") is int ni and >= 0 && ni + 1 < rest.Count ? rest[ni + 1] : null);   // (--name "<text>": the Move window's Name row; "" = the game's)
-                        foreach (var l in clog.Where(l => l.StartsWith("icons") || l.StartsWith("sound"))) Console.WriteLine("  " + l);
+                            rest.IndexOf("--name") is int ni and >= 0 && ni + 1 < rest.Count ? rest[ni + 1] : null, xvoice, !rest.Contains("--no-part-motion"));   // (--name "<text>": the Move window's Name row; "" = the game's)
+                        foreach (var l in clog.Where(l => l.StartsWith("icons") || l.StartsWith("sound") || l.StartsWith("parts:") || l.StartsWith("tree:"))) Console.WriteLine("  " + l);
                         Console.WriteLine(made != null ? $"{(existing != null && rest.Contains("--update-copy") ? "updated" : "created")} mod folder '{made}'" : "not created: " + merr);
                     }
                     return 0;
@@ -531,6 +555,67 @@ static partial class Program
                     Console.WriteLine("FAILED: " + ex.Message);
                     return 1;
                 }
+            }
+            case "--base-defaults":
+            {
+                // Read-only: the heroes whose default costume is in their main package (its class is the hero's base class), so
+                // a moved model can't land on it; Move to Another Hero shows them marked, not as targets.
+                string? bgr = settings.ResolvedGameRoot(data);
+                if (bgr == null || !Settings.IsGameRoot(bgr) || Costume.All(bgr) is not { } ball) { Console.WriteLine("--base-defaults  (needs the game folder)"); return 1; }
+                string bcooked = Settings.Cooked(bgr);
+                var bases = ball.Where(c => c.IsDefault && !c.IsTeamUp && c.Hero != null && CostumeMove.IsBase(c)).GroupBy(c => c.Hero!, StringComparer.OrdinalIgnoreCase).Select(g => g.First())
+                                .OrderBy(c => c.Hero, StringComparer.OrdinalIgnoreCase).ToList();
+                // --base-defaults [<folder of stock packages>]: also checks that each other costume of those heroes names its own
+                // model (its default's initialskeletalmesh sets SkeletalMesh), so a model moved into the main package's default
+                // doesn't show on them through the template. Read only.
+                string? stockDir = rest.Count > 1 && Directory.Exists(rest[1]) ? rest[1] : null;
+                int inherit = 0;
+                foreach (var c in bases)
+                {
+                    var others = ball.Where(x => x.Hero == c.Hero && !x.IsTeamUp && !CostumeMove.IsBase(x) && File.Exists(Path.Combine(bcooked, x.Package)))
+                                     .GroupBy(x => x.Class, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
+                    Console.WriteLine($"  {c.Short,-36} {c.Class,-36} {c.Package,-40} {others.Count} other costume(s) a model can move to");
+                    if (stockDir == null) continue;
+                    foreach (var o in others)
+                    {
+                        string file = Path.Combine(stockDir, o.Package);
+                        string state;
+                        if (!File.Exists(file)) state = "no stock copy";
+                        else
+                        {
+                            var pp = MhoPackageModifier.Package.Open(file);
+                            string want = $"default__{o.Class}.initialskeletalmesh";
+                            int at = Array.FindIndex(pp.Exports, e => pp.PathOf(e).EndsWith(want, StringComparison.OrdinalIgnoreCase));
+                            if (at < 0) state = "NO initialskeletalmesh component";
+                            else
+                            {
+                                byte[] d = pp.ReadExportBytes(pp.Exports[at]).ToArray();
+                                var tags = MhoPackageModifier.TagWalker.Walk(pp, d, 16) ?? MhoPackageModifier.TagWalker.Walk(pp, d, 4);
+                                var t = tags?.FirstOrDefault(x => x.Name.Equals("skeletalmesh", StringComparison.OrdinalIgnoreCase));
+                                int r = t == null ? 0 : BitConverter.ToInt32(d, t.ValueAt);
+                                state = r == 0 ? "INHERITS the main package's model" : "own model " + (r > 0 ? pp.PathOf(pp.Exports[r - 1]) : pp.RefName(r));
+                                // the other settings a cross-hero move writes (inherited from the main package when not set here)
+                                bool has(string prop) => tags?.Any(x => x.Name.Equals(prop, StringComparison.OrdinalIgnoreCase)) == true;
+                                var inh = new[] { "PhysicsAsset", "AnimTreeTemplate", "PhysicsWeight" }.Where(x => !has(x)).ToList();
+                                int di = Array.FindIndex(pp.Exports, e => pp.PathOf(e).EndsWith($"default__{o.Class}", StringComparison.OrdinalIgnoreCase));
+                                if (di >= 0)
+                                {
+                                    byte[] dd = pp.ReadExportBytes(pp.Exports[di]).ToArray();
+                                    var dt = MhoPackageModifier.TagWalker.Walk(pp, dd, 4) ?? MhoPackageModifier.TagWalker.Walk(pp, dd, 16);
+                                    if (dt?.Any(x => x.Name.Equals("TargetPhysicsWeight", StringComparison.OrdinalIgnoreCase)) != true) inh.Add("TargetPhysicsWeight");
+                                }
+                                int vi = Array.FindIndex(pp.Exports, e => pp.PathOf(e).EndsWith($"default__{o.Class}.soundscomponent", StringComparison.OrdinalIgnoreCase));
+                                if (vi < 0 || pp.Exports[vi].SerialSize <= 64) inh.Add("voice");
+                                if (inh.Count > 0) state += "; inherits " + string.Join(", ", inh);
+                            }
+                        }
+                        if (!state.StartsWith("own")) inherit++;
+                        Console.WriteLine($"      {o.Short,-40} {state}");
+                    }
+                }
+                if (stockDir != null) Console.WriteLine($"{inherit} costume(s) don't name their own model");
+                Console.WriteLine($"{bases.Count} heroes' default costumes are in their main package");
+                return 0;
             }
             case "--costume-anims":
             {

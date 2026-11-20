@@ -110,11 +110,18 @@ static class HairAnims
         // an edit copy made by an earlier build (…_mffedit), already in the list: edited in place (Kurt, 2026-10-23: each build
         // cloned the last one again, …_mffedit_mffedit_mffedit, and the package grew by every copy)
         var inPlace = new HashSet<int>();
+        // a rig copy an earlier step made (…_mffhair, …_mffhair_2: a move to another hero gives the parts it brings motion,
+        // Kurt 2026-11-20), already in the list: the new rigs' tracks go into it in place, and its original isn't cloned again
+        // (a new clone, listed right after the original, came before the earlier copy, which then won every animation)
+        var earlierCopy = new System.Text.RegularExpressions.Regex(@"_mffhair(_\d+)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        bool IsEarlierCopy(CostumeAnims.Set s) => all && s.File!.Equals(builtPath, StringComparison.OrdinalIgnoreCase) && earlierCopy.IsMatch(pkg0Name(s));
+        bool HasEarlierCopy(CostumeAnims.Set s) => all && copy.Any(c => c != s && IsEarlierCopy(c) && c.Path.StartsWith(s.Path + "_mffhair", StringComparison.OrdinalIgnoreCase));
         foreach (var s in copy)
         {
+            if (HasEarlierCopy(s)) { lines.Add($"set {s.Path}: its earlier copy is edited instead"); continue; }
             if (s.File!.Equals(builtPath, StringComparison.OrdinalIgnoreCase))
             {
-                bool earlierEdit = !all && pkg0Name(s).EndsWith(Suffix, StringComparison.OrdinalIgnoreCase);
+                bool earlierEdit = !all ? pkg0Name(s).EndsWith(Suffix, StringComparison.OrdinalIgnoreCase) : IsEarlierCopy(s);
                 if (earlierEdit) inPlace.Add(s.Export);
                 work.Add((s, s.Export, !earlierEdit));
                 continue;

@@ -136,6 +136,7 @@ sealed partial class Preview3D : UserControl
         this.prefs = prefs;
         BackColor = Color.Transparent;
         play = Ui.FlatButton("▶", TogglePlay, "Play or pause the animation (P; Esc pauses).");
+        ShortcutsUi.MenuItemsAfter.AddOrUpdate(play, () => CurrentAnimName is string ca ? AnimMenuItems(ca, ca) : []);
         loop = Ui.FlatButton("⟳ Loop", () => { prefs.Loop = !prefs.Loop; prefs.Save(); Ui.Lit(loop!, prefs.Loop); }, "Loop the animation, or play it once and stop on its last frame. Remembered.");
         chain = Ui.FlatButton("Chain", ToggleChain, "Play a power's parts one after another, as the game does: its start, its loop (played twice; right-click to change how many times), then its end. Pick any part to begin there. With Loop on the chain starts over, else it stops on the end's last frame. Off: each part plays on its own. Lit when on; remembered.");
         ShortcutsUi.MenuItems.AddOrUpdate(chain, () =>
@@ -274,6 +275,7 @@ sealed partial class Preview3D : UserControl
                 () => prefs.Powers, () => { prefs.Powers = !prefs.Powers; LoadEffects(); }, () => prefs.Ground, () => prefs.Ground = !prefs.Ground);
             items.Add(new("Barrel Size Reference", "A 55-gallon oil drum from the game (Brooklyn's docks) on the floor beside the character, to judge sizes by. Drag it to move it along the floor (in any pane); double-click it to put it back beside the character. Remembered for every 3D view.", () => PreviewViews.SizeRef, () => { PreviewViews.SizeRef = !PreviewViews.SizeRef; Props.Rebuild(); }));
             items.Add(new("Prop Pivots", "Each prop's pivot: the point its model is placed and turned around (its bone, the attachment's offset and its own move and turn), with its axes (X red, Y green, Z blue). Prop Fit moves and turns the prop about it. Remembered for every 3D view.", () => PreviewViews.Pivots, () => { PreviewViews.Pivots = !PreviewViews.Pivots; ShowPose(); }));
+            items.Add(new("Power Buttons Start Paused", "On: a power, idle or walk button shows its animation's first frame, paused; click it again to play. Off: it plays at once. The same in every 3D view; remembered.", () => PreviewViews.StartPaused, () => PreviewViews.StartPaused = !PreviewViews.StartPaused));
             items.Add(new("Axis Gizmo", "The game's axes in the view's corner, as Blender's: X red (the way the character faces), Y green, Z blue (up). Remembered for every 3D view.", () => PreviewViews.Gizmo, () => PreviewViews.Gizmo = !PreviewViews.Gizmo));
             items.AddRange(ExtraLook);
             lookMenu = PreviewControls.LookMenu(items, [light, glowSlider, lens, effectsSlider], S, () => { prefs.Save(); ApplyLook(); });

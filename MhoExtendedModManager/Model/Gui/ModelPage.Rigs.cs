@@ -167,8 +167,8 @@ sealed partial class ModelPage
             {
                 own = await Task.Run(() =>
                 {
-                    var names = MhoSkeleton.Load(packagePath, null).Bones.Select(b => b.Name).ToList();
-                    return Enum.GetValues<BorrowedRig.Kind>().Where(k => names.Any(BorrowedRig.Pattern(k).IsMatch)).ToHashSet();
+                    // (only kinds the game's copy has too: a moved costume's cape isn't the new hero's own, Kurt 2026-11-19)
+                    return BorrowedRig.HeroKinds(packagePath);
                 });
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException) { return; }

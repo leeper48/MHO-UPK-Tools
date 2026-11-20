@@ -81,6 +81,8 @@ static partial class Program
         ("--power-sounds", "--power-sounds <hero> ... [-v] [-census] [-loops]", "Each hero's powers with their sound effects, whether they loop and whether they play; -loops lists each loop's play and stop actions. Changes nothing."),
         ("--power-loop-mod", "--power-loop-mod <hero> <mod name> <volume> <robot> <part of an event name> ...", "Test: a new mod (off) with a hero's looping sounds changed."),
         ("--voice-text-check", "--voice-text-check [samples per set]", "How many lines of the game's voice sets have their text in the Voice tab. Changes nothing."),
+        ("--rig-match", "--rig-match <package> <Kind:n> <animation> [model.fbx]", "Show which donor frames an added rig's motion is matched from in one animation, frame by frame, and how far each rig bone turns. Changes nothing."),
+        ("--set-motion", "--set-motion <package> <animation> <bone regex>", "Show how far the matching bones turn in that animation, in every animation set of the package that holds it. Changes nothing."),
         ("--mesh-bones", "--mesh-bones <package.upk> ...", "List each skeletal mesh in the packages with its bone names. Changes nothing."),
         ("--bone-turn", "--bone-turn <mod | package.upk> <bone> <animation...>", "One bone's turn in the body over animations, as the 3D preview poses it. Changes nothing."),
         ("--proto-fields", "--proto-fields <prototype path> [name part]", "A prototype's simple fields and its parents' (a power's timing, contact percent ...). Changes nothing."),
@@ -281,6 +283,7 @@ static partial class Program
             try { return Migration.Run(rest[1], target, settings); }
             catch (IOException ex) { Console.WriteLine("Migration stopped: " + ex.Message); return 1; }
         }
+
 
         string? data = Settings.LibraryData(settings.LibraryPath);
         if (data == null) { Console.WriteLine("No mod library yet. Open the window once (first-run setup), or run --migrate <MHModManager folder>."); return 1; }

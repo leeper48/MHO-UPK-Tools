@@ -5,7 +5,7 @@ namespace MhoExtendedModManager.Gui;
 /// <summary>
 /// Move to Another Costume → Another Hero (Kurt, 2026-09-29): pick a hero from a grid of their small portraits (the game's
 /// herohor icons), then one of their costumes (store images; the default in green). Only costumes that can take a moved
-/// model are listed (their own package, not the hero's base package). Returns the chosen costume.
+/// model are listed: their own package, or a default costume in the hero's main package (only its model changes). Returns the chosen costume.
 /// </summary>
 sealed class HeroPickerForm : Form
 {
@@ -60,7 +60,10 @@ sealed class HeroPickerForm : Form
         // Heroes with a costume a model can move to (its own package in the game), other than the mod's own hero.
         // Team-ups (Kurt, 2026-10-02) are one tile, "Team-Ups", listing them all (several share a hero's name: Magik, Gamora).
         const string teamUpsKey = "\u0001teamups";
-        foreach (var g in all.Where(c => c.Hero != null && c.Hero != source.Hero && !CostumeMove.IsBase(c) && File.Exists(Path.Combine(cooked, c.Package)))
+        // A hero's default costume in the hero's main package (Ultron Classic, Vision Classic …: 11 heroes, --base-defaults) is a
+        // target too (Kurt, 2026-11-19): CrossMove changes only its model there (modelOnly).
+        bool listed(Costume c) => !CostumeMove.IsBase(c) || c.IsDefault && !c.IsTeamUp && !c.Prototype.Replace('\\', '/').Contains("/zTesting/", StringComparison.OrdinalIgnoreCase);
+        foreach (var g in all.Where(c => c.Hero != null && c.Hero != source.Hero && listed(c) && File.Exists(Path.Combine(cooked, c.Package)))
                              .GroupBy(c => c.IsTeamUp ? teamUpsKey : c.Hero!, StringComparer.OrdinalIgnoreCase))
         {
             string id = Path.GetFileNameWithoutExtension(g.Key.Replace('\\', '/').Split('/')[^1]);
@@ -156,10 +159,12 @@ sealed class HeroPickerForm : Form
         {
             bool def = c.IsDefault && !c.IsTeamUp;   // (a team-up is its own only "costume": no Default mark)
             var tile = Tile(c.Title + (def ? " (Default)" : ""), (int)(110 * s), (int)(170 * s));
-            if (def) tile.ForeColor = Ui.Enabled;
+            if (def) { tile.ForeColor = Ui.Enabled; tile.AccessibleDescription = "default"; }
             var chosen = c;
             tile.Click += (_, _) => { Chosen = chosen; DialogResult = DialogResult.OK; };
-            Ui.Tip(tile, c.IsTeamUp ? $"Move the model onto the {c.Title} team-up ({c.Package})." : $"Move the model onto {name}'s {c.Title} costume ({c.Package}).");
+            Ui.Tip(tile, c.IsTeamUp ? $"Move the model onto the {c.Title} team-up ({c.Package})."
+                : CostumeMove.IsBase(c) ? $"Move the model onto {name}'s {c.Title} costume, the default ({c.Package}: {name}'s main package; only its model changes)."
+                : $"Move the model onto {name}'s {c.Title} costume ({c.Package}).");
             costumesPanel.Controls.Add(tile);
             Task.Run(() => Picture(chosen.Store, (int)(100 * s), (int)(140 * s))).ContinueWith(t =>
             {
@@ -167,6 +172,7 @@ sealed class HeroPickerForm : Form
             });
         }
         Theme.ApplyTree(costumesPanel, Palette.Dark);
-        foreach (Button b in costumesPanel.Controls) { b.BackColor = Ui.Card; if (b.ForeColor != Ui.Enabled) b.ForeColor = Ui.Text; }
+        // (the theme resets every ForeColor, so the default's green comes back after it)
+        foreach (Button b in costumesPanel.Controls) { b.BackColor = Ui.Card; b.ForeColor = b.AccessibleDescription == "default" ? Ui.Enabled : Ui.Text; }
     }
 }

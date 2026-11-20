@@ -40,8 +40,11 @@ static class CrossMove
     /// mod's copy, else the game's) for step 1, or null. Returns the verified package bytes; throws with the reason.
     /// </summary>
     public static byte[] Build(string modPackage, string meshName, string targetStock, string targetClass, string? baseHero, List<string> log, bool sounds = true,
-        string? sourceClass = null, string? cooked = null, List<VoiceOffEntry>? autoOff = null, bool voice = true, float? scale = null)
+        string? sourceClass = null, string? cooked = null, List<VoiceOffEntry>? autoOff = null, bool voice = true, float? scale = null, bool modelOnly = false)
     {
+        // modelOnly (Kurt, 2026-11-19): a hero's default costume in the hero's main package (Ultron Classic …). Its settings are
+        // the template every other costume of the hero inherits from (--base-defaults: 47 costumes inherit the physics asset,
+        // animation tree, physics weights and voice from it), so only the model changes; physics, tree and weights stay.
         MeshCopy.Register();
         var src = Package.Open(modPackage);
         var dst = Package.Open(targetStock);
@@ -118,7 +121,8 @@ static class CrossMove
         // needs the component's physics asset, and the source's is built for the copied mesh's bones). From the source
         // costume's component, else the "<mesh>_physics" beside the mesh. If it can't be copied, the component gets none.
         int physRef = 0;
-        int pa = SourcePhysics(src, meshName, sourceClass);
+        int pa = modelOnly ? -1 : SourcePhysics(src, meshName, sourceClass);
+        if (modelOnly) log.Add("main package: physics asset, animation tree and physics weights left as they are (the hero's other costumes use them)");
         if (pa >= 0)
         {
             var pc = Quiet(() => ExportCopy.Copy(src, pa, pkg, [], null, replace), out string psaid);
@@ -182,7 +186,7 @@ static class CrossMove
             noneAt += mtag.Length;
             log.Add("component: it inherited its model; SkeletalMesh added");
         }
-        if (tags.FirstOrDefault(t => t.Name.Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } phys)
+        if (!modelOnly && tags.FirstOrDefault(t => t.Name.Equals("PhysicsAsset", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } phys)
         {
             BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(phys.ValueAt), physRef);
             log.Add(physRef > 0 ? $"component: PhysicsAsset → #{physRef}" : "physics asset: none (the target's is built for its own bones)");
@@ -241,7 +245,7 @@ static class CrossMove
         // out. Doctor Strange's cape hangs from exactly those bones; Punisher's coat from g_coat* / g_*coatback*. So the moved
         // model gets the source's tree when that's a shared one (an import); a hero's own tree (Silver Surfer, Deadpool) stays.
         var addImports = new List<NewImport>();
-        if (SourceTree(src, sourceClass, baseHero) is { } tree)
+        if (!modelOnly && SourceTree(src, sourceClass, baseHero) is { } tree)
         {
             int NameIdx4(string n)
             {
@@ -570,6 +574,71 @@ static class CrossMove
             && src.PathOf(e).StartsWith(group + ".", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>A part of the moved model the target's skeleton has no bones for (a cape, hair, wings …) and what will move it there.</summary>
+    /// <param name="Driver">"physics" (bodies in the model's physics asset), "animations" (the source's animations key its
+    /// bones), or "" (nothing: it holds its rest pose).</param>
+    public sealed record ExtraPart(Model.BorrowedRig.Kind Kind, int Bones, string Driver, bool Moves, IReadOnlyList<string> Names);
+
+    /// <summary>
+    /// The move check (Kurt, 2026-11-19): the model's bones the target's skeleton doesn't have, grouped by part (the Model tab's
+    /// Add Rigs kinds, by bone name), and what drives each one on the source: a bone in the model's physics asset that isn't
+    /// fixed swings on any hero, since the physics asset is copied along (not into a hero's main package, which keeps its own:
+    /// the hero's other costumes use it); a bone only the source's animations key holds its rest pose on the target (Doctor
+    /// Strange's cape on Daredevil, confirmed in game 2026-10-03); APEX cloth (Apex true) simulates on any hero. Bones that
+    /// match no part (face, fingers) aren't listed. Null when it can't be read.
+    /// </summary>
+    public static (List<ExtraPart> Parts, bool Apex)? ExtraParts(Mod mod, string srcFile, Costume source, Costume target, string targetStock, string? cooked)
+    {
+        try
+        {
+            string modPkg = Path.Combine(mod.Folder, srcFile);
+            string meshName = SourceMeshName(mod, srcFile, source.Class);
+            if (meshName.Length == 0) return null;
+            var src = Model.MhoSkeleton.Load(modPkg, meshName.Split('.')[^1]);
+            var tgt = Model.MhoSkeleton.Load(targetStock, null, body: true);
+            var have = tgt.Bones.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var extra = src.Bones.Select(b => b.Name).Where(n => !have.Contains(n)).ToList();
+            var keyed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (CostumeAnims.Read(modPkg, srcFile, CostumeAnims.FilesFor(mod, cooked), source.Class) is { } anims)
+                foreach (var set in anims.Sets) foreach (string b in set.TrackBoneNames) keyed.Add(b);
+            // simulated bones: the physics asset the move copies (the costume component's, else the mesh group's), bodies not
+            // bFixed; else the mesh's own <mesh>_physics (MhoSkeleton.Simulated)
+            var sim = new HashSet<string>(src.Simulated, StringComparer.OrdinalIgnoreCase);
+            var pk = Package.Open(modPkg);
+            if (SourcePhysics(pk, meshName, source.Class) is int pa && pa >= 0)
+            {
+                string prefix = pk.PathOf(pk.Exports[pa]) + ".";
+                foreach (var e in pk.Exports)
+                {
+                    if (!pk.ClassOf(e).Equals("RB_BodySetup", StringComparison.OrdinalIgnoreCase) || !pk.PathOf(e).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                    byte[] d = pk.ReadExportBytes(e).ToArray();
+                    if ((TagWalker.Walk(pk, d, 4) ?? TagWalker.Walk(pk, d, 16)) is not { } tags) continue;
+                    string? bone = null; bool isFixed = false;
+                    foreach (var t in tags)
+                    {
+                        if (t.Name.Equals("BoneName", StringComparison.OrdinalIgnoreCase)) bone = TagWalker.NameAt(pk, d, t.ValueAt);
+                        else if (t.Name.Equals("bFixed", StringComparison.OrdinalIgnoreCase)) isFixed = d[t.ValueAt - 1] != 0;
+                    }
+                    if (bone != null && !isFixed) sim.Add(bone);
+                }
+            }
+            bool physicsComes = !CostumeMove.IsBase(target);
+            var parts = new List<ExtraPart>();
+            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var k in Enum.GetValues<Model.BorrowedRig.Kind>())
+            {
+                var bones = extra.Where(n => !taken.Contains(n) && Model.BorrowedRig.Pattern(k).IsMatch(n)).ToList();
+                if (bones.Count == 0) continue;
+                taken.UnionWith(bones);
+                string driver = bones.Any(sim.Contains) ? "physics" : bones.Any(keyed.Contains) ? "animations" : "";
+                parts.Add(new ExtraPart(k, bones.Count, driver, driver == "physics" && physicsComes, bones));
+            }
+            bool apex = pk.Exports.Any(e => pk.ClassOf(e).Equals("ApexClothingAsset", StringComparison.OrdinalIgnoreCase));
+            return (parts, apex);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or PackageFormatException or ArgumentException or IndexOutOfRangeException or AnimExportCli.Packages.InvalidPackageException) { return null; }
+    }
+
     /// <summary>"She-Hulk (on Storm Modern)": a move to another hero names the hero too.</summary>
     public static string NewName(Mod mod, Costume target) => target.IsTeamUp ? $"{mod.Name} (on Team-Up {target.Title})" : $"{mod.Name} (on {target.Short.Split('/')[0]} {target.Title})";
 
@@ -579,7 +648,7 @@ static class CrossMove
     /// packs. Icons, text and sound-pack checks are CostumeMove's (they don't depend on the hero). Returns the folder or null.
     /// </summary>
     public static string? CreateMod(ModLibrary lib, Mod mod, string srcFile, Costume source, Costume target, List<Costume> all, GameState game,
-        StockCatalog? catalog, List<string> log, out string? error, Mod? replace = null, string? name = null)
+        StockCatalog? catalog, List<string> log, out string? error, Mod? replace = null, string? name = null, bool voice = true, bool partMotion = true)
     {
         error = null;
         var originals = new Originals(lib.DataFolder, game);
@@ -597,9 +666,18 @@ static class CrossMove
             // No sounds across heroes (Kurt, option 1): a pack's events are played by its own hero's powers and animations
             // (MHSFXEditor renames the costume package's own AkEvents), which another hero doesn't have.
             var autoOff = new List<VoiceOffEntry>();
-            byte[] built = Build(modPkg, meshName, stock, target.Class, baseHero, log, sounds: false, sourceClass: source.Class, cooked: game.Cooked, autoOff: autoOff);
+            // voice (Kurt, 2026-11-19: the Move window's Copy the Voice): unticked, the target keeps its own voice
+            byte[] built = Build(modPkg, meshName, stock, target.Class, baseHero, log, sounds: false, sourceClass: source.Class, cooked: game.Cooked, autoOff: autoOff,
+                voice: voice, modelOnly: CostumeMove.IsBase(target));
+            if (!voice) log.Add("voice: not copied (the target keeps its own)");
             string file = Path.Combine(work, target.Package);
             File.WriteAllBytes(file, built);
+            // the parts only the source hero's animations move (a cape, a coat …): motion matched from those animations into the
+            // target's (the Move window's Make Still Parts Move; Kurt, 2026-11-20)
+            if (partMotion && ExtraParts(mod, srcFile, source, target, stock, game.Cooked) is { } xp && Model.PartMotion.Still(xp.Parts).Count > 0)
+                try { if (Model.PartMotion.Apply(file, target.Package, meshName, mod, srcFile, source.Class.Split('_')[1], xp.Parts, game.Cooked, log.Add, Path.Combine(game.Cooked, "UC__MarvelPlayer_" + target.Class.Split('_')[1] + "_SF.upk")) is { } moved) File.WriteAllBytes(file, moved); }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or PackageFormatException or ArgumentException or IndexOutOfRangeException or AnimExportCli.Packages.InvalidPackageException)
+                { log.Add("parts:   no motion added: " + ex.Message); }
             // The grafted model keeps the source's path (rescue.rescue on Iron Man Extremis), which other stock packages
             // also carry (Rescue's team-up): whichever loads first would show. Made unique (Kurt, 2026-10-11).
             var unique = UniqueNames.PlanFor(file, stock, target.Package, UniqueNames.Shared(UniqueNames.Folder(game.Cooked)),
@@ -620,13 +698,22 @@ static class CrossMove
             }
             d.Strings = CostumeMove.MovedStrings(mod, plan, name);   // (name: the Move window's Name row)
             // The voice set moves with its events, so a mod's sound pack (the audio of its renamed events) goes along.
-            d.SoundPacks = log.Any(l => l.StartsWith("voice: ")) ? [.. mod.Manifest.AudioPacks.Select(f => Path.Combine(mod.Folder, f))] : [];
+            d.SoundPacks = log.Any(l => l.StartsWith("voice: ") && !l.StartsWith("voice: not copied")) ? [.. mod.Manifest.AudioPacks.Select(f => Path.Combine(mod.Folder, f))] : [];
             d.PreviewImage = null; d.PreviewViews = null; d.CardPicture = null;
             d.PostNexus = d.PostDiscord = null; d.PostImages = [];
             d.NexusModId = null; d.Changes = ""; d.Changelog = [];
             if (replace != null) { d.Tags = [.. replace.ModTags]; d.Notes = replace.Manifest.Notes ?? ""; }
             else d.Notes = (d.Notes.Length > 0 ? d.Notes.TrimEnd() + Environment.NewLine : "") + $"Moved from {mod.Name} ({source.Short.Replace(".prototype", "")} → {target.Short.Replace(".prototype", "")}).";
             CostumeMove.KeepPowerColors(d, mod, replace, sameHero: false);
+            // The source hero's power edits don't come along to another hero (Kurt, 2026-11-19: ULTRAVISION on Ultron Classic
+            // kept its A.I. Hack borrow, and the first Editor save rebuilt it into Vision's packages, which then sat in the
+            // Ultron copy). They name the source hero's powers, packages and costume package: borrowed powers, power sounds,
+            // ground decals, dodge ghosts, borrowed always-on effects, added props and their bones, voice shifts.
+            if (replace == null)
+            {
+                d.PowerBorrows = []; d.PowerSounds = []; d.PowerSoundSets = []; d.DecalImages = []; d.DecalColors = []; d.DecalFiles.Clear();
+                d.DodgeGhosts = []; d.OwnFxBorrows = []; d.AddedProps = []; d.PropBones = []; d.VoiceShifts = [];
+            }
             // Voice lines: the original's turned-off lines don't apply to the new package; the hero's lines the moved voice
             // has no entry for are listed as off (Missing), for the Voice tab.
             d.VoiceOff = [.. autoOff.Select(o => { o.Package = target.Package; return o; })];

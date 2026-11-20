@@ -54,6 +54,7 @@ sealed class ImportBuild
         var extraNames = HairNames(ref basePackage);
         var (export, native) = EncodeMesh(matRefs, extraNames);
         if (!PropFit.IsProp(sk)) basePackage = NoMorphs(basePackage);   // (a prop: the character's component and animations aren't this build's)
+        if (!PropFit.IsProp(sk) && rigs.Count > 0) basePackage = RigTree.Apply(basePackage, sk.Borrowed, log, HeroBase());
         string? pkgOut = WritePackage(basePackage, export);
         if (pkgOut == null) return null;
         if ((rigs.Count > 0 || o.AnimFbx is { Count: > 0 }) && !HairAnimation(pkgOut)) return null;
@@ -239,7 +240,7 @@ sealed class ImportBuild
             if (gDonor != "base")
             {
                 gTemplate = prefix + "template_mat";
-                basePackage = MaterialChoice.CopyDonor(MpmPackage.FromBytes(basePackage), gDonor, o.ValuesFrom, o.Glow, log, gTemplate);
+                basePackage = MaterialChoice.CopyDonor(basePackage, gDonor, o.ValuesFrom, o.Glow, log, gTemplate);
             }
             if (groups.Count > 1) log($"material: {string.Join(", ", groups[gi])} → {(gDonor == "base" ? "the costume's own material" : gDonor.Split(':').Last())}");
             bool guessGlow = gDonor == MaterialChoice.Glow && !ownGlow;
@@ -404,6 +405,15 @@ sealed class ImportBuild
             return true;
         }
         catch (InvalidDataException ex) { log("PACKAGE PROBLEM: animations: " + ex.Message); return false; }
+    }
+
+    /// <summary>The hero's base package (UC__MarvelPlayer_&lt;Hero&gt;_SF.upk, the game's) for a costume package; null otherwise.</summary>
+    string? HeroBase()
+    {
+        var hm = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(package), @"(?:^|_)UC__MarvelPlayer_([A-Za-z0-9]+)_", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!hm.Success) return null;
+        try { return BasePackage.Resolve($"UC__MarvelPlayer_{hm.Groups[1].Value}_SF.upk", true); }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or IOException) { return null; }
     }
 
     // --- morph targets ---------------------------------------------------------------------------------------------------------

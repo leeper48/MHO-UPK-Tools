@@ -93,9 +93,11 @@ sealed partial class Preview3D
         int k = heroPowers.FindIndex(p => p.Prototype.Equals(prototype, StringComparison.OrdinalIgnoreCase));
         if (k < 0) return false;
         // The frame slider keeps its place (Kurt, 2026-10-03: compare powers at the same moment)
-        if (anim != null && seconds > 0) keepFraction = Fraction;
-        if (powerFilter == heroPowers[k].Prototype) PowerClicked(k);   // (filtering already: back to all, then again)
-        PowerClicked(k);
+        if (anim != null && seconds > 0 && !PreviewViews.StartPaused) keepFraction = Fraction;   // (starting paused: its first frame, Kurt 2026-11-20)
+        // (picked from outside, the Powers tab: always shown afresh, never the second click's pause / play)
+        powerFilter = null; effectOnly = null;
+        noToggle = true;
+        try { PowerClicked(k); } finally { noToggle = false; }
         if (!play) { autoPlay = false; Pause(); }
         return true;
     }
@@ -216,6 +218,20 @@ sealed partial class Preview3D
         if (Visible && looks != null) RefreshLooks();
     }
 
+    /// <summary>The marker on a power standing for one animation (an idle button, the ▶ button): Change This Animation goes to
+    /// the Animations tab on it (Kurt, 2026-11-20: right-click options on all the 3D view's buttons, to the editor tab needed).</summary>
+    public const string AnimPrefix = "anim:";
+
+    /// <summary>The right-click items for one animation (after the shortcut items): Change This Animation. None without a host.</summary>
+    List<ToolStripItem> AnimMenuItems(string anim, string label) => PowerMenu == null ? [] :
+    [
+        new ToolStripMenuItem("Change This Animation", null, (_, _) => PowerMenu?.Invoke(new Fx.PowerList.Power(AnimPrefix + anim, label, null, [anim]), PowerMenuAction.ModifyAnimation))
+            { ToolTipText = $"Open the Editor's Animations tab on {anim}, to swap it for another character's." },
+    ];
+
+    /// <summary>The animation picked now, or null (rest pose).</summary>
+    string? CurrentAnimName => anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count ? animList[anims.SelectedIndex - 1].Name : null;
+
     /// <summary>The right-click menu over a power button.</summary>
     void ShowPowerMenu(Fx.PowerList.Power pw, Point screen)
     {
@@ -236,7 +252,7 @@ sealed partial class Preview3D
             var pw = heroPowers[k]; int idx = k;
             string name = looks?.Name(pw, db) ?? pw.Name;
             var lines = looks?.TipLines(pw, db) ?? [pw.Name];
-            string tip = string.Join("\n", lines) + "\n\n" + pw.Animations.Count + " animation" + (pw.Animations.Count == 1 ? "" : "s") + ": click to show only its animations and play it; click again for all."
+            string tip = string.Join("\n", lines) + "\n\n" + pw.Animations.Count + " animation" + (pw.Animations.Count == 1 ? "" : "s") + ": click to show only its animations and play it; click again to pause or play. An idle or walk button lists all the animations again."
                 + (PowerMenu != null ? "\nRight-click: rename, replace its icon, make one from the 3D view, or change its animations." : "");
             var b = Ui.FlatButton("", () => PowerClicked(idx), tip);
             b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size(side, side); b.Margin = new Padding(0, 0, 3, 3);
@@ -253,13 +269,16 @@ sealed partial class Preview3D
             powerButtons.Add(b);
             powerStrip.Controls.Add(b);
         }
-        // the standing animations after the powers (Kurt, 2026-11-17): Idle, Combat Idle, Fidget 1 and 2, those the character has
+        // the standing animations after the powers (Kurt, 2026-11-17): Idle, Combat Idle, Fidget 1 and 2, those the character has;
+        // Walk and Run too (Kurt, 2026-11-20)
         idleButtons.Clear();
         foreach (var (label, names) in IdleAnims)
         {
             string? anim = names.FirstOrDefault(n => allAnims.Any(a => a.Name.Equals(n, StringComparison.OrdinalIgnoreCase)));
             if (anim == null) continue;
-            var b = Ui.FlatButton("", () => PlayIdle(anim), $"{label} ({anim}): click to play it (all the animations listed again); click again to pause or play.");
+            var b = Ui.FlatButton("", () => PlayIdle(anim), $"{label} ({anim}): click to play it (all the animations listed again); click again to pause or play."
+                + (PowerMenu != null ? "\nRight-click: Change This Animation (the Editor's Animations tab)." : ""));
+            if (PowerMenu != null) ShortcutsUi.MenuItemsAfter.AddOrUpdate(b, () => AnimMenuItems(anim, label));
             b.AutoSize = false; b.Padding = new Padding(0); b.Size = new Size(side, side); b.Margin = new Padding(0, 0, 3, 3);
             b.AccessibleName = label;
             string kind = label;
@@ -280,6 +299,8 @@ sealed partial class Preview3D
     [
         ("Idle", ["idle"]),
         ("Combat Idle", ["idle_combat", "idlecombat", "combat_idle"]),
+        ("Walk", ["movement_walk", "movement_walk_outofcombat", "walk"]),
+        ("Run", ["movement_run", "movement_run_outofcombat", "run"]),
         ("Fidget 1", ["fidget01", "fidget_01", "fidget1"]),
         ("Fidget 2", ["fidget02", "fidget_02", "fidget2"]),
     ];
@@ -287,7 +308,8 @@ sealed partial class Preview3D
 
     /// <summary>The idle buttons' icons (Kurt, 2026-11-17: less stick-figure-like): filled silhouettes in the framing buttons'
     /// style, solid head and torso, thick rounded limbs. Idle stands at ease, Combat Idle in a fighting stance (knees bent, fists
-    /// up), Fidget 1 scratches its head, Fidget 2 has its hands on its hips; the fidgets carry their number.</summary>
+    /// up), Walk mid-stride, Run leaning in with a knee high, Fidget 1 scratches its head, Fidget 2 has its hands on its hips; the
+    /// fidgets carry their number.</summary>
     void DrawIdleIcon(Graphics g, Rectangle r, Color c, string kind)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -314,6 +336,24 @@ sealed partial class Preview3D
                 Limb((-2.0f, 7.6f), (-1.4f, 11.6f), (2.6f, 9.0f));
                 Head(6.2f, 5.6f, 1.7f);
                 Head(3.0f, 8.8f, 1.7f);
+                break;
+            case "Walk":
+                // upright, mid-stride: legs apart, arms swinging against them
+                Head(0.6f, 2.8f, 2.7f);
+                Torso((-2.8f, 6.2f), (3.2f, 6.2f), (2.4f, 14f), (-2.4f, 14f));
+                Limb((1.2f, 13.6f), (3.4f, 18f), (5.2f, 22.4f));
+                Limb((-1.2f, 13.6f), (-2.4f, 18.2f), (-5.0f, 21.8f));
+                Limb((-2.4f, 7.4f), (-4.2f, 11.4f), (-3.6f, 14.8f));
+                Limb((2.8f, 7.4f), (4.6f, 11.0f), (6.0f, 13.4f));
+                break;
+            case "Run":
+                // leaning in: front knee high, back leg pushing off, arms bent and pumping
+                Head(2.4f, 3.0f, 2.7f);
+                Torso((-1.6f, 6.4f), (4.4f, 6.6f), (2.0f, 13.8f), (-3.4f, 13.2f));
+                Limb((0.4f, 13.4f), (5.2f, 15.2f), (4.2f, 20.4f));
+                Limb((-1.8f, 13.4f), (-3.8f, 17.6f), (-7.6f, 20.4f));
+                Limb((3.6f, 7.8f), (6.6f, 10.4f), (8.4f, 7.6f));
+                Limb((-0.8f, 7.8f), (-4.0f, 10.4f), (-6.8f, 8.8f));
                 break;
             case "Fidget 1":
                 // one hand up at the head (a scratch), the other down
@@ -361,7 +401,7 @@ sealed partial class Preview3D
         if (animList != allAnims) { animList = allAnims; FillAnims(); }
         int i = animList.FindIndex(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (i < 0) return;
-        autoPlay = true;
+        autoPlay = !PreviewViews.StartPaused;   // (paused on its first frame: a second click plays)
         Pick(i + 1, true);
         RefreshPowerButtons();
     }
@@ -374,6 +414,8 @@ sealed partial class Preview3D
             Ui.Lit(powerButtons[k], powerFilter == heroPowers[k].Prototype || (current != null && heroPowers[k].Animations.Contains(current, StringComparer.OrdinalIgnoreCase)));
     }
 
+    bool noToggle;
+
     /// <summary>A power button: its animations only (its loop / first plays), or all again when it was filtering.</summary>
     void PowerClicked(int k)
     {
@@ -382,6 +424,16 @@ sealed partial class Preview3D
         // its form first (Jean Grey's Phoenix: her flying animations, wings and flames), read once; then the click goes on
         if (SetForm(FormOf(pw), () => PowerClicked(k))) return;
         bool reload = formChanged; formChanged = false;
+        // the lit one again: pause / play, as the idle buttons (Kurt, 2026-11-20). Before, a second click listed all the
+        // animations again, which reloaded the playing one paused only when its place in the list changed: some buttons
+        // seemed to pause, others went on playing.
+        string? playing = anims.SelectedIndex > 0 && anims.SelectedIndex - 1 < animList.Count ? animList[anims.SelectedIndex - 1].Name : null;
+        if (!reload && !noToggle && (ShowsPower(pw.Prototype) || (playing != null && pw.Animations.Contains(playing, StringComparer.OrdinalIgnoreCase))))
+        {
+            TogglePlayback();
+            RefreshPowerButtons();
+            return;
+        }
         if (pw.Animations.Count == 0)
         {
             // effects only: the idle plays with them (again: back to all)
@@ -390,7 +442,7 @@ sealed partial class Preview3D
             powerFilter = again ? null : pw.Prototype;
             animList = allAnims; FillAnims();
             int idle = PowerPreview.IdleIndex(allAnims.Select(a => a.Name).ToList());
-            if (!again) { autoPlay = true; if (anims.SelectedIndex == idle + 1 && !reload) LoadEffects(); else Pick(idle + 1, reload); }
+            if (!again) { autoPlay = !PreviewViews.StartPaused; if (anims.SelectedIndex == idle + 1 && !reload) LoadEffects(); else Pick(idle + 1, reload); }
             else if (reload) Pick(anims.SelectedIndex, true);
             else LoadEffects();
             RefreshPowerButtons();
@@ -416,7 +468,8 @@ sealed partial class Preview3D
             animList = [.. allAnims.Where(a => pw.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
                 .OrderBy(a => pw.Animations.FindIndex(x => x.Equals(a.Name, StringComparison.OrdinalIgnoreCase)))];
             FillAnims();
-            if (animList.Count > 0) { autoPlay = true; Pick(PowerPreview.PreferredAnim(animList.Select(a => a.Name).ToList()) + 1, reload); }
+            // (Power Buttons Start Paused, Kurt 2026-11-20: its first frame, paused; reloaded so a shared animation starts over too)
+            if (animList.Count > 0) { autoPlay = !PreviewViews.StartPaused; Pick(PowerPreview.PreferredAnim(animList.Select(a => a.Name).ToList()) + 1, reload || PreviewViews.StartPaused); }
         }
         RefreshPowerButtons();
         // a power picked: the whole character, centred (Kurt, 2026-10-18: some powers left the camera far off)

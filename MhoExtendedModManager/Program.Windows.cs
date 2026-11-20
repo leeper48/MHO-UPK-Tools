@@ -70,7 +70,8 @@ static partial class Program
             if (tgt == null) { Console.WriteLine("no such target"); return 1; }
             var mcat = new StockCatalog(mlib, mgame);
             var plan = CostumeMove.Make(mm, one.File, one.Costume, tgt, all, mgame.Cooked, mcat);
-            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList(), crossHero, CostumeMove.Naming(plan, mcat, mgr))
+            var mparts = crossHero && new Originals(mlib.DataFolder, mgame).Find(tgt.Package) is string mstock ? CrossMove.ExtraParts(mm, one.File, one.Costume, tgt, mstock, mgame.Cooked) : null;
+            using var f = new Gui.MoveCostumeForm(mm, plan, mcat, mlib.Mods.Where(x => x.Manifest.UpkReplacements.Contains(tgt.Package, StringComparer.OrdinalIgnoreCase)).ToList(), crossHero, CostumeMove.Naming(plan, mcat, mgr), mparts)
                 { StartPosition = FormStartPosition.Manual, Location = new Point(-4000, -4000) };
             f.Shown += (_, _) => f.BeginInvoke(async () =>
             {

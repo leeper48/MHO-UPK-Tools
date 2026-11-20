@@ -154,6 +154,8 @@ sealed partial class ModEditorView
         powerList.DrawTile = DrawPowerTile;
         powerList.TipFor = o => o is Fx.PowerList.Power p ? PowerTip(p) : "";
         powerList.ItemRightClicked += PowerTileMenu;
+        // the selected tile again: pause / play, as the Mods and Model tabs' power buttons (Kurt, 2026-11-20)
+        powerList.SelectedClicked += _ => powerPreview?.TogglePlayback();
         powerList.StartsGroup = i => i == heroPowerCount && i > 0;
         powerList.SelectedIndexChanged += (_, _) => { ShowPowerTitle(); if (!refillSame) PowerSelected(); };
         left.Controls.Add(host);
@@ -647,7 +649,7 @@ sealed partial class ModEditorView
         else
         {
             if (powerPreview != null) powerPreview.OverridesOff = false;
-            powerPreview?.PlayPower(p.Prototype);
+            powerPreview?.PlayPower(p.Prototype, !PreviewViews.StartPaused);
         }
         ShowShared(p);
         ShowParts(p);

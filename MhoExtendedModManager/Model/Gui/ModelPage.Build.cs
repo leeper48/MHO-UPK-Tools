@@ -540,17 +540,6 @@ sealed partial class ModelPage
     }
 
     /// <summary>FBX round trip, export (0.11.0): databx\&lt;model&gt; on &lt;package&gt;\ with model.fbx, its textures and anims\.</summary>
-    /// <summary>Installs the shipped MHO Actions add-on into that Blender (background; logged).</summary>
-    async Task InstallAddon(string exe)
-    {
-        status.Text = "Installing the MHO Actions add-on…";
-        Log($"Blender: installing the MHO Actions add-on ({Path.GetFileName(BlenderLaunch.BundledAddon())}) into {exe}…");
-        string? failed = await Task.Run(() => BlenderLaunch.InstallAddon(exe));
-        if (failed == null) Log("Blender: the MHO Actions add-on is installed and enabled.");
-        else { Log("Blender: the add-on wasn't installed: " + failed); Dialog.Show(this, $"The MHO Actions add-on wasn't installed: {failed}\n\nThe scene will be built without it.\n\nTo install the add-on by hand: Blender → Edit → Preferences → Get Extensions → Install from Disk, then pick the file:\n  {BlenderLaunch.BundledAddon()}", "Add-On Not Installed", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-        UpdateStatus();
-    }
-
     /// <summary>The rigged FBX for an unrigged source on a base hero (worker thread): made once in Blender, then kept in the work
     /// folder (rigs\&lt;fbx&gt; on &lt;package&gt;) until Rig Again.</summary>
     string RigFor(string file, string pkgKey)
@@ -647,16 +636,6 @@ sealed partial class ModelPage
             if (d.ShowDialog(this) != DialogResult.OK) return;
             Settings.Current.BlenderPath = d.FileName; Settings.Current.Save();
             Log("Blender: " + d.FileName);
-        }
-        // the MHO Actions add-on, offered (optional) when that Blender lacks it (0.16.7, Kurt)
-        if (openInBlender && Environment.GetEnvironmentVariable("MFF_GUI_NOASK") != "1" && !Settings.Current.SkipAddonOffer && BlenderLaunch.Find() is string bexe && BlenderLaunch.CanOfferAddon(bexe))
-        {
-            int pick = Dialog.Choose(this, $"{Path.GetFileName(Path.GetDirectoryName(bexe))} doesn't have the MHO Actions add-on.\n\n  • It's optional: Without it the scene is built with Blender's own FBX import, and Ctrl+S still sends your changes back.\n" +
-                "  • With it you also get the action library (anims\\anim.blend), a Root pose track, and its tools (Batch Export Animations, Offset, the weight tools and more).\n\nInstall it into this Blender now? Your Blender preferences are kept.",
-                "MHO Actions Add-On (Optional)", "Install and Continue", "Continue Without", "Don't Ask Again", "Cancel");
-            if (pick == 3) return;
-            if (pick == 2) { Settings.Current.SkipAddonOffer = true; Settings.Current.Save(); Log("Blender: the add-on won't be offered again (Settings ▾ → Model → Install the MHO Actions Add-On does it any time)."); }
-            if (pick == 0) await InstallAddon(bexe);
         }
         // what this one does, before it starts (Kurt: so the user knows the difference)
         int count = preview.OwnAnimationCount, shared = preview.AnimationNames.Count - count;

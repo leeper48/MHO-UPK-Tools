@@ -32,6 +32,9 @@ static class PreviewViews
         public bool SizeRef { get; set; }
         /// <summary>The Chain button: a power's start, loop and end play one after another, as in game (off: each part on its own).</summary>
         public bool Chain { get; set; }
+        /// <summary>A power / idle button picks its animation paused on the first frame; a second click plays (Kurt,
+        /// 2026-11-20). Off: it plays at once. On at first.</summary>
+        public bool StartPaused { get; set; } = true;
         /// <summary>How many times the loop plays in a chain before its end.</summary>
         public int ChainLoops { get; set; } = 2;
         /// <summary>Where the drum stands (engine X, Y of its middle; dragged there), null: beside the character.</summary>
@@ -209,6 +212,7 @@ static class PreviewViews
     public static bool Pivots { get => D.Pivots; set { if (D.Pivots == value) return; D.Pivots = value; Save(); } }
     public static bool SizeRef { get => D.SizeRef; set { if (D.SizeRef == value) return; D.SizeRef = value; Save(); } }
     public static bool Chain { get => D.Chain; set { if (D.Chain == value) return; D.Chain = value; Save(); } }
+    public static bool StartPaused { get => D.StartPaused; set { if (D.StartPaused == value) return; D.StartPaused = value; Save(); } }
     public static int ChainLoops { get => Math.Clamp(D.ChainLoops, 1, 9); set { if (D.ChainLoops == value) return; D.ChainLoops = value; Save(); } }
     public static float[]? SizeRefAt { get => D.SizeRefAt; set { D.SizeRefAt = value; Save(); } }
     public static float AnimSplit { get => D.AnimSplit; set { if (Math.Abs(D.AnimSplit - value) < 0.002f) return; D.AnimSplit = value; Save(); } }

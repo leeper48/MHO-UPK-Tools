@@ -8,12 +8,6 @@ MH_PCK_SoundSilencer (the words of voice lines: StockData\voice_text.tsv.gz)
   By CorvaeOboro, https://github.com/CorvaeOboro/MH_PCK_SoundSilencer. CC0 1.0 (public domain). Its speech-to-text index of the
   game's sounds, matched to the game's sound events by this project.
 
-MHO Actions, a Blender add-on (Assets\Blender\mho_fbx_to_actions-1.55.2.zip; optional: the Model tab's Settings > Model
-installs it into Blender)
-  By Kurt (leeper48). License: GPL-3.0-or-later, as Blender add-ons are. It is shipped as its own file and its Python
-  source is the zip's content. MHO Extended Mod Manager itself is not under the GPL: it only starts Blender, which loads
-  the add-on. Blender itself is not included (https://www.blender.org, GPL).
-
 SharpCompress (reading .7z and .rar mod archives)
   https://github.com/adamhathcock/sharpcompress
   License: MIT

@@ -39,9 +39,15 @@ sealed partial class ModEditorView
     /// <summary>The Powers tab's tiles: the same menu (a hero's own powers only).</summary>
     void PowerTileMenu(int index, Point screen)
     {
-        if (index < 0 || index >= powerList.Items.Count || powerList.Items[index] is not Fx.PowerList.Power p || p.Part != null || index >= heroPowerCount) return;
+        if (index < 0 || index >= powerList.Items.Count || powerList.Items[index] is not Fx.PowerList.Power p || p.Part != null) return;
         var menu = new ContextMenuStrip();
-        PowerMenuItems.Fill(menu, p, BorrowOf(p.Prototype) != null, a => DoPowerAction(p.Prototype, a, powerPreview?.View3D, onPowersTab: true));
+        if (index >= heroPowerCount)
+        {
+            // the character's own entries (a dodge, a landing, a hover …; Kurt, 2026-11-20: options there too): their animations
+            if (p.Animations.Count == 0) { menu.Dispose(); return; }
+            menu.Items.Add(new ToolStripMenuItem("Change Its Animations", null, (_, _) => ShowPowerAnimations(p)) { ToolTipText = "Open the Animations tab on its animations, to swap them for another character's." });
+        }
+        else PowerMenuItems.Fill(menu, p, BorrowOf(p.Prototype) != null, a => DoPowerAction(p.Prototype, a, powerPreview?.View3D, onPowersTab: true));
         menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
         Ui.ShowAt(menu, screen);
     }
@@ -60,6 +66,8 @@ sealed partial class ModEditorView
     void DoPowerAction(string proto, PowerMenuAction action, Preview3D? view, bool onPowersTab)
     {
         if (game == null) return;
+        // one animation (an idle / walk button, ▶): its Animations tab row
+        if (proto.StartsWith(Preview3D.AnimPrefix, StringComparison.Ordinal)) { if (action == PowerMenuAction.ModifyAnimation) ShowAnimation(proto[Preview3D.AnimPrefix.Length..]); return; }
         var p = PowerByProto(proto) ?? new Fx.PowerList.Power(proto, Path.GetFileNameWithoutExtension(proto), null, []);
         switch (action)
         {
@@ -151,6 +159,19 @@ sealed partial class ModEditorView
         string column = animPreview?.AllHeroPowers.FirstOrDefault(x => Same(x.Prototype, p.Prototype))?.Name ?? p.Name;
         animFind.Text = column;
         var row = animGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim a && p.Animations.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
+            ?? animGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault();
+        if (row != null) { animGrid.CurrentCell = row.Cells[0]; animGrid.ClearSelection(); row.Selected = true; animGrid.FirstDisplayedScrollingRowIndex = row.Index; }
+        animGrid.Focus();
+    }
+
+    /// <summary>The Animations tab on one animation (found by its name, selected).</summary>
+    async void ShowAnimation(string name)
+    {
+        ShowPage("Animations");
+        for (int i = 0; i < 300 && !IsDisposed && (animGrid == null || animGrid.Rows.Count == 0); i++) await Task.Delay(100);
+        if (IsDisposed || animGrid == null) return;
+        animFind.Text = name;
+        var row = animGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is CostumeAnims.Anim a && Same(a.Name, name))
             ?? animGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault();
         if (row != null) { animGrid.CurrentCell = row.Cells[0]; animGrid.ClearSelection(); row.Selected = true; animGrid.FirstDisplayedScrollingRowIndex = row.Index; }
         animGrid.Focus();

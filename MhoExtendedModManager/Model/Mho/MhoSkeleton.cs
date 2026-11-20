@@ -111,6 +111,39 @@ sealed class MhoSkeleton
         return sk;
     }
 
+    /// <summary>
+    /// This skeleton with its own bones matching <paramref name="part"/> taken as the donor's rig, in place (Kurt, 2026-11-20: a
+    /// cape that came along with a costume moved from Vision onto Ultron; Ultron's animations don't move it). Nothing is added or
+    /// removed: the package's bone list stays as it is (the build writes added bones only after the package's own, so taking the
+    /// old ones out put every weight after them on the wrong bone). Only when those bones are the donor's rig: the same names
+    /// with parents of the same names; null otherwise. <paramref name="corrections"/> as <see cref="WithRig"/> gives them.
+    /// </summary>
+    public MhoSkeleton? AdoptRig(MhoSkeleton donor, System.Text.RegularExpressions.Regex part, out Dictionary<string, Matrix4x4> corrections)
+    {
+        corrections = new(StringComparer.OrdinalIgnoreCase);
+        var own = Enumerable.Range(0, Bones.Count).Where(i => part.IsMatch(Bones[i].Name)).ToList();
+        var rig = Enumerable.Range(0, donor.Bones.Count).Where(i => part.IsMatch(donor.Bones[i].Name)).ToList();
+        if (own.Count == 0 || own.Count != rig.Count) return null;
+        static Matrix4x4 Rot(Matrix4x4 m) { m.Translation = Vector3.Zero; return m; }
+        string? ParentName(MhoSkeleton s, int i) { int p = s.Bones[i].ParentIndex; return p == i || p < 0 ? null : s.Bones[p].Name; }
+        foreach (int b in rig)
+        {
+            string name = donor.Bones[b].Name;
+            int t = Find(name);
+            if (t < 0 || !part.IsMatch(Bones[t].Name)) return null;
+            string? dp = ParentName(donor, b), tp = ParentName(this, t);
+            if (!string.Equals(dp, tp, StringComparison.OrdinalIgnoreCase)) return null;
+            if (dp == null || part.IsMatch(dp)) continue;
+            int dParent = donor.Find(dp), tParent = Find(tp!);
+            Matrix4x4.Invert(Rot(BoneToModel[tParent]), out var invA);
+            corrections[name] = Rot(donor.BoneToModel[dParent]) * invA;
+        }
+        var sk = new MhoSkeleton { Package = Package, Mesh = Mesh, BoneToModel = BoneToModel };
+        sk.Measure();
+        sk.Borrowed = new HashSet<string>(Borrowed.Concat(own.Select(i => Bones[i].Name)), StringComparer.OrdinalIgnoreCase);
+        return sk;
+    }
+
     /// <summary>Every skeletal mesh in a package (name, export index).</summary>
     public static List<(string Name, int Export)> List(string package)
     {

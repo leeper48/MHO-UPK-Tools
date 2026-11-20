@@ -34,6 +34,8 @@ sealed class CapeMatch
     /// <summary>Per rig bone: the donor's animations move it away from its rest position (then its position is matched too).</summary>
     bool[] moves = [];
     public int Frames => features.Count;
+    /// <summary>Donor animations left out of the library because they hold the rig still.</summary>
+    public int Unkeyed { get; private set; }
     /// <summary>The rig bones whose positions are matched (they need translation tracks where they're written).</summary>
     public IEnumerable<string> PositionBones => capeBones.Where((_, k) => k < moves.Length && moves[k]);
     /// <summary>Diagnostics (--hair-jitter's trace): when set, Apply adds the library frame it picked for each frame.</summary>
@@ -53,9 +55,17 @@ sealed class CapeMatch
         var lib = new CapeMatch(rigBones.Select(b => donorBones[b].Name).ToArray());
         var poser = new MeshAnimator(donorBones, [], [], []);
         var seg = Indices(donorBones);
-        foreach (var a in anims)
+        var list = anims.ToList();
+        bool Moves(BoneAnimation a) => lib.capeBones.Any(b => a.Tracks.TryGetValue(b, out var t) && t.RotationKeys.Count > 1);
+        // (a donor with no animation moving the rig keeps them all, as before 0.60.578: an empty library matches nothing)
+        bool filter = list.Any(Moves);
+        foreach (var a in list)
         {
             if (skip != null && a.Name.Equals(skip, StringComparison.OrdinalIgnoreCase)) continue;
+            // an animation that holds the rig still (no keys: the shared biped sets' interactive_anim; or one key per bone:
+            // Vision's knockback loops) taught still capes, and a run whose body matched those frames got one (Kurt, 2026-11-20:
+            // Vision's cape on Ultron moved in flight, not walking; the run had matched defensive_knockedback_loop)
+            if (filter && !Moves(a)) { lib.Unkeyed++; continue; }
             var (frames, _) = MeshAnimator.Span(a);
             int n = Math.Max(1, (int)MathF.Ceiling(frames));
             Vector3[]? before = null;

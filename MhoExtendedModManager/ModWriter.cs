@@ -300,15 +300,16 @@ static class ModWriter
             if (old != null && Directory.Exists(old))
             {
                 string aside = old + ".replaced-" + Guid.NewGuid().ToString("N")[..6];
-                Directory.Move(old, aside);
-                Directory.Move(temp, target);
+                MoveFolder(old, aside);
+                try { MoveFolder(temp, target); }
+                catch { if (!Directory.Exists(old) && Directory.Exists(aside)) { try { MoveFolder(aside, old); } catch { } } throw; }   // put the old one back
                 Discarded.Keep(lib.DataFolder, aside, editing!.FolderName, why);
             }
-            else Directory.Move(temp, target);
+            else MoveFolder(temp, target);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            if (Directory.Exists(temp)) Directory.Delete(temp, true);
+            try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch (Exception) { }
             error = ex.Message;
             return null;
         }
@@ -325,6 +326,21 @@ static class ModWriter
         st.ApplyLocks();   // locked mods keep their place at the top / bottom
         File.WriteAllText(Path.Combine(lib.DataFolder, "state.json"), JsonSerializer.Serialize(st, ModManifest.Json));
         return name;
+    }
+
+    /// <summary>
+    /// Directory.Move, tried again for up to about 8 seconds when Windows refuses it. A folder can't be renamed while
+    /// another program has a file in it open, and an antivirus or the search indexer opens freshly written files for a
+    /// moment (Kurt, 2026-11-19: "Access to the path … .saving-… is denied" on a costume move that works when run again).
+    /// </summary>
+    internal static void MoveFolder(string from, string to)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try { Directory.Move(from, to); return; }
+            catch (Exception ex) when ((ex is UnauthorizedAccessException || (ex is IOException && Directory.Exists(from) && !Directory.Exists(to))) && attempt < 20)
+            { Thread.Sleep(Math.Min(100 + attempt * 50, 700)); }
+        }
     }
 
     static string? NullIfEmpty(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

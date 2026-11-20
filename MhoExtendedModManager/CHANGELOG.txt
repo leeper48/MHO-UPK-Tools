@@ -1,6 +1,63 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.586
+- 3D preview: a new power (or Idle, Walk …) button now shows its animation's first frame, paused; click it again to play. Look ▾ → Power Buttons Start Paused (on by default) switches back to playing at once. The same in every 3D view (the Mods, Powers and Model tabs).
+
+0.60.585
+- Editor, Powers tab: click the selected power again to pause or play it, as the Mods and Model tabs' power buttons do. Right-click one of the character's own entries with an animation (a dodge, a landing …) for Change Its Animations.
+
+0.60.584
+- 3D preview: right-click Idle, Combat Idle, Walk, Run, a Fidget or ▶ for Change This Animation: the Editor opens on the Animations tab with that animation selected, to swap it for another character's (as the power buttons' Change Its Animations). The shortcut items stay at the top of every button's menu.
+
+0.60.583
+- 3D preview: every power button now pauses and plays its animation when clicked again, as the idle buttons do. Before, a second click listed all the animations again, and only some buttons seemed to pause. The Idle, Walk and Run buttons list all the animations again.
+
+0.60.582
+- 3D preview: Walk and Run buttons beside Idle, Combat Idle and the fidgets (shown when the character has those animations); click the one playing again to pause it.
+
+0.60.581
+- Move to Another Hero: Make Still Parts Move is a checkbox (ticked by default), not a toggle button: pressing the button, as buttons are pressed, turned it off. When it's ticked and a part still gets no motion, a notice after the move says why.
+
+0.60.580
+- Move to Another Hero: a new Make Still Parts Move button in the Move window (on by default, shown when a part would hang still). The parts only the original hero's animations move (a cape, a coat, a dress, hair, a tail …) get motion on the new hero: every frame of the new hero's animations takes their pose from the original hero's frame whose body moves most like it. The model isn't changed, and nothing else needs doing in the Editor. Doctor Strange on Daredevil: cape, coat and dress all move; Vision on Ultron: the cape.
+- Model tab: a build on a package that already has rig motion (a move made with Make Still Parts Move, or an earlier build) adds the new rigs to those animations instead of making another copy. Before, the older copy won, and a newly added rig didn't move.
+- Model tab, Add Rigs: the animation-tree switch from 0.60.579 now happens only for cape bones. Hair and sash bones are blended apart in pc_at_nocape too, so switching for them changed nothing. A costume without a tree of its own now gets one when its hero's tree blends the cape apart (Daredevil Modern plays Daredevil's).
+- If none of a donor's animations moves a part, its motion is matched from all of them, as before 0.60.578, instead of from none.
+
+0.60.579
+- Model tab, Add Rigs: an added cape now moves while walking on heroes whose animation tree has its own cape branches (pc_at_v2: Ultron, Colossus, Daredevil, Hulk, Spider-Man and others). That tree blends the cape, hair and sash bones apart from the animation while moving, so the rig's walk motion never played (Vision's cape on Ultron moved in idle, fidgets and flight, not walking). A build that adds a cape, hair or sash rig on these bones now puts the character on pc_at_nocape, the same tree without those branches (Vision's, Thor's and Doctor Strange's).
+
+0.60.578
+- Model tab, Add Rigs: an added cape or hair now moves in every animation it should. Its motion is matched from the donor hero's animations, and that included ones that hold the part still (shared animations without cape keys, and poses with one key such as Vision's knockback loop). A walk or run whose body happened to match those frames got a still cape (Vision's cape on Ultron moved in flight, not walking). Those animations are now left out of the match. Rebuild a mod on the Model tab to get the new motion.
+
+0.60.577
+- Model tab, Add Rigs: fixed 0.60.576 tearing a moved costume's model into spikes in game when a rig was added for a part it brought along. The part's bones were taken out and the rig's put at the end, but the package kept its old bone order, so every bone after the neck got the wrong part of the model. Now the part's own bones stay where they are and get the rig's motion; this works with the rig the part came from (Cape 3 for Vision's cape), and any other rig of that kind says which one to pick.
+
+0.60.576
+- Model tab, Add Rigs: a costume moved to another hero can get a rig for a part it brought along (Vision's cape on Ultron), so the new hero's animations move it. It was greyed out as the hero's own. Now only parts the game's own copy of the hero has count as its own; the moved part's bones make way for the rig, and the model's bones of the rig's names ride it (Cape 3 is Vision's cape).
+
+0.60.575
+- Move to Another Hero: the parts check now comes first in the Move window, and the window is taller, so the two ways to make a still part move show without scrolling.
+
+0.60.574
+- Move to Another Hero: the Move window checks the parts of the model the target's skeleton has no bones for (cape, hair, coat, dress, sash, tail, chains, wings) and says whether each one will move there: by physics (swings on the new hero, except in a hero's main package, which keeps its own physics), by the original hero's animations (hangs still: the new hero's animations have no keys for it), or by nothing. Simulated (APEX) cloth is listed too; it moves on any hero. For a still part it says how to make it move (Model tab → Add Rigs, or Animations tab → Copy From a Character).
+- Move to Another Hero: the original hero's power edits (borrowed powers, power sounds, ground decals, dodge ghosts, borrowed effects, added props, voice shifts) no longer come along to the new hero. They named the original hero's powers and packages, so saving the moved copy in the Editor rebuilt them into the original hero's packages, which then sat in the copy (and changed that hero for every costume).
+
+0.60.573
+- Saving a mod (a costume move, an edit, a build) no longer fails with "Access to the path … is denied" when another program, such as an antivirus scanning the new files, holds them open for a moment: the last step waits and tries again for a few seconds. If it still fails, an edited mod keeps its old folder.
+
+0.60.572
+- Model tab: a model built with the Glow, Not Metal game material (Nova Modern's) no longer breaks other characters in game. The material needs a piece that only Nova's own package has, and the build left it out, so every character sharing that material lost its textures (flat purple and tan) while the costume was loaded. Build the model again for the fix.
+
+0.60.571
+- Move to Another Costume: a hero's default costume that lives in the hero's main package (Angela, Black Cat, Black Panther, Elektra, Human Torch, Mr. Fantastic, Star-Lord, Taskmaster, Ultron, Vision, X-23) can now take a moved model, from the same hero or another one. It's listed first, marked Default. Only the default costume's model changes: the hero's animations, physics and other costumes stay as they are.
+- Move to Another Hero and Team-Up: a new Copy the Voice choice. Ticked, the costume speaks the mod's hero's lines (as before); unticked, it keeps the target's own voice. It starts unticked for a default costume in a hero's main package, because that voice is shared with the hero's other costumes.
+- Move to Another Hero: the default costume's name is green again (the theme had turned it white).
+
+0.60.569
+- The optional MHO Actions Blender add-on is no longer included in the download or installed by the app. Settings ▾ → Model → Get the MHO Actions Add-On opens its latest release on GitHub (https://github.com/leeper48/MHO-Blender-Addon/releases/latest); download the .zip there and install it in Blender with Edit → Preferences → Get Extensions → Install from Disk. Open in Blender works with or without it, and an add-on you already installed keeps working.
+
 0.60.567
 - Test build: 0.60.566 rebuilt with no changes, because Windows Defender's machine-learning check flagged the 0.60.566 exe on one PC (Trojan:Win32/Bearfoos.A!ml, a false positive; reported to Microsoft).
 

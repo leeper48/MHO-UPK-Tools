@@ -11,7 +11,19 @@ namespace MhoExtendedModManager.Gui;
 sealed class MoveCostumeForm : Form
 {
     readonly CheckBox swap;
+    readonly (List<CrossMove.ExtraPart> Parts, bool Apex)? parts;
     public bool SwapOn => swap.Checked;
+
+    // Copy the Voice (Kurt, 2026-11-19): on every move to another hero. Ticked by default, except onto a default costume in the
+    // hero's main package, whose voice is the one the hero's other costumes use too.
+    readonly CheckBox? voice;
+    public bool CopyVoice => voice?.Checked ?? true;
+
+    // Make Still Parts Move (Kurt, 2026-11-20: in the Move window, not a fix hidden in its text): the parts only the source
+    // hero's animations move get motion matched from those animations (Model.PartMotion). Ticked by default. (First a lit
+    // toggle button: pressing it, as a button is pressed, turned it off.)
+    bool motion = true;
+    public bool PartMotion => motion;
 
     // The Name row (Kurt, 2026-11-06): the name the target shows in game, editable, with who else shows that string.
     readonly CostumeMove.NameInfo? naming;
@@ -25,8 +37,10 @@ sealed class MoveCostumeForm : Form
 
     /// <param name="crossHero">A move to another hero (CrossMove): the model goes into the target costume's own package; sounds stay.</param>
     /// <param name="naming">The target's name (CostumeMove.Naming): adds the Name row.</param>
-    public MoveCostumeForm(Mod mod, CostumeMove.Plan plan, StockCatalog? catalog, IReadOnlyList<Mod> onTarget, bool crossHero = false, CostumeMove.NameInfo? naming = null)
+    public MoveCostumeForm(Mod mod, CostumeMove.Plan plan, StockCatalog? catalog, IReadOnlyList<Mod> onTarget, bool crossHero = false, CostumeMove.NameInfo? naming = null,
+        (List<CrossMove.ExtraPart> Parts, bool Apex)? parts = null)
     {
+        this.parts = parts;
         cross = crossHero;
         this.naming = naming;
         Label? warnNote = null;
@@ -56,7 +70,8 @@ sealed class MoveCostumeForm : Form
 
         // (with a Name row, the name isn't listed as moving text: the row says what it becomes)
         var shown = naming == null ? plan : plan with { Strings = [.. plan.Strings.Where(x => x.To != plan.Target.DisplayName)] };
-        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = crossHero ? CrossSummary(mod, shown, onTarget) : Summary(mod, shown, onTarget) };
+        bool mainPackage = crossHero && CostumeMove.IsBase(plan.Target);
+        var box = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, TabStop = false, Text = crossHero ? CrossSummary(mod, shown, onTarget, !mainPackage, parts, motion) : Summary(mod, shown, onTarget) };
         t.Controls.Add(box, 0, 2);
 
         if (naming != null)
@@ -82,7 +97,36 @@ sealed class MoveCostumeForm : Form
 
         swap = new CheckBox { Text = $"Turn the new mod on and \"{mod.Name}\" off", AutoSize = true, Checked = true, Margin = new Padding(0, 8, 0, 0) };
         Ui.Tip(swap, "The costume then shows on its new slot after Apply Changes. Leave it unticked to decide later.");
-        t.Controls.Add(swap, 0, 4);
+        var checks = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
+        if (crossHero)
+        {
+            string from = HeroOf(plan.Source), to = plan.Target.IsTeamUp ? plan.Target.Title : HeroOf(plan.Target);
+            var vc = new CheckBox { Text = $"Copy the Voice ({from}'s Lines)", AutoSize = true, Checked = !mainPackage, Margin = new Padding(0, 8, 0, 0) };
+            voice = vc;
+            Ui.Tip(vc, mainPackage
+                ? $"Ticked, {to}'s powers play {from}'s lines. This is {to}'s main package: every other {to} costume that uses {to}'s own voice gets {from}'s lines too. Unticked, {to}'s voice stays."
+                : $"Ticked, {to}'s powers play {from}'s lines on this costume (the mod's sound pack comes along). Unticked, the costume keeps {to}'s own voice.");
+            vc.CheckedChanged += (_, _) => { box.Text = CrossSummary(mod, shown, onTarget, vc.Checked, parts, motion); box.SelectionLength = 0; };
+            checks.Controls.Add(vc);
+            if (mainPackage)
+                checks.Controls.Add(new Label { Text = $"{to}'s main package: only the model changes. Its voice is shared with {to}'s other costumes.", AutoSize = true, Tag = "subtle", Margin = new Padding(20, 2, 0, 0) });
+        }
+        if (crossHero && parts is { } sp && Model.PartMotion.Still(sp.Parts) is { Count: > 0 } stillParts)
+        {
+            string from = HeroOf(plan.Source), to = plan.Target.IsTeamUp ? plan.Target.Title : HeroOf(plan.Target);
+            string what = string.Join(", ", stillParts.Select(p => PartName(p.Kind).ToLowerInvariant()));
+            var mc = new CheckBox { Text = $"Make Still Parts Move ({what})", AutoSize = true, Checked = motion, Margin = new Padding(0, 8, 0, 0) };
+            Ui.Tip(mc, $"Ticked, the parts only {from}'s animations move ({what}) get motion on {to}: every frame of {to}'s animations takes their pose from the {from} frame whose body moves most like it. The model isn't changed. Unticked, they hang still.");
+            mc.CheckedChanged += (_, _) =>
+            {
+                motion = mc.Checked;
+                box.Text = CrossSummary(mod, shown, onTarget, CopyVoice, parts, motion);
+                box.SelectionLength = 0;
+            };
+            checks.Controls.Add(mc);
+        }
+        checks.Controls.Add(swap);
+        t.Controls.Add(checks, 0, 4);
 
         var bar = new FlowLayoutPanel { AutoSize = true, Anchor = AnchorStyles.Right, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 12, 0, 0) };
         var cancel = Ui.FlatButton("Cancel", () => { DialogResult = DialogResult.Cancel; }, "Change nothing (Esc).");
@@ -96,7 +140,7 @@ sealed class MoveCostumeForm : Form
         Theme.Apply(this, Palette.Dark); Modern.Modernize(this);
         Ui.RestyleButtons(this);
         if (warnNote != null) warnNote.ForeColor = Ui.OverrideAmber;   // (after the theme, which recolors labels)
-        Ui.FitToScreen(this, 620, 600);
+        Ui.FitToScreen(this, 620, parts is { } pz && (pz.Apex || pz.Parts.Count > 0) ? 780 : 600);
         Shown += (_, _) => { box.SelectionLength = 0; ActiveControl = create.Enabled ? create : cancel; };
     }
 
@@ -132,22 +176,29 @@ sealed class MoveCostumeForm : Form
         return AutoTags.DisplayName(id) ?? id;
     }
 
-    static string CrossSummary(Mod mod, CostumeMove.Plan plan, IReadOnlyList<Mod> onTarget)
+    static string CrossSummary(Mod mod, CostumeMove.Plan plan, IReadOnlyList<Mod> onTarget, bool copyVoice = true, (List<CrossMove.ExtraPart> Parts, bool Apex)? parts = null, bool motion = true)
     {
+        bool mainPackage = CostumeMove.IsBase(plan.Target);
         var sb = new System.Text.StringBuilder();
         void Line(string x = "") => sb.Append(x).Append("\r\n");
         string hero = HeroOf(plan.Target), from = HeroOf(plan.Source);
         string who = plan.Target.IsTeamUp ? plan.Target.Title : hero;   // (whose animations, powers, skeleton: "Old Man Thor's", not "Team-Up's")
+        // The parts check goes first, so its fixes are seen without scrolling (Kurt, 2026-11-19: "I don't see two ways to fix").
+        if (parts is { } pp && PartsText(pp.Parts, pp.Apex, who, mainPackage, from, motion) is { Length: > 0 } pt) { sb.Append(pt); Line(); }
         Line("What moves:");
-        Line($"  • the model, with its materials and textures, into {plan.Target.Package}");
+        Line(mainPackage
+            ? $"  • the model, with its materials and textures, into {plan.Target.Package}: {HeroOf(plan.Target)}'s main package. Only the default costume's model changes; the physics, animation setup and the other costumes stay as they are."
+            : $"  • the model, with its materials and textures, into {plan.Target.Package}");
         if (plan.Icons.Count > 0) Line("  • " + string.Join(", ", plan.Icons.Select(i => i.Kind.ToLowerInvariant())) + $", under {hero} {plan.Target.Title}'s names");
         foreach (var st in plan.Strings) Line($"  • the costume text \"{st.Text}\" ({st.Language}), as {hero} {plan.Target.Title}'s");
-        Line(mod.Manifest.AudioPacks.Count > 0
-            ? $"  • the voice: the mod's own voice lines (its sound pack comes along)"
-            : $"  • the voice: {from}'s lines, played by {who}'s powers");
+        if (copyVoice)
+            Line(mod.Manifest.AudioPacks.Count > 0
+                ? $"  • the voice: the mod's own voice lines (its sound pack comes along)"
+                : $"  • the voice: {from}'s lines, played by {who}'s powers" + (mainPackage ? $" (on every {who} costume that uses {who}'s own voice)" : ""));
         Line();
         Line($"What stays {who}'s:");
-        Line($"  • the animations and powers. Parts of the model {who}'s skeleton doesn't move (hair, a cape) stay still.");
+        if (!copyVoice) Line($"  • the voice: {who}'s own lines");
+        Line(parts == null ? $"  • the animations and powers. Parts of the model {who}'s skeleton doesn't move (hair, a cape) stay still." : "  • the animations and powers");
         Line();
         var others = onTarget.Where(m => m != mod).ToList();
         if (others.Count > 0)
@@ -157,6 +208,42 @@ sealed class MoveCostumeForm : Form
             Line();
         }
         Line($"The new mod \"{CrossMove.NewName(mod, plan.Target)}\" goes at the top of the list. \"{mod.Name}\" isn't changed.");
+        return sb.ToString();
+    }
+
+    static string PartName(Model.BorrowedRig.Kind k) => k switch
+    {
+        Model.BorrowedRig.Kind.Loincloth => "Sash or loincloth", Model.BorrowedRig.Kind.Chains => "Chains", _ => k.ToString(),
+    };
+
+    /// <summary>
+    /// The move check's section (Kurt, 2026-11-19): each part of the model the target's skeleton has no bones for, and whether it
+    /// moves there (CrossMove.ExtraParts). Empty when there's none.
+    /// </summary>
+    internal static string PartsText(List<CrossMove.ExtraPart> parts, bool apex, string who, bool mainPackage, string from = "the source", bool motion = true)
+    {
+        if (parts.Count == 0 && !apex) return "";
+        var sb = new System.Text.StringBuilder();
+        void Line(string x = "") => sb.Append(x).Append("\r\n");
+        Line($"Parts {who}'s skeleton doesn't have:");
+        if (apex) Line("  • Simulated cloth (APEX): moves on any hero. It can cover some of the parts below, which then move too.");
+        bool still = false;
+        foreach (var p in parts)
+        {
+            string name = $"{PartName(p.Kind)} ({p.Bones} bone{(p.Bones == 1 ? "" : "s")})";
+            if (p.Moves) Line($"  • {name}: swings, by physics (the model's physics setup comes along).");
+            else if (p.Driver == "physics") { Line($"  • {name}: hangs still. It swings by physics, and {who}'s main package keeps {who}'s own physics setup (the other costumes use it)."); still = true; }
+            else if (p.Driver == "animations" && motion) Line($"  • {name}: moves, with motion matched from {from}'s animations (Make Still Parts Move).");
+            else if (p.Driver == "animations") { Line($"  • {name}: hangs still. {from}'s animations move it; {who}'s have no keys for it. Make Still Parts Move gives it motion."); still = true; }
+            else Line($"  • {name}: holds its shape (nothing moves it on {from} either).");
+        }
+        if (still)
+        {
+            Line();
+            Line("Other ways to make a still part move, in the new mod after the move:");
+            Line($"  • Editor → Model → Add Rigs: gives the part a rig that {who}'s own animations move (cape, hair, coat, dress, sash, tail, chains, wings).");
+            Line($"  • Editor → Animations → Copy From a Character ({from}): the part moves as before, but the costume then moves like {from}.");
+        }
         return sb.ToString();
     }
 

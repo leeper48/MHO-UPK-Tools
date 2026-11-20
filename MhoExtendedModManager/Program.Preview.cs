@@ -4780,6 +4780,60 @@ static partial class Program
                 }
                 return 0;
             }
+            case "--rig-match":
+            {
+                // Read-only (2026-11-20): which donor frames an added rig's motion is matched from in one animation of a package
+                // (the rig as the build grafts it), frame by frame. --rig-match <package> <Kind:n> <animation>
+                if (rest.Count < 4) { Console.WriteLine("--rig-match <package> <Kind:n> <animation>"); return 1; }
+                var mk0 = MhoExtendedModManager.Model.MhoSkeleton.Load(rest[1], null);
+                var (mk, mrigs) = MhoExtendedModManager.Model.BorrowedRig.GraftAll(mk0, MhoExtendedModManager.Model.BorrowedRig.ParsePicks(rest[2]), null, Console.WriteLine);
+                var mref = MhoExtendedModManager.Model.MhoAnim.For(rest[1], mk0.Bones.Select(b => b.Name)).FirstOrDefault(x => x.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase));
+                var man = mref == null ? null : MhoExtendedModManager.Model.MhoAnim.Load(mref);
+                if (man == null || mrigs.Count == 0) { Console.WriteLine("no such animation or rig"); return 1; }
+                IReadOnlyList<AnimExportCli.Meshes.MeshBone> mbones = mk.Bones;
+                if (rest.Count > 4)
+                {
+                    // the FBX model's bones, as the build poses them (its builtBones)
+                    var mr = MhoExtendedModManager.Model.FbxReimport.LoadAny(rest[4], mk, null, _ => { }, false);
+                    mbones = MhoExtendedModManager.Model.MhoAnim.FromGlobals(mr.Bones.Select(b => (b.Name, b.Parent, b.Global)).ToList());
+                    Console.WriteLine($"bones from {Path.GetFileName(rest[4])}: {mbones.Count}");
+                }
+                foreach (var rig in mrigs)
+                {
+                    rig.Library.trace = [];
+                    var res = rig.Apply(man, mbones);
+                    Console.WriteLine($"{rig.Label}: {rig.Library.trace.Count} frames");
+                    for (int f = 0; f < rig.Library.trace.Count; f++) { var (sa, sf) = rig.Library.Source(rig.Library.trace[f]); Console.WriteLine($"  {f,3}: {sa} @{sf}"); }
+                    foreach (var (bn, t) in res.Tracks.Where(t => rig.Bones.IsMatch(t.Key)))
+                        Console.WriteLine($"  {bn,-14} {t.RotationKeys.Count,4} keys, turns {(t.RotationKeys.Count == 0 ? 0 : t.RotationKeys.Max(k => 2 * MathF.Acos(Math.Clamp(MathF.Abs(System.Numerics.Quaternion.Dot(k.Rotation, t.RotationKeys[0].Rotation)), 0, 1)) * 180 / MathF.PI)),6:0.0}°");
+                    rig.Library.trace = null;
+                }
+                return 0;
+            }
+            case "--set-motion":
+            {
+                // Read-only (2026-11-20, a moved costume's added cape moved in flight, not walking): every AnimSet of a package
+                // holding the animation, with how far each bone matching the pattern turns in it (largest angle from its first key)
+                // --set-motion <package> <animation> <bone regex>
+                if (rest.Count < 4) { Console.WriteLine("--set-motion <package> <animation> <bone regex>"); return 1; }
+                var sp = AnimExportCli.Packages.Package.Open(rest[1]);
+                var rx = new System.Text.RegularExpressions.Regex(rest[3], System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                foreach (var set in AnimExportCli.Animation.AnimObjectReader.FindAnimSets(sp))
+                    foreach (var q in set.Sequences.Where(q => q.IsExport))
+                    {
+                        int qe = q.Value - 1;
+                        if (!AnimExportCli.Animation.AnimObjectReader.GetSequenceDisplayName(sp, qe).Equals(rest[2], StringComparison.OrdinalIgnoreCase)) continue;
+                        var an = AnimExportCli.Animation.AnimObjectReader.TryRead(sp, qe, set.TrackBoneNames);
+                        Console.WriteLine($"{sp.GetExportName(set.ExportIndex)} #{qe}: {(an == null ? "can't be read" : $"{an.Tracks.Count} tracks")}");
+                        if (an == null) continue;
+                        foreach (var (bn, t) in an.Tracks.Where(t => rx.IsMatch(t.Key)))
+                        {
+                            float most = t.RotationKeys.Count == 0 ? 0 : t.RotationKeys.Max(k => 2 * MathF.Acos(Math.Clamp(MathF.Abs(System.Numerics.Quaternion.Dot(k.Rotation, t.RotationKeys[0].Rotation)), 0, 1)) * 180 / MathF.PI);
+                            Console.WriteLine($"  {bn,-14} {t.RotationKeys.Count,4} keys, turns {most,6:0.0}°");
+                        }
+                    }
+                return 0;
+            }
             case "--anim-probe":
             {
                 // Read-only: the AnimSets in packages (paths), with their sequence and bone counts.

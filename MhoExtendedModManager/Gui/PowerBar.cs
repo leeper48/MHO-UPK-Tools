@@ -128,8 +128,13 @@ sealed class PowerBar : Control
     {
         base.OnMouseDown(e);
         Focus();
-        if (e.Button == MouseButtons.Left && At(e.Location) is int k and >= 0) SelectedIndex = k;
+        if (e.Button != MouseButtons.Left || At(e.Location) is not (int k and >= 0)) return;
+        if (k == selected) SelectedClicked?.Invoke(k);
+        else SelectedIndex = k;
     }
+
+    /// <summary>The selected tile clicked again (Kurt, 2026-11-20: pause / play, as the other 3D views' power buttons).</summary>
+    public event Action<int>? SelectedClicked;
 
     /// <summary>A tile right-clicked (its index, the screen point): the host's menu. The tile is selected first.</summary>
     public event Action<int, Point>? ItemRightClicked;

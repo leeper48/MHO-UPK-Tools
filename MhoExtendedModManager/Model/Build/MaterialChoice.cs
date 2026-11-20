@@ -141,11 +141,12 @@ static class MaterialChoice
     /// 20 / 3 not 3 / 1 ...), only from an instance with the same parent (the expression GUIDs in the entries are the
     /// parent's). Entries only the template has are kept; emissivemultiplier = <paramref name="glow"/> (the weapon's is 1).
     /// </summary>
-    public static byte[] CopyDonor(MpmPackage target, string donor, string? valuesFrom, float glow, Action<string> log, string templateName = "mff_template_mat")
+    public static byte[] CopyDonor(byte[] targetBytes, string donor, string? valuesFrom, float glow, Action<string> log, string templateName = "mff_template_mat")
     {
         var dparts = donor.Split(':', 2);
         string dfile = dparts[0].EndsWith(".upk", StringComparison.OrdinalIgnoreCase) ? dparts[0] : dparts[0] + ".upk";
-        var donorPkg = MpmPackage.Open(BasePackage.Resolve(dfile));
+        string donorFile = BasePackage.Resolve(dfile);
+        var donorPkg = MpmPackage.Open(donorFile);
         int di = Array.FindIndex(donorPkg.Exports, x => donorPkg.ClassOf(x).StartsWith("MaterialInstance", StringComparison.OrdinalIgnoreCase)
                                                 && (dparts.Length < 2 || x.ObjectName.Equals(dparts[1], StringComparison.OrdinalIgnoreCase)));
         if (di < 0) throw new InvalidDataException($"no material instance {(dparts.Length > 1 ? dparts[1] : "")} in {dfile}");
@@ -153,7 +154,15 @@ static class MaterialChoice
         valuesFrom ??= donorPkg.Exports[di].ObjectName.Equals("weapons_1602_mtl", StringComparison.OrdinalIgnoreCase) ? "angela_std_v2-1" : null;
         if (!string.IsNullOrWhiteSpace(valuesFrom))
             donorPkg = MergeValues(donorPkg, di, valuesFrom, dfile, glow, log);
-        var dc = Explained(() => MhoPackageModifier.ExportCopy.Copy(donorPkg, di, target, Array.Empty<string>(), templateName), out string why)
+        // material functions the donor takes from its hero's base package (Nova Modern's truefalse, only in Nova's base
+        // package): copied in under their own path, else the copy's parent material has a dangling import (Monarch,
+        // 2026-11-19: a Glow, Not Metal build, and every character using that parent lost its textures in game)
+        var replace = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var copied = new List<string>();
+        targetBytes = MaterialSetupCopy.CopyBaseFunctions(donorPkg, donorFile, targetBytes, replace, copied);
+        foreach (var c in copied) log("material: " + c);
+        var target = MpmPackage.FromBytes(targetBytes);
+        var dc = Explained(() => MhoPackageModifier.ExportCopy.Copy(donorPkg, di, target, Array.Empty<string>(), templateName, replace.Count > 0 ? replace : null), out string why)
             ?? throw new InvalidDataException($"copying {donorPkg.Exports[di].ObjectName} from {dfile} failed: {why}");
         var dcheck = dc.Check(dc.Output);
         if (dcheck.Count > 0) throw new InvalidDataException("template copy: " + string.Join("; ", dcheck.Take(5)));

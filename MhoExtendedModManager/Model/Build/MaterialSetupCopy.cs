@@ -349,32 +349,8 @@ static class MaterialSetupCopy
         // material function chbasematerials_v2.functions.truefalse from UC__MarvelPlayer_Nova_SF, which the game loads with
         // Nova but not with Cable: every copy of it drew the game's blue and white placeholder material): copied in under the
         // same path, as a costume moved to another hero does (CrossMove)
+        current = CopyBaseFunctions(src, sourceFile, current, replace, lines);
         var cur = Package.FromBytes(current);
-        if (SourceBase(sourceFile) is string bp)
-        {
-            var bas = Package.Open(bp);
-            for (int i = 0; i < src.Imports.Length; i++)
-            {
-                string cls = src.Imports[i].ClassName;
-                // (material functions only: the costume's other imports from its base package are its own effects' materials)
-                if (!cls.Equals("MaterialFunction", StringComparison.OrdinalIgnoreCase)) continue;
-                string path = FullImportPath(src, i);
-                if (AlwaysLoaded(path)) continue;
-                int bi = Array.FindIndex(bas.Exports, e => bas.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase) && bas.ClassOf(e).Equals(cls, StringComparison.OrdinalIgnoreCase));
-                if (bi < 0) continue;
-                if (!cur.Exports.Any(e => cur.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase)))
-                {
-                    var bc = MaterialChoice.Explained(() => ExportCopy.Copy(bas, bi, cur, Array.Empty<string>()), out string bwhy)
-                        ?? throw new InvalidDataException($"{path} couldn't be copied from {Path.GetFileName(bp)}: {bwhy}");
-                    var bcheck = bc.Check(bc.Output);
-                    if (bcheck.Count > 0) throw new InvalidDataException($"{path}: " + string.Join("; ", bcheck.Take(5)));
-                    current = bc.Output;
-                    cur = Package.FromBytes(current);
-                }
-                replace[path] = path;
-                lines.Add($"copied from {Path.GetFileName(bp)}: {path} ({cls}): the source takes it from its hero's base package, which the game doesn't load for this character");
-            }
-        }
 
         // a copy of this source with the same maps already in the package: reused (the same compiled data twice collides)
         int made = -1;
@@ -418,6 +394,43 @@ static class MaterialSetupCopy
         foreach (int i in preferred) if (i >= 0 && i < pkg.Exports.Length && Known(i)) return i;
         for (int i = 0; i < pkg.Exports.Length; i++) if (Known(i)) return i;
         return -1;
+    }
+
+    /// <summary>
+    /// The material functions <paramref name="src"/>'s material imports from its hero's base package (Nova Modern's
+    /// chbasematerials_v2.functions.truefalse, only in UC__MarvelPlayer_Nova_SF), copied into <paramref name="current"/> under
+    /// the same path and mapped in <paramref name="replace"/>. Used by Copy Setup (0.60.479) and the Model tab's game materials
+    /// (0.60.572, Monarch: a Glow, Not Metal build left the import dangling, and every character using chbasematerial_v2 lost
+    /// its textures in game).</summary>
+    internal static byte[] CopyBaseFunctions(Package src, string sourceFile, byte[] current, Dictionary<string, string> replace, List<string> lines)
+    {
+        var cur = Package.FromBytes(current);
+        if (SourceBase(sourceFile) is string bp)
+        {
+            var bas = Package.Open(bp);
+            for (int i = 0; i < src.Imports.Length; i++)
+            {
+                string cls = src.Imports[i].ClassName;
+                // (material functions only: the costume's other imports from its base package are its own effects' materials)
+                if (!cls.Equals("MaterialFunction", StringComparison.OrdinalIgnoreCase)) continue;
+                string path = FullImportPath(src, i);
+                if (AlwaysLoaded(path)) continue;
+                int bi = Array.FindIndex(bas.Exports, e => bas.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase) && bas.ClassOf(e).Equals(cls, StringComparison.OrdinalIgnoreCase));
+                if (bi < 0) continue;
+                if (!cur.Exports.Any(e => cur.PathOf(e).Equals(path, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var bc = MaterialChoice.Explained(() => ExportCopy.Copy(bas, bi, cur, Array.Empty<string>()), out string bwhy)
+                        ?? throw new InvalidDataException($"{path} couldn't be copied from {Path.GetFileName(bp)}: {bwhy}");
+                    var bcheck = bc.Check(bc.Output);
+                    if (bcheck.Count > 0) throw new InvalidDataException($"{path}: " + string.Join("; ", bcheck.Take(5)));
+                    current = bc.Output;
+                    cur = Package.FromBytes(current);
+                }
+                replace[path] = path;
+                lines.Add($"copied from {Path.GetFileName(bp)}: {path} ({cls}): the source takes it from its hero's base package, which the game doesn't load for this character");
+            }
+        }
+        return current;
     }
 
     /// <summary>An import's full path, through an outer that is an export of the package (the costume imports truefalse into

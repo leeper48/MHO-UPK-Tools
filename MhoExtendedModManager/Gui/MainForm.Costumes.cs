@@ -67,10 +67,17 @@ sealed partial class MainForm
         var petItem = new ToolStripMenuItem("Pet", null, (_, _) => PickPet(m, src.File, src.Costume));
         petItem.ToolTipText = "Make one of the game's vanity pets look like this costume: its model, idle, run and fidgets (the pet stays a pet).";
         items.Add(petItem);
-        // The hero's default costume when it lives in the hero's main package (Thor Modern): shown, but it can't be a target.
-        var def = costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c));
+        // The hero's default costume when it lives in the hero's main package (Ultron Classic): the copy route with only the model
+        // changed (Kurt, 2026-11-19; every other costume of these heroes names its own model: --base-defaults).
+        var def = costumes.FirstOrDefault(c => c.IsDefault && c.Hero == src.Costume.Hero && CostumeMove.IsBase(c) && File.Exists(Path.Combine(game.Cooked, c.Package)));
         if (def != null && !def.Class.Equals(src.Costume.Class, StringComparison.OrdinalIgnoreCase))
-            items.Add(new ToolStripMenuItem($"{def.Title}  ·  Default (Can't Move Here: Its Package Holds the Hero's Animations)") { Enabled = false, Tag = Ui.Enabled });
+        {
+            var dmade = lib.Mods.FirstOrDefault(x => x.Name.Equals(CrossMove.NewName(m, def), StringComparison.OrdinalIgnoreCase));
+            var ditem = new ToolStripMenuItem(def.Title + "  ·  Default" + (dmade != null ? "  ·  Already Made (Select It)" : ""), null, (_, _) => { if (dmade != null) SelectMod(dmade.FolderName); else CopyMove(m, src.File, src.Costume, def); })
+            { Tag = Ui.Enabled, ToolTipText = $"{def.Title} lives in the hero's main package ({def.Package}): only its model changes; the hero's animations and other costumes stay as they are." };
+            if (MoveCostumeForm.Image(def, catalog) is Bitmap db) { ditem.ImageScaling = ToolStripItemImageScaling.None; ditem.Image = new Bitmap(db, new Size((int)(24 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)), (int)(34 * MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi)))); db.Dispose(); }
+            items.Insert(1, ditem);
+        }
     }
 
     /// <summary>Pet: the pet picker (with Full Size, Name in Game), then PetMove.CreateMod.</summary>
@@ -178,26 +185,42 @@ sealed partial class MainForm
         UseWaitCursor = true;
         CostumeMove.Plan plan;
         CostumeMove.NameInfo? naming;
-        try { (plan, naming) = await Task.Run(() => { var p = CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog); return (p, CostumeMove.Naming(p, catalog, g.Root)); }); }
+        (List<CrossMove.ExtraPart> Parts, bool Apex)? parts;
+        try
+        {
+            (plan, naming, parts) = await Task.Run(() =>
+            {
+                var p = CostumeMove.Make(m, file, source, target, all, g.Cooked, catalog);
+                // the move check: parts of the model the target's skeleton lacks, and whether they'll move
+                var extra = new Originals(l.DataFolder, g).Find(target.Package) is string stock ? CrossMove.ExtraParts(m, file, source, target, stock, g.Cooked) : null;
+                return (p, CostumeMove.Naming(p, catalog, g.Root), extra);
+            });
+        }
         finally { UseWaitCursor = false; }
         var onTarget = l.Mods.Where(x => x.Manifest.UpkReplacements.Contains(target.Package, StringComparer.OrdinalIgnoreCase)).ToList();
-        bool swap;
+        bool swap, voice, partMotion;
         string? name;
-        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget, crossHero: true, naming: naming))
+        using (var f = new MoveCostumeForm(m, plan, catalog, onTarget, crossHero: true, naming: naming, parts: parts))
         {
             if (f.ShowDialog(this) != DialogResult.OK) return;
             swap = f.SwapOn;
             name = f.NameChoice;
+            voice = f.CopyVoice;
+            partMotion = f.PartMotion;
         }
         UseWaitCursor = true;
         status.Text = Ui.TitleCase($"Moving \"{m.Name}\" to {target.Title}…");
         string? error = null, made;
         var log = new List<string>();
-        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error, made0, name)); }
+        try { made = await Task.Run(() => CrossMove.CreateMod(l, m, file, source, target, all, g, catalog, log, out error, made0, name, voice, partMotion)); }
         finally { UseWaitCursor = false; }
         if (made == null) { Dialog.Show(this, error ?? "Unknown error.", "Not Moved", MessageBoxButtons.OK, MessageBoxIcon.Error); Reload(); return; }
         if (log.Where(x => x.StartsWith("resized ")).Select(x => x[8..]).ToList() is { Count: > 0 } resizedImages)
             Dialog.Show(this, "These images weren't the target's size and were resized for the move:\n\n" + string.Join("\n", resizedImages), "Moved, Images Resized", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        // Make Still Parts Move asked for, but no motion went in: say why (Kurt, 2026-11-20: it seemed not to work)
+        if (partMotion && parts is { } mp && Model.PartMotion.Still(mp.Parts).Count > 0 && !log.Any(x => x.StartsWith("parts:   ") && x.Contains("animations written")))
+            Dialog.Show(this, "The parts that hang still on the new hero got no motion:\n\n" + string.Join("\n", log.Where(x => x.StartsWith("parts:")).Select(x => "  • " + x[6..].Trim()).DefaultIfEmpty("  • (nothing was logged)")),
+                "Moved, Parts Still", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         Reload();
         if (swap && lib?.Mods.FirstOrDefault(x => x.FolderName == made) is Mod nm && lib.Mods.FirstOrDefault(x => x.FolderName == m.FolderName) is Mod om)
             Change($"turn on \"{nm.Name}\" and off \"{om.Name}\"", () => { nm.Enabled = true; om.Enabled = false; return true; });

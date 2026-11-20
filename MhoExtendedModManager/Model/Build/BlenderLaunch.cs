@@ -39,35 +39,9 @@ static class BlenderLaunch
     /// <summary>The add-on's oldest Blender (its blender_manifest.toml: blender_version_min 5.0.0).</summary>
     public static readonly Version AddonMinimum = new(5, 0);
 
-    /// <summary>The MHO Actions add-on zip shipped with the app (Assets\Blender, newest), or null.</summary>
-    public static string? BundledAddon()
-    {
-        string dir = Path.Combine(AppContext.BaseDirectory, "Assets", "Blender");
-        return Directory.Exists(dir) ? Directory.GetFiles(dir, "mho_fbx_to_actions-*.zip").OrderBy(f => f, StringComparer.OrdinalIgnoreCase).LastOrDefault() : null;
-    }
-
-    /// <summary>Whether to offer the add-on for <paramref name="exe"/>: that Blender lacks it, can run it (5.0+), and the app
-    /// ships it.</summary>
-    public static bool CanOfferAddon(string exe) => VersionOf(exe) is { } v && v >= AddonMinimum && !HasAddon(v) && BundledAddon() != null;
-
-    /// <summary>
-    /// Installs the shipped add-on into that Blender's user extensions and enables it, with Blender's own command
-    /// (blender --command extension install-file -r user_default -e &lt;zip&gt;; Blender 4.2+). Not with --factory-startup:
-    /// that saves factory preferences over the user's (seen on a scratch profile); without it their preferences stay (checked:
-    /// a custom UI scale kept). Returns null when it's installed afterwards, else what Blender said.
-    /// </summary>
-    public static string? InstallAddon(string exe)
-    {
-        string? zip = BundledAddon();
-        if (zip == null) return "the add-on isn't shipped with this app";
-        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-        foreach (var a in new[] { "--command", "extension", "install-file", "-r", "user_default", "-e", zip }) psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var outText = p.StandardOutput.ReadToEndAsync(); var errText = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(180_000)) { try { p.Kill(); } catch (InvalidOperationException) { } return "Blender didn't finish within 3 minutes"; }
-        string said = (outText.Result + errText.Result).Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("STATUS") || l.StartsWith("ERROR") || l.Contains("rror")) ?? "";
-        return VersionOf(exe) is { } v && HasAddon(v) ? null : said.Length > 0 ? said : $"exit code {p.ExitCode}";
-    }
+    /// <summary>The MHO Actions add-on's latest release (its own repository). The app doesn't ship or install it (0.60.569, Kurt):
+    /// users download it there and install it in Blender (Edit → Preferences → Get Extensions → Install from Disk).</summary>
+    public const string AddonReleases = "https://github.com/leeper48/MHO-Blender-Addon/releases/latest";
 
     /// <summary>"Blender 5.1, with the MHO Actions add-on" (or without it) for the Blender at <paramref name="exe"/>.</summary>
     public static string Describe(string exe)

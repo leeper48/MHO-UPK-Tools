@@ -730,14 +730,11 @@ sealed partial class ModelPage
                 changed();
             }) { ToolTipText = "Pick the .exe of any image editor that opens a PNG file given to it." });
             model.DropDownItems.Add(editors);
-            if (exe != null && BlenderLaunch.CanOfferAddon(exe))
-                model.DropDownItems.Add(new ToolStripMenuItem("Install the MHO Actions Add-On", null, async (_, _) =>
-                {
-                    string? failed = await Task.Run(() => BlenderLaunch.InstallAddon(exe));
-                    if (failed == null) Dialog.Show(owner, "The MHO Actions add-on is installed and enabled in " + exe + ".", "Add-On Installed");
-                    else Dialog.Show(owner, $"The MHO Actions add-on wasn't installed: {failed}\n\nYou can install it by hand: Blender → Edit → Preferences → Get Extensions → Install from Disk, the file {BlenderLaunch.BundledAddon()}.", "Add-On Not Installed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    changed();
-                }) { ToolTipText = "Into " + exe + " (optional: Open in Blender works without it). Your Blender preferences are kept." });
+            // the optional MHO Actions add-on: a link to its latest release, not shipped or installed by the app (0.60.569, Kurt)
+            bool hasAddon = exe != null && BlenderLaunch.VersionOf(exe) is { } bv && BlenderLaunch.HasAddon(bv);
+            model.DropDownItems.Add(new ToolStripMenuItem($"Get the MHO Actions Add-On ({(hasAddon ? "Installed" : "Not Installed")})", null, (_, _) =>
+                Process.Start(new ProcessStartInfo(BlenderLaunch.AddonReleases) { UseShellExecute = true }))
+            { ToolTipText = "Opens the add-on's latest release on GitHub (optional: Open in Blender works without it; with it you also get the action library, a Root pose track and its tools). Download the .zip there, then in Blender (5.0 or newer): Edit → Preferences → Get Extensions → ▾ → Install from Disk, and pick the .zip." });
             model.DropDownItems.Add(new ToolStripMenuItem("Open the Exports Folder", null, (_, _) =>
             {
                 string dd = Path.Combine(Settings.Home, "fbx"); Directory.CreateDirectory(dd);
