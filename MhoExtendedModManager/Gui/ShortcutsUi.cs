@@ -57,7 +57,10 @@ static class ShortcutsUi
             {
                 if (Control.FromHandle(m.HWnd) is Button b && b.ContextMenuStrip == null && b.FindForm() is { } owner)
                 {
-                    ShowMenu(b, owner);
+                    // the button took the mouse on the right press and, with this release swallowed, kept it: the menu's first
+                    // click only gave it back (Kurt, 2026-11-20: a pick needed two clicks). Let go, then open the menu.
+                    b.Capture = false;
+                    b.BeginInvoke(() => { if (!b.IsDisposed) ShowMenu(b, owner); });
                     return true;
                 }
                 return false;

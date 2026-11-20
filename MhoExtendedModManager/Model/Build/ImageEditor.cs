@@ -4,7 +4,7 @@ namespace MhoExtendedModManager.Model;
 
 /// <summary>
 /// The image editor the Materials tab opens a map in (Kurt, 2026-10-06: GIMP, Corel PHOTO-PAINT, Photoshop …): the one chosen in
-/// Settings ▾ → Model → Choose Image Editor, else the first one found installed. Each save there comes back into the Model tab.
+/// Settings ▾ → Model → Choose External Image Editor, else the first one found installed. Each save there comes back into the Model tab.
 /// </summary>
 static class ImageEditor
 {
@@ -65,10 +65,11 @@ static class ImageEditor
     }
 
     /// <summary>Opens <paramref name="file"/> in the editor. Null = started; else why not.</summary>
-    public static string? Open(string exe, string file)
+    /// <param name="overlay">The built-in editor only: a picture shown over the map to paint against (the color map).</param>
+    public static string? Open(string exe, string file, string? overlay = null)
     {
         if (Environment.GetEnvironmentVariable("MHO_TEST_EDITOR") == "1") return null;   // tests: nothing opens on screen
-        if (exe == BuiltIn) return global::MhoExtendedModManager.Gui.ImageEditForm.OpenFile(file);
+        if (exe == BuiltIn) return global::MhoExtendedModManager.Gui.ImageEditForm.OpenFile(file, overlay);
         try { Process.Start(new ProcessStartInfo(exe, $"\"{file}\"") { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(file)! }); return null; }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return ex.Message; }
     }

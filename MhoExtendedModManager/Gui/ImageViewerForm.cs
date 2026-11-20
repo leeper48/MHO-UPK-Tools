@@ -28,7 +28,7 @@ sealed class ImageViewerForm : Form
     readonly string exportName;
 
     /// <param name="exportName">The file name Export suggests (without extension).</param>
-    /// <summary>Edit in Image Editor was clicked (the viewer closed for it): the caller opens the map in the editor.</summary>
+    /// <summary>Edit in External Image Editor was clicked (the viewer closed for it): the caller opens the map in the editor.</summary>
     public bool EditRequested { get; private set; }
     /// <summary>Edit Here was clicked (Kurt, 2026-11-18: "the editing features ... should be in this window"): the caller opens
     /// the picture in the built-in editor, which takes this window's place and size (<see cref="ImageEditForm.NextBounds"/>).</summary>

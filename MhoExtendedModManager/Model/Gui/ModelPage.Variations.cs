@@ -43,7 +43,7 @@ sealed partial class ModelPage
         public List<VarAdded> Added { get; set; } = [];
         /// <summary>Class packages this tab added to the mod (they leave it when their list is the game's again).</summary>
         public List<string> AddedPackages { get; set; } = [];
-        /// <summary>The game's own variations whose color maps were edited (Edit in Image Editor): put back after a build of
+        /// <summary>The game's own variations whose color maps were edited (Edit in External Image Editor): put back after a build of
         /// their package.</summary>
         public List<VarEdit> Edits { get; set; } = [];
     }
@@ -209,10 +209,15 @@ sealed partial class ModelPage
                 });
                 menu.Items.Add(new ToolStripMenuItem(on ? "Untick" : "Tick", null, (_, _) => _ = ToggleVariation(c, target, own, mat)) { ToolTipText = on ? "Take it out of this class's list." : "Put it in this class's list." });
                 bool isOwnTile = mat == OwnMaterial || (own is { } ow && mat.Equals(ow.Path, StringComparison.OrdinalIgnoreCase));
-                menu.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditVariationImage(c, target, mat))
+                menu.Items.Add(new ToolStripMenuItem("Edit in Internal Image Editor", null, (_, _) => EditVariationImage(c, target, mat, builtIn: true))
                 {
                     Enabled = !isOwnTile,
-                    ToolTipText = isOwnTile ? "Your model's own color map: edit it in the Materials tab (right-click its color map → Edit in Image Editor)." : "Opens this material's color map in your image editor; each save there goes into the mod (the material keeps its name, so every list naming it shows the edit).",
+                    ToolTipText = isOwnTile ? "Your model's own color map: edit it in the Materials tab." : "Opens this material's color map in the app's own image editor; each Save there goes into the mod.",
+                });
+                menu.Items.Add(new ToolStripMenuItem("Edit in External Image Editor", null, (_, _) => EditVariationImage(c, target, mat))
+                {
+                    Enabled = !isOwnTile,
+                    ToolTipText = isOwnTile ? "Your model's own color map: edit it in the Materials tab (right-click its color map → Edit in External Image Editor)." : "Opens this material's color map in your image editor; each save there goes into the mod (the material keeps its name, so every list naming it shows the edit).",
                 });
                 menu.Items.Add(new ToolStripMenuItem("Remove This Variation", null, (_, _) => _ = RemoveVariation(target, added!))
                 {
@@ -445,7 +450,7 @@ sealed partial class ModelPage
         Check(HasSource && !preview.LooksForTest.Select(l => l?.Diffuse).SequenceEqual(srcBefore), "Preview This with a source picked (the squirrel itself, fitted): the preview draws the green variation");
         PreviewVariation(ClassOf("modern"), target, null);
 
-        // Edit in Image Editor, as a save there arrives: the added one's color map, and the game's gray squirrel's
+        // Edit in External Image Editor, as a save there arrives: the added one's color map, and the game's gray squirrel's
         string edited = Path.Combine(Path.GetTempPath(), "mho_var_edit.png");
         using (var eb = new Bitmap(512, 512)) { using (var g = Graphics.FromImage(eb)) g.Clear(Color.Orange); eb.Save(edited, System.Drawing.Imaging.ImageFormat.Png); }
         Directory.CreateDirectory(Path.Combine(VarFolder, "edit"));
@@ -453,7 +458,7 @@ sealed partial class ModelPage
         await TakeVariationEdit(ClassOf("modern"), target, target, made!, e1);
         Color Mid(string pkgFile, string mat) { using var m = MaterialVariations.ColorMap(VarPath(pkgFile)!, mat, cooked); return m == null ? Color.Empty : m.GetPixel(m.Width / 2, m.Height / 2); }
         var c1 = Mid(target, made!);
-        Check(c1.R > 200 && c1.G > 100 && c1.B < 80 && varState.Added.First(x => x.Path == made).Kind == "image", $"Edit in Image Editor on the added one: its color map is the edit ({c1.R},{c1.G},{c1.B}), and it's kept as an image");
+        Check(c1.R > 200 && c1.G > 100 && c1.B < 80 && varState.Added.First(x => x.Path == made).Kind == "image", $"Edit in External Image Editor on the added one: its color map is the edit ({c1.R},{c1.G},{c1.B}), and it's kept as an image");
         string e2 = Path.Combine(VarFolder, "edit", "test_grey.png"); File.Copy(edited, e2, true);
         await TakeVariationEdit(ClassOf("modern"), target, modernFile, "squirrelgirl.squirrel_grey_mat", e2);
         var c2 = Mid(modernFile, "squirrelgirl.squirrel_grey_mat");
@@ -563,16 +568,16 @@ sealed partial class ModelPage
         return null;
     }
 
-    /// <summary>Edit in Image Editor (Kurt, 2026-10-26): the material's color map as a PNG in the work folder, opened in the
+    /// <summary>Edit in External Image Editor (Kurt, 2026-10-26): the material's color map as a PNG in the work folder, opened in the
     /// image editor; each save there replaces the color map in the package that holds the material (added to the mod when
     /// it isn't in it). An added variation becomes an image one (made again from the edit after a build); an edited game
     /// variation is kept in Edits and put back after a build of its package.</summary>
-    void EditVariationImage(MaterialVariations.ClassList c, string target, string material)
+    void EditVariationImage(MaterialVariations.ClassList c, string target, string material, bool builtIn = false)
     {
-        string? exe = ImageEditor.Find();
+        string? exe = builtIn ? ImageEditor.BuiltIn : ImageEditor.Find();
         if (exe == null)
         {
-            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose External Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         string? holder = VarHolder(c.File, target, material);

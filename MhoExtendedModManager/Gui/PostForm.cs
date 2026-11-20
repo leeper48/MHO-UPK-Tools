@@ -72,7 +72,7 @@ sealed class PostForm : Form
         imgHead.Controls.Add(Ui.FlatButton("Add Mod Images", AddModImages, tip: "Add the mod's own store image, costume icons and hero portraits as .PNG."));
         imgHead.Controls.Add(Ui.FlatButton("Make Showcase Image", MakeShowcase, tip: "A 1920 x 1080 picture for the Nexus page: the Marvel Heroes Omega backdrop with the mod's store image on the left and room on the right for a comic cover (pick one, or drop it in with your image editor)."));
         imgHead.Controls.Add(Ui.FlatButton("Make Visual Update Image", MakeVisualUpdate, tip: "A 1920 x 1080 picture for the Nexus page: the game's store image under LAUNCH and the mod's under VISUAL UPDATE (pick others if you like), with room on the right for a comic cover."));
-        imgHead.Controls.Add(Ui.FlatButton("Open in Image Editor", () => EditImage(selectedImage), tip: "Open the selected picture in your image editor (Settings ▾ → Model → Choose Image Editor). Each save there comes back into the post."));
+        imgHead.Controls.Add(Ui.FlatButton("Open in External Image Editor", () => EditImage(selectedImage), tip: "Open the selected picture in your image editor (Settings ▾ → Model → Choose External Image Editor). Each save there comes back into the post."));
         imgHead.Controls.Add(Ui.FlatButton("Remove", RemoveImage, tip: "Remove the selected picture from the post (click a picture to select it)."));
         t.Controls.Add(imgHead, 0, 3);
         var stripCard = new Panel { Dock = DockStyle.Fill, Tag = "card", Padding = new Padding(6) };
@@ -259,7 +259,7 @@ sealed class PostForm : Form
     {
         images.Insert(0, made); selectedImage = made; dirty = true;
         ShowImages();
-        int a = Dialog.Choose(this, text + "\n\nAdd the cover now?", caption, "Pick a Cover Image", "Open in Image Editor", "Later");
+        int a = Dialog.Choose(this, text + "\n\nAdd the cover now?", caption, "Pick a Cover Image", "Open in External Image Editor", "Later");
         if (a == 0)
         {
             using var d = new OpenFileDialog { Title = "Comic Cover", Filter = "Images (*.PNG;*.JPG;*.JPEG;*.BMP;*.WEBP;*.GIF)|*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif" };
@@ -268,7 +268,7 @@ sealed class PostForm : Form
             catch (Exception ex) when (ex is IOException or OutOfMemoryException or ArgumentException or System.Runtime.InteropServices.ExternalException)
             { Dialog.Show(this, $"That picture couldn't be read ({ex.Message}). Try a .PNG or .JPG, or drop it in with your image editor.", "Cover Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
             ShowImages();
-            Status("Cover Added: Open in Image Editor to Touch It Up", Ui.Enabled);
+            Status("Cover Added: Open in External Image Editor to Touch It Up", Ui.Enabled);
         }
         else if (a == 1) EditImage(made);
     }
@@ -285,7 +285,7 @@ sealed class PostForm : Form
         string? exe = MhoExtendedModManager.Model.ImageEditor.Find();
         if (exe == null)
         {
-            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose External Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         if (!Path.GetFullPath(file).StartsWith(Path.GetFullPath(tempImages) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))

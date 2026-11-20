@@ -53,7 +53,7 @@ sealed partial class ModEditorView
             ? "A 1920 x 1080 picture for the Nexus page: the Marvel Heroes Omega backdrop with the mod's store image on the left and room on the right for a comic cover. It goes with the mod's post (Create Post), saved with the mod."
             : "A 1920 x 1080 picture for the Nexus page: the game's store image under LAUNCH and the mod's under VISUAL UPDATE (pick others if you like), with room on the right for a comic cover. It goes with the mod's post, saved with the mod."));
         col.Controls.Add(Ui.FlatButton("Pick a Cover Image", () => PickPostCover(kind), tip: $"Put a comic cover picture (.PNG, .JPG, .WEBP …) into the {name.ToLowerInvariant()}'s cover slot."));
-        col.Controls.Add(Ui.FlatButton("Open in Image Editor", () => EditPostPicture(kind), tip: $"Open the {name.ToLowerInvariant()} in your image editor (Settings ▾ → Model → Choose Image Editor) to drop in a cover or touch it up. Each save there comes back here."));
+        col.Controls.Add(Ui.FlatButton("Open in External Image Editor", () => EditPostPicture(kind), tip: $"Open the {name.ToLowerInvariant()} in your image editor (Settings ▾ → Model → Choose External Image Editor) to drop in a cover or touch it up. Each save there comes back here."));
         col.Controls.Add(Ui.FlatButton("Remove", () => RemovePostPicture(kind), tip: $"Take the {name.ToLowerInvariant()} out of the mod's post."));
         ui.Note = new Label { AutoSize = true, Tag = "subtle", MaximumSize = new Size((int)(320 * S), 0), Margin = new Padding(0, (int)(4 * S), 0, 0) };
         col.Controls.Add(ui.Note);
@@ -117,7 +117,7 @@ sealed partial class ModEditorView
         { Dialog.Show(this, ex.Message, $"{name} Not Made", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         if (made == null) { Dialog.Show(this, $"The {name.ToLowerInvariant()} is made from the mod's store image, and this mod has none.\n\nAdd one on Icons → Store Images.", "No Store Image"); return; }
         PutPostPicture(kind, made);
-        ShowPostPicture(kind, "Made. Pick a Cover Image, or Open in Image Editor to drop one in. Save Changes keeps it with the mod.");
+        ShowPostPicture(kind, "Made. Pick a Cover Image, or Open in External Image Editor to drop one in. Save Changes keeps it with the mod.");
     }
 
     void PickPostCover(PostPictureKind kind)
@@ -128,7 +128,7 @@ sealed partial class ModEditorView
         try { string work = WorkCopy(kind, f); PostWriter.PutCover(work, ImageFiles.Usable(d.FileName)); PutPostPicture(kind, work); }
         catch (Exception ex) when (ex is IOException or OutOfMemoryException or ArgumentException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException)
         { Dialog.Show(this, $"That picture couldn't be used ({ex.Message}).", "Cover Not Added", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-        ShowPostPicture(kind, "Cover added. Open in Image Editor to touch it up.");
+        ShowPostPicture(kind, "Cover added. Open in External Image Editor to touch it up.");
     }
 
     void EditPostPicture(PostPictureKind kind)

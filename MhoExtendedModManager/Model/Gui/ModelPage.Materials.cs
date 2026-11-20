@@ -70,7 +70,13 @@ sealed partial class ModelPage
             var m = new ContextMenuStrip();
             int row = e.RowIndex;
             m.Items.Add(new ToolStripMenuItem("View Large", null, (_, _) => _ = ViewMap(row)) { ToolTipText = "The map large, with zoom and Export as PNG (also: double-click the row)." });
-            m.Items.Add(new ToolStripMenuItem("Edit in Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your image editor; each save there comes back here." });
+            m.Items.Add(new ToolStripMenuItem("Edit in External Image Editor", null, (_, _) => EditMapExternally()) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in your external image editor (Settings ▾ → Model → Choose External Image Editor: GIMP, Photoshop …); each save there comes back here." });
+            // the app's own editor, whatever external one is chosen (Kurt, 2026-11-20)
+            m.Items.Add(new ToolStripMenuItem("Edit in Internal Image Editor", null, (_, _) => EditMapExternally(builtIn: true)) { Enabled = matEdit.Enabled, ToolTipText = "Opens it in the app's own image editor, with the material's color map over it to paint against (Color Overlay, O); each Save there comes back here." });
+            // a map the material has none of (Kurt, 2026-11-20: paint a glow or spec map over the color map)
+            if (CanCreateMap())
+                m.Items.Add(new ToolStripMenuItem("Create Map", null, (_, _) => CreateMap())
+                    { ToolTipText = "Puts in an empty map of this kind (glow and spec black, alpha white) at the color map's size and shows it large: Edit Here paints it in the built-in editor, with the color map over it to paint against (Color Overlay, O). Back to Automatic takes it off." });
             m.Items.Add(new ToolStripMenuItem("Replace File", null, (_, _) => UseMapFile()) { Enabled = matUse.Enabled, ToolTipText = "Puts in an image of yours for this map." });
             if (GenerateNormalItem() is { } gen) m.Items.Add(gen);
             m.Items.AddRange([.. SpecMenuItems()]);   // (Kurt, 2026-11-08: the spec and spec color makers here too)

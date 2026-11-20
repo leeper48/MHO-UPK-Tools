@@ -50,7 +50,7 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [ModelFixes566(), ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [MovesAndFeet600(), ModelFixes566(), ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
@@ -60,6 +60,22 @@ static class WhatsNew
     /// <summary>0.60.537 (Kurt, 2026-11-17): the Visual Update image, Swap Model on telescoping staffs, the folded Prop Fit heading.</summary>
     /// <summary>0.60.556 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
     /// <summary>0.60.566 (Kurt, 2026-11-18): weight painting moves the model, a saved source reloads, the mod's own model as the source.</summary>
+    static Notice MovesAndFeet600() => new(
+        "0.60.600-moves-feet", "0.60.600",
+        "[!]Moving a costume to another hero" + nl +
+        "  • Make Still Parts Move (ticked by default): a cape, coat, dress or hair that only the original hero's animations move gets motion on the new hero, matched from the original hero's animations (Vision's cape on Ultron, Doctor Strange's cape and dress on Daredevil)." + nl +
+        "  • Feet stay on the floor: a model with longer or shorter legs than the new hero's keeps its own legs. Before, the game gave it the new hero's shins and its feet went through the floor. Move again (or Build into Mod) to fix a mod made before." + nl +
+        "  • Copy the Voice: untick it to keep the new hero's own voice. A hero's default costume in the hero's main package (Angela, Black Cat …) can be moved too." + nl + nl +
+        "[!]Model tab" + nl +
+        "  • Ankle turns the feet at the ankles (+ toes down), for toes that point up in some animations." + nl +
+        "  • Materials: Create Map starts an empty glow, spec or alpha map. Edit in Internal Image Editor paints it with the color map shown over it (Color Overlay, O)." + nl +
+        "  • It opens on the mod's own model when a source was picked but never built in." + nl + nl +
+        "[!]3D preview" + nl +
+        "  • Walk and Run buttons beside Idle and the fidgets. Every power button pauses and plays when clicked again, and a new one starts paused on its first frame (Look → Power Buttons Start Paused)." + nl +
+        "  • Right-click a power or idle button: Change This Animation, Model Adjust. The Mods tab shows a costume at its size in game, and full screen fills the screen again." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-move");
+
     static Notice ModelFixes566() => new(
         "0.60.566-model-fixes", "0.60.566",
         "[!]Model tab" + nl +

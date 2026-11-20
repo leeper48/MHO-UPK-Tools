@@ -340,7 +340,7 @@ static partial class Program
                     Check(smAfter != smBefore && (smAfter.A > smBefore.A || smAfter.R > smBefore.R), $"Smudge drags the color along (#{smBefore.R:X2}{smBefore.G:X2}{smBefore.B:X2} a{smBefore.A} → #{smAfter.R:X2}{smAfter.G:X2}{smAfter.B:X2} a{smAfter.A})");
                     er.UndoForTest();
                     er.Close();
-                    // the Built-In Editor on a file (Choose Image Editor): a stroke, Save writes the PNG over the file
+                    // the Built-In Editor on a file (Choose External Image Editor): a stroke, Save writes the PNG over the file
                     string pngFile = Path.Combine(args[2], "builtin_edit.png");
                     Model.ImagePixels.SavePng(layer, pngFile);
                     using (var fe = new Gui.ImageEditForm(layer, null, "builtin_edit.png", Gui.ImageEditForm.Tool.Brush, pngFile) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) })
@@ -827,10 +827,11 @@ static partial class Program
             Console.WriteLine(report);
             return report.StartsWith("ok") ? 0 : 1;
         }
-        if (args.Length == 3 && args[0].Equals("--image-edit-snapshot", StringComparison.OrdinalIgnoreCase))
+        if (args.Length is 3 or 4 && args[0].Equals("--image-edit-snapshot", StringComparison.OrdinalIgnoreCase))
         {
             // The manual's screenshot: the built-in image editor (off-screen) on a picture (.dds or an image), Brush picked, a
-            // soft half-opaque stroke across it and the brush ring in place. --image-edit-snapshot <image> <out.png>
+            // soft half-opaque stroke across it and the brush ring in place. --image-edit-snapshot <image> <out.png> [overlay image]
+            // (the overlay: the color map shown over a glow or spec map, as the Materials tab opens one)
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Gui.Ui.UseDarkTheme();
@@ -838,7 +839,10 @@ static partial class Program
             if (args[1].EndsWith(".dds", StringComparison.OrdinalIgnoreCase) && MhoPackageModifier.TextureDecode.ReadDds(args[1], out _) is { } d && MhoPackageModifier.TextureDecode.ToBgra(d.Format, d.W, d.H, d.Data, out _) is byte[] bgra)
                 pic = MhoPackageModifier.TextureDecode.ToBitmap(bgra, d.W, d.H);
             else { using var b0 = Model.ImagePixels.Open(args[1]); pic = new Bitmap(b0); }
-            using var ed = new Gui.ImageEditForm(pic, null, Path.GetFileName(args[1])) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            Bitmap? overPic = null;
+            if (args.Length == 4) { using var ob = Model.ImagePixels.Open(args[3]); overPic = new Bitmap(ob); }
+            using var ed = new Gui.ImageEditForm(pic, null, Path.GetFileName(args[1]), overlay: overPic) { StartPosition = FormStartPosition.Manual, Location = new Point(-6000, -6000) };
+            overPic?.Dispose();
             ed.Shown += (_, _) => ed.BeginInvoke(async () =>
             {
                 await Task.Delay(300);

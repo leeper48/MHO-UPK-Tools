@@ -266,7 +266,7 @@ sealed class PowerIconForm : Form
         string? exe = ImageEditor.Find();
         string editor = exe != null ? ImageEditor.Describe(exe) : "an Image Editor";
         var alphaBtn = Ui.FlatButton("Character Only (Transparent)", () => OpenInEditor(alpha: true),
-            $"Opens the character and its effects alone, on transparency, in {editor} (Settings ▾ → Model → Choose Image Editor). Paint streaks, blurs or anything else there and save (PNG, same file; GIMP: Ctrl+E): each save comes back here, and the background and the effects on the right still go under and over it.");
+            $"Opens the character and its effects alone, on transparency, in {editor} (Settings ▾ → Model → Choose External Image Editor). Paint streaks, blurs or anything else there and save (PNG, same file; GIMP: Ctrl+E): each save comes back here, and the background and the effects on the right still go under and over it.");
         var flatBtn = Ui.FlatButton("Whole Icon (With Background)", () => OpenInEditor(alpha: false),
             $"Opens the finished icon, background and effects included, in {editor}. Each save (PNG, same file; GIMP: Ctrl+E) comes back here and is used as it is: the background and effects here no longer change it (Back to the Snapshot uses them again).");
         backToSnap = Ui.FlatButton("Back to the Snapshot", BackToSnapshot, "Stop using the image editor's version: the snapshot again, with the background and effects set here.");
@@ -483,7 +483,7 @@ sealed class PowerIconForm : Form
         string? exe = ImageEditor.Find();
         if (exe == null)
         {
-            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose External Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         StopEditing();

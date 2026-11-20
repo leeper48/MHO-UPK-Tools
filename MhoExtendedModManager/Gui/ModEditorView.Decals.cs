@@ -81,8 +81,8 @@ sealed partial class ModEditorView
             string title = TexLeaf(tex) + (mine != null ? "  ·  Changed" : "");
             if (texs.Count > 1) { var sub = new ToolStripMenuItem(title); menu.Items.Add(sub); items = sub.DropDownItems; }
             else menu.Items.Add(new ToolStripMenuItem(title) { Enabled = false });
-            var edit = new ToolStripMenuItem(editor != null ? $"Edit in {Model.ImageEditor.Describe(editor)}" : "Edit in an Image Editor (None Found)", null, (_, _) => EditDecal(s, tex)) { Enabled = editor != null };
-            edit.ToolTipText = "Opens the image in your image editor (Settings → Model → Choose Image Editor picks which). Each save there is taken in; Save puts it into the mod.";
+            var edit = new ToolStripMenuItem(editor != null ? $"Edit in {Model.ImageEditor.Describe(editor)}" : "Edit in an External Image Editor (None Found)", null, (_, _) => EditDecal(s, tex)) { Enabled = editor != null };
+            edit.ToolTipText = "Opens the image in your image editor (Settings → Model → Choose External Image Editor picks which). Each save there is taken in; Save puts it into the mod.";
             items.Add(edit);
             items.Add(new ToolStripMenuItem("Replace with an Image", null, (_, _) => ReplaceDecal(s, tex)) { ToolTipText = "Pick a PNG, JPG or BMP to show instead. Transparency is kept." });
             items.Add(new ToolStripMenuItem("Export Image", null, (_, _) => ExportDecal(s, tex)) { ToolTipText = "Save the image as it is now (the mod's, else the game's) as a PNG." });

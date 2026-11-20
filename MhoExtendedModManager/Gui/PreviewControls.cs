@@ -100,7 +100,9 @@ static class PreviewControls
             var nf = new Form
             {
                 FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Bounds = Screen.FromControl(c).Bounds,
-                ShowInTaskbar = false, Text = title, BackColor = Ui.GradientTop, KeyPreview = true, Padding = padding,
+                // (ForeColor: buttons that don't set their own take it for their icons; the default black drew them black in
+                // full screen, Kurt 2026-11-20)
+                ShowInTaskbar = false, Text = title, BackColor = Ui.GradientTop, ForeColor = Ui.Text, KeyPreview = true, Padding = padding,
             };
             nf.KeyDown += (_, e) =>
             {

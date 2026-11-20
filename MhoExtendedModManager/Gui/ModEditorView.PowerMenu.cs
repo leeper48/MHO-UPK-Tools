@@ -39,13 +39,20 @@ sealed partial class ModEditorView
     /// <summary>The Powers tab's tiles: the same menu (a hero's own powers only).</summary>
     void PowerTileMenu(int index, Point screen)
     {
-        if (index < 0 || index >= powerList.Items.Count || powerList.Items[index] is not Fx.PowerList.Power p || p.Part != null) return;
+        // (a part tile of the character's own entry, Dodge or Hover, gets the character's menu: Kurt, 2026-11-20)
+        if (index < 0 || index >= powerList.Items.Count || powerList.Items[index] is not Fx.PowerList.Power p || p.Part != null && !IsCharacterEntry(p.Prototype)) return;
         var menu = new ContextMenuStrip();
-        if (index >= heroPowerCount)
+        if (index >= heroPowerCount || p.Part != null)
         {
-            // the character's own entries (a dodge, a landing, a hover …; Kurt, 2026-11-20: options there too): their animations
-            if (p.Animations.Count == 0) { menu.Dispose(); return; }
-            menu.Items.Add(new ToolStripMenuItem("Change Its Animations", null, (_, _) => ShowPowerAnimations(p)) { ToolTipText = "Open the Animations tab on its animations, to swap them for another character's." });
+            // the character's own entries (a dodge, a landing, a hover …; Kurt, 2026-11-20: options there too, also when the
+            // entry is only an effect, such as Vision's dodge)
+            menu.Items.Add(new ToolStripMenuItem("Change Its Animations", null, (_, _) => ShowPowerAnimations(p))
+            {
+                Enabled = p.Animations.Count > 0,
+                ToolTipText = p.Animations.Count > 0 ? "Open the Animations tab on its animations, to swap them for another character's."
+                    : "It has no animation of its own: its effects play over the idle. Change the hero's animations on the Animations tab.",
+            });
+            menu.Items.Add(new ToolStripMenuItem("Model Adjust", null, (_, _) => ShowPage("Model")) { ToolTipText = "Open the Model tab, to adjust the model (its fit, Size, Feet, Lean and Ankle, its props)." });
         }
         else PowerMenuItems.Fill(menu, p, BorrowOf(p.Prototype) != null, a => DoPowerAction(p.Prototype, a, powerPreview?.View3D, onPowersTab: true));
         menu.Closed += (_, _) => BeginInvoke(menu.Dispose);

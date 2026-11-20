@@ -3,7 +3,7 @@ using MhoExtendedModManager.Gui;
 namespace MhoExtendedModManager.Model.Gui;
 
 /// <summary>
-/// The Materials tab's Edit in Image Editor (Kurt, 2026-10-06: GIMP, Corel PHOTO-PAINT, Photoshop …, its saves applied like
+/// The Materials tab's Edit in External Image Editor (Kurt, 2026-10-06: GIMP, Corel PHOTO-PAINT, Photoshop …, its saves applied like
 /// Blender's Ctrl+S): the selected map is copied as a PNG into the mod's Model folder (materials\&lt;source&gt;\edit\) and
 /// opened in the editor; a watcher takes every save there in as that map's override (a copy under a new name per save, so
 /// the preview's picture cache sees it; Undo / Back to Automatic as for Replace File).
@@ -28,8 +28,8 @@ sealed partial class ModelPage
 
     Button EditButton()
     {
-        matEdit = Ui.FlatButton("Edit in Image Editor", () => EditMapExternally(), "Opens the selected map in your image editor (Settings ▾ → Model → Choose Image Editor: GIMP, Photoshop, Corel PHOTO-PAINT …) as a PNG copy in the mod's Model folder. Every time you save it there, the Model tab takes it in as that map (the preview updates; Back to Automatic or Undo takes it back). Keep the file name and PNG format when saving (GIMP: Ctrl+E, which exports over the PNG; Ctrl+S only saves GIMP's own .xcf).");
-        Icons.Make(matEdit, "Edit in Image Editor", Icons.Pencil, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
+        matEdit = Ui.FlatButton("Edit in External Image Editor", () => EditMapExternally(), "Opens the selected map in your image editor (Settings ▾ → Model → Choose External Image Editor: GIMP, Photoshop, Corel PHOTO-PAINT …) as a PNG copy in the mod's Model folder. Every time you save it there, the Model tab takes it in as that map (the preview updates; Back to Automatic or Undo takes it back). Keep the file name and PNG format when saving (GIMP: Ctrl+E, which exports over the PNG; Ctrl+S only saves GIMP's own .xcf).");
+        Icons.Make(matEdit, "Edit in External Image Editor", Icons.Pencil, MhoExtendedModManager.Gui.Ui.Dpi(DeviceDpi));
         return matEdit;
     }
 
@@ -53,6 +53,55 @@ sealed partial class ModelPage
         _ => false,
     };
 
+    /// <summary>The maps Create Map can start empty (Kurt, 2026-11-20): what an empty one is filled with (glow black = none,
+    /// alpha white = opaque, spec black = no shine).</summary>
+    static Color? BlankFill(string kind) => kind switch { "Glow" => Color.Black, "Alpha" => Color.White, "Spec" => Color.Black, _ => null };
+
+    /// <summary>The selected row has no map and Create Map can make one.</summary>
+    bool CanCreateMap() => SelectedPackageMap() == null && SelectedMap() is { } sel && OverridesPath() != null && BlankFill(sel.Kind) != null
+        && shownMaterials.FirstOrDefault(m => m.Material == sel.Material).Tex is { } tex && !(sel.Kind == "Spec" && tex.UsesMhoSpec)
+        && SelectedMapFile() == null && !MadeMap(sel.Kind, tex);
+
+    /// <summary>The material's color map file (the overlay to paint against), or null.</summary>
+    string? ColorMapFile(string material, Textures tex)
+    {
+        var e = OverridesFile() is string p && MaterialOverrides.Load(p).Materials.TryGetValue(material, out var x) ? x : null;
+        return Describe("Color", tex, e).Path is string f && File.Exists(f) ? f : null;
+    }
+
+    /// <summary>
+    /// Create Map (Kurt, 2026-11-20): an empty map of the row's kind (<see cref="BlankFill"/>) at the color map's size (else
+    /// 1024) put in as the material's map, as Replace File would, then shown large: Edit Here paints it in the built-in editor
+    /// with the color map over it. Back to Automatic takes it off.
+    /// </summary>
+    async void CreateMap()
+    {
+        if (SelectedMap() is not { } sel || BlankFill(sel.Kind) is not Color fill) return;
+        var tex = shownMaterials.FirstOrDefault(m => m.Material == sel.Material).Tex;
+        if (tex == null) return;
+        int bw = 1024, bh = 1024;
+        if (ColorMapFile(sel.Material, tex) is string cf)
+            try { using var cb = ImagePixels.Open(cf); bw = cb.Width; bh = cb.Height; } catch (Exception ex) when (ex is IOException or ArgumentException) { }
+        string blank = Path.Combine(MapsCache, $"{FbxExport.SafeName(sel.Material)}_{sel.Kind.ToLowerInvariant()}_new.png");
+        try
+        {
+            Directory.CreateDirectory(MapsCache);
+            using var b = new Bitmap(bw, bh, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(b)) g.Clear(fill);
+            ImagePixels.SavePng(b, blank);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException) { Log($"Materials: the new map couldn't be written: {ex.Message}"); return; }
+        UseMapFile(blank);
+        Log($"Materials: a new {sel.Kind.ToLowerInvariant()} map for {sel.Material}, {bw} × {bh}, empty ({(sel.Kind == "Alpha" ? "white: all opaque" : "black: none")}). Edit Here paints it with the color map over it; Back to Automatic takes it off.");
+        // the row again once the table shows the new map (it's refilled), then large
+        for (int i = 0; i < 30 && !IsDisposed; i++)
+        {
+            int row = matGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag is ValueTuple<string, string> t && t == sel)?.Index ?? -1;
+            if (row >= 0) { matGrid.CurrentCell = matGrid.Rows[row].Cells["material"]; if (SelectedMapFile() != null) { await ViewMap(row); return; } }
+            await Task.Delay(100);
+        }
+    }
+
     /// <param name="builtIn">The viewer's Edit Here: the built-in editor, whatever editor is chosen.</param>
     void EditMapExternally(bool builtIn = false)
     {
@@ -67,11 +116,11 @@ sealed partial class ModelPage
         if (source == null && tex != null && MadeMap(sel.Kind, tex))
             try { source = MapImage(sel.Kind, tex, sel.Material, MapsCache); made = source != null; }
             catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException) { Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map couldn't be made: {ex.Message}"); return; }
-        if (source == null) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Replace File puts one in)."); return; }
+        if (source == null) { Log($"Image editor: {sel.Material} has no {sel.Kind.ToLowerInvariant()} map to edit (Replace File puts one in, or Create Map starts an empty one)."); return; }
         string? exe = builtIn ? ImageEditor.BuiltIn : ImageEditor.Find();
         if (exe == null)
         {
-            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET under Program Files).\n\nTo pick your editor's program: Settings ▾ → Model → Choose External Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         string dir = Path.Combine(Path.GetDirectoryName(ovPath)!, Path.GetFileNameWithoutExtension(ovPath), "edit");
@@ -87,7 +136,9 @@ sealed partial class ModelPage
         { Log($"Image editor: {Path.GetFileName(file)} couldn't be written ({ex.Message}); is it still open in the editor? Save or close it there first."); return; }
         Watch(file, sel.Material, sel.Kind, made: made);
         if (made) Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map is one the app made; your first save there becomes the material's own file (Back to Automatic goes back to the made one).");
-        if (ImageEditor.Open(exe, file) is string failed) { Log($"Image editor: {ImageEditor.Describe(exe)} didn't start: {failed}"); return; }
+        // the color map over the one being painted (the built-in editor; Kurt, 2026-11-20)
+        string? overlay = sel.Kind != "Color" && tex != null ? ColorMapFile(sel.Material, tex) : null;
+        if (ImageEditor.Open(exe, file, overlay) is string failed) { Log($"Image editor: {ImageEditor.Describe(exe)} didn't start: {failed}"); return; }
         Log($"Image editor: {sel.Material}'s {sel.Kind.ToLowerInvariant()} map is open in {ImageEditor.Describe(exe)} ({file}). Each save there comes back here; keep the name and PNG format{(ImageEditor.Describe(exe).StartsWith("GIMP") ? " (in GIMP: Ctrl+E exports over it; Ctrl+S only saves an .xcf)" : "")}.");
         status.Text = $"Editing in {ImageEditor.Describe(exe)}: Save There to Update"; status.ForeColor = Ui.Enabled;
     }
@@ -95,7 +146,7 @@ sealed partial class ModelPage
     void EditPackageMap(PackageMap m, bool builtIn = false)
     {
         string? exe = builtIn ? ImageEditor.BuiltIn : ImageEditor.Find();
-        if (exe == null) { Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET).\n\nPick your editor's program in Settings ▾ → Model → Choose Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (exe == null) { Dialog.Show(this, "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET).\n\nPick your editor's program in Settings ▾ → Model → Choose External Image Editor → Another Program.", "No Image Editor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         string file = Path.Combine(host.WorkFolder, "edit", Path.GetFileNameWithoutExtension(ChosenPackage?.Key ?? "package"), FbxExport.SafeName(m.Texture) + ".png");
         Protected.CheckWrite(Path.GetDirectoryName(file)!);
         try
@@ -126,7 +177,14 @@ sealed partial class ModelPage
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException)
         { Log($"Image editor: {Path.GetFileName(file)} couldn't be written ({ex.Message}); is it still open in the editor? Save or close it there first."); return; }
         Watch(file, m.Material, m.Kind, m);
-        if (ImageEditor.Open(exe, file) is string failed) { Log($"Image editor: {ImageEditor.Describe(exe)} didn't start: {failed}"); return; }
+        // the material's color map over it (the built-in editor), written beside it
+        string? overlay = null;
+        if (m.Kind != "Color" && packageMaps?.FirstOrDefault(x => x.Material == m.Material && x.Kind == "Color") is { } colorMap)
+        {
+            string of = Path.Combine(Path.GetDirectoryName(file)!, FbxExport.SafeName(colorMap.Texture) + "_overlay.png");
+            try { if (ExportPackageMap(colorMap, of)) overlay = of; } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException) { }
+        }
+        if (ImageEditor.Open(exe, file, overlay) is string failed) { Log($"Image editor: {ImageEditor.Describe(exe)} didn't start: {failed}"); return; }
         Log($"Image editor: {m.Texture} ({m.Material}'s {m.Kind.ToLowerInvariant()}, in the package) is open in {ImageEditor.Describe(exe)} ({file}). Each save there goes into the package; keep the name and PNG format{(ImageEditor.Describe(exe).StartsWith("GIMP") ? " (in GIMP: Ctrl+E exports over it; Ctrl+S only saves an .xcf)" : "")}.");
         status.Text = $"Editing in {ImageEditor.Describe(exe)}: Save There to Update"; status.ForeColor = Ui.Enabled;
     }
@@ -233,7 +291,7 @@ sealed partial class ModelPage
         if (row < 0) { say("FAIL no Color texture listed for the package"); return false; }
         matGrid.CurrentCell = matGrid.Rows[row].Cells["material"];
         var map = (PackageMap)matGrid.Rows[row].Tag!;
-        say($"{(matEdit.Enabled && matUse.Enabled ? "PASS" : "FAIL")} Edit in Image Editor and Replace File are on for a package texture");
+        say($"{(matEdit.Enabled && matUse.Enabled ? "PASS" : "FAIL")} Edit in External Image Editor and Replace File are on for a package texture");
         if (Environment.GetEnvironmentVariable("MHO_TEST_PKGADJUST") == "1" && map.Kind == "Color")
         {
             // Adjust Colors on the package texture (+120° hue): the texture in the mod's package changes its colors

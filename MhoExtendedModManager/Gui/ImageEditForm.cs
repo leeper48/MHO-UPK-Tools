@@ -14,7 +14,7 @@ namespace MhoExtendedModManager.Gui;
 /// across the stroke (stamps don't add up).
 /// Used three ways: the icon maker's layer (<see cref="Changed"/> after each stroke, Cancel takes every stroke back), a picture
 /// to edit and keep (<see cref="Result"/> after Done: the Editor's icon tabs), and a PNG file as the "Built-In Editor" choice of
-/// Choose Image Editor (<see cref="OpenFile"/>: Save writes the file, so every Edit in Image Editor takes it in as it would a
+/// Choose External Image Editor (<see cref="OpenFile"/>: Save writes the file, so every Edit in External Image Editor takes it in as it would a
 /// save in GIMP).
 /// </summary>
 sealed class ImageEditForm : Form, Ui.IOwnsTips
@@ -65,6 +65,12 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
     /// <summary>File mode: the pixels last written to the file.</summary>
     byte[]? saved;
     FormWindowState beforeFull; FormBorderStyle beforeBorder; bool full;
+    /// <summary>A picture shown over the canvas to paint against (Kurt, 2026-11-20: the color map over a glow or spec map being
+    /// painted), see-through at <see cref="overlayOpacity"/>, on or off (O). Only shown: never painted in or saved.</summary>
+    readonly Bitmap? overlay;
+    static bool overlayOn = true;
+    static float overlayOpacity = 0.5f;
+    readonly Button? overlayButton;
 
     /// <summary>The next editor's place (the viewer's Edit Here: the editor takes the viewer's window); used once.</summary>
     internal static (Rectangle Bounds, bool Maximized)? NextBounds;
@@ -83,8 +89,10 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
 
     /// <param name="background">The color behind see-through pixels (the icon's background); null = a checkerboard.</param>
     /// <param name="file">File mode: the PNG that Save writes.</param>
-    public ImageEditForm(Bitmap image, Color? background, string title, Tool start = Tool.Brush, string? file = null)
+    /// <param name="overlay">A picture shown over the canvas to paint against (the material's color map); the editor keeps a copy.</param>
+    public ImageEditForm(Bitmap image, Color? background, string title, Tool start = Tool.Brush, string? file = null, Bitmap? overlay = null)
     {
+        if (overlay != null) this.overlay = new Bitmap(overlay);
         w = image.Width; h = image.Height;
         px = ToBgra(image); orig = (byte[])px.Clone();
         back = background; this.file = file;
@@ -191,6 +199,16 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
         redoButton = Ui.FlatButton("Redo", Redo, tip: "Do the stroke again that Undo took back (Ctrl+Y).");
         Icons.Make(redoButton, "Redo", Icons.Redo, s);
         var buttons = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Right, Margin = new Padding(0, 10, 0, 0) };
+        if (this.overlay != null)
+        {
+            overlayButton = Ui.FlatButton("Color Overlay", ToggleOverlay, tip: "Show the material's color map over the picture, see-through, to paint against (O). It's only shown: it isn't painted in or saved. Lit when on.");
+            var overlaySlider = new LightSlider { Label = "Overlay", Min = 0.05f, Max = 1, Step = 0.05f, Mark = null, Format = v => $"{v * 100:0} %", Home = () => 0.5f, Width = (int)(200 * s), Height = (int)(30 * s), Value = overlayOpacity, Margin = new Padding(0, 3, (int)(10 * s), 3) };
+            overlaySlider.ValueChanged += () => { overlayOpacity = overlaySlider.Value; if (!overlayOn) ToggleOverlay(); canvas.Invalidate(); };
+            Ui.Tip(overlaySlider, "How strongly the color map shows over the picture.");
+            buttons.Controls.Add(overlayButton);
+            buttons.Controls.Add(overlaySlider);
+            Shown += (_, _) => Ui.Lit(overlayButton, overlayOn);
+        }
         buttons.Controls.AddRange([
             keys, undoButton, redoButton,
             Ui.FlatButton("Fit", Fit, tip: "The whole picture in the window again (0 key)."),
@@ -244,6 +262,7 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
             else if (e.KeyCode is Keys.Oemplus or Keys.Add) { ZoomAt(ViewCenter(), 1.25f); e.Handled = true; }
             else if (e.KeyCode is Keys.OemMinus or Keys.Subtract) { ZoomAt(ViewCenter(), 1 / 1.25f); e.Handled = true; }
             else if (e.KeyCode == Keys.F11) { ToggleFull(); e.Handled = true; }
+            else if (e.KeyCode == Keys.O && overlay != null) { ToggleOverlay(); e.Handled = true; }
             else if (e.KeyCode == Keys.Space) { if (!space) { space = true; canvas.Cursor = Cursors.SizeAll; } e.Handled = true; e.SuppressKeyPress = true; }
             else if (e.KeyCode == Keys.Enter && file == null) { DialogResult = DialogResult.OK; e.Handled = true; }
             else if (e.KeyCode == Keys.Escape) { if (full) ToggleFull(); else if (file != null) Close(); else DialogResult = DialogResult.Cancel; e.Handled = true; }
@@ -276,19 +295,30 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
         }
     }
 
-    /// <summary>"Built-In Editor" (Choose Image Editor): <paramref name="png"/> in the editor, beside the active window. Save writes
+    /// <summary>"Built-In Editor" (Choose External Image Editor): <paramref name="png"/> in the editor, beside the active window. Save writes
     /// it (the callers watch the file, as they do for GIMP). Null = opened; else why not.</summary>
-    public static string? OpenFile(string png)
+    public static string? OpenFile(string png, string? overlayFile = null)
     {
         Bitmap img;
+        Bitmap? over = null;
         try { using var b = Model.ImagePixels.Open(png); img = new Bitmap(b); }
         catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { return ex.Message; }
-        var f = new ImageEditForm(img, null, Path.GetFileName(png), Tool.Brush, png);
-        img.Dispose();
+        if (overlayFile != null)
+            try { using var ob = Model.ImagePixels.Open(overlayFile); over = new Bitmap(ob); }
+            catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException) { over = null; }   // (no overlay: the map still opens)
+        var f = new ImageEditForm(img, null, Path.GetFileName(png), Tool.Brush, png, over);
+        img.Dispose(); over?.Dispose();
         f.FormClosed += (_, _) => f.BeginInvoke(f.Dispose);
         if (Form.ActiveForm is { } owner && !owner.IsDisposed) { if (!f.placed) f.StartPosition = FormStartPosition.CenterParent; f.Show(owner); }
         else { if (!f.placed) f.StartPosition = FormStartPosition.CenterScreen; f.Show(); }
         return null;
+    }
+
+    void ToggleOverlay()
+    {
+        overlayOn = !overlayOn;
+        if (overlayButton != null) Ui.Lit(overlayButton, overlayOn);
+        canvas.Invalidate();
     }
 
     static byte[] ToBgra(Bitmap b)
@@ -651,6 +681,13 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
         }
         g.InterpolationMode = k >= 2 ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImage(view, area);
+        // the reference picture over it (the color map), see-through
+        if (overlay != null && overlayOn)
+        {
+            using var ia = new System.Drawing.Imaging.ImageAttributes();
+            ia.SetColorMatrix(new System.Drawing.Imaging.ColorMatrix { Matrix33 = overlayOpacity });
+            g.DrawImage(overlay, Rectangle.Round(area), 0, 0, overlay.Width, overlay.Height, GraphicsUnit.Pixel, ia);
+        }
         bool picking = tool == Tool.Eyedropper || PickHeld;
         // Clone: where it copies from (a cross; it follows the brush while painting)
         if (tool == Tool.Clone && cloneSource is PointF cs0)
@@ -703,7 +740,7 @@ sealed class ImageEditForm : Form, Ui.IOwnsTips
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) view.Dispose();
+        if (disposing) { view.Dispose(); overlay?.Dispose(); }
         base.Dispose(disposing);
     }
 }

@@ -3,7 +3,7 @@ using MhoExtendedModManager.Model;
 namespace MhoExtendedModManager.Gui;
 
 /// <summary>
-/// A picture open in the user's image editor (Settings ▾ → Model → Choose Image Editor): each save there over the same
+/// A picture open in the user's image editor (Settings ▾ → Model → Choose External Image Editor): each save there over the same
 /// file calls <c>changed</c> on the owner's thread (after 600 ms of quiet). Used by the Editor's showcase image.
 /// </summary>
 sealed class ImageEditWatch : IDisposable
@@ -30,7 +30,7 @@ sealed class ImageEditWatch : IDisposable
     public static ImageEditWatch? Start(Control owner, string file, Action changed, out string note)
     {
         string? exe = ImageEditor.Find();
-        if (exe == null) { note = "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET). Pick yours: Settings ▾ → Model → Choose Image Editor."; return null; }
+        if (exe == null) { note = "No image editor was found (GIMP, Photoshop, Corel PHOTO-PAINT, Affinity Photo, Krita or Paint.NET). Pick yours: Settings ▾ → Model → Choose External Image Editor."; return null; }
         var w = new ImageEditWatch(owner, file, changed);
         string name = ImageEditor.Describe(exe);
         if (ImageEditor.Open(exe, file) is string failed) { w.Dispose(); note = $"{name} didn't start: {failed}"; return null; }

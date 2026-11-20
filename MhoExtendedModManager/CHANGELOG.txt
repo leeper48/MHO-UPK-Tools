@@ -1,6 +1,28 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.60.600
+- Release of 0.60.568–0.60.599 (What's New notice, manual walkthroughs and screenshots).
+
+0.60.599
+- 3D preview, full screen: the playback bar's icons are white again (some were drawn black).
+
+0.60.597
+- Editor, Powers tab (0.60.598: the Dodge and Hover tiles too): right-clicking one of the character's own entries (Dodge, Char, FX …) always opens its menu, with Model Adjust; Change Its Animations is grayed out when the entry has no animation of its own (Vision's dodge is an effect over the idle).
+
+0.60.596
+- A button's right-click menu (the 3D view's power and idle buttons, shortcuts) takes the first click. It needed two.
+
+0.60.595
+- Image editors named plainly: Edit in External Image Editor (GIMP, Photoshop … as chosen in Settings ▾ → Model → Choose External Image Editor) and, in the Materials and Variations right-click menus, Edit in Internal Image Editor (the app's own, with the color map overlay), whichever external one is chosen.
+
+0.60.594
+- Model tab, Materials: Create Map puts the empty map in as the material's map and opens it in the large view (Edit Here paints it in the built-in editor with the color map over it), instead of opening an editor straight away.
+
+0.60.593
+- Model tab, Materials: right-click a Glow, Spec or Alpha row that has no map for Create Map. It starts an empty map (glow and spec black, alpha white) at the color map's size and opens it in your image editor; the first save becomes the material's map.
+- Built-in image editor: when a map of a material is opened from the Materials tab, its color map shows over the picture, see-through, to paint against (Color Overlay, O, with its own strength slider). It's only shown, never painted in or saved.
+
 0.60.592
 - Model tab: the automatic Feet amount is measured with the model's own shins, as Build now keeps them. In 0.60.591 it still measured with the hero's longer shins and lifted the model (Vision on Ultron: +7.5 instead of about +1).
 
