@@ -501,6 +501,7 @@ function mhoNext(dir) {
 <li>Click <b>Bone Lengths and Shape Keys</b>.</li>
 <li>Under <b>Keep Bone Lengths</b>, tick the bones that stretch (<b>Moves Up To</b> says how far each one slides; <b>Fingers</b> ticks both hands' fingers and thumbs). They keep the model's own lengths and only turn.</li>
 <li>Under <b>Shape Keys</b>, untick the ones not to play (<i>r_handscale3_fix</i>: Carnage's bigger hand).</li>
+<li>Under <b>Keep Bones from Turning</b>, tick a bone this animation shouldn't turn (or turn less), and set <b>Turn Kept</b> (0 % = not at all, 100 % = as the game). For a vehicle that banks with its rider: Ghost Rider's <i>add_leanleft</i>, <i>add_leanright</i>, <i>add_pivotleft</i> and <i>add_pivotright</i> bank <i>g_mountattach</i> 45° in turns, and his bike (or a car swapped onto it) hangs on that bone. Tick it in those four at 0 % and the car stays level while he still leans. <b>Keep Vehicle Level</b> (in the Animations tab's toolbar) does exactly that for every lean and pivot animation at once; click it again to let them bank.</li>
 <li>Click OK. The row turns amber (an animation not changed before becomes a copy of itself); the 3D view shows the kept lengths at once. Shape keys aren't drawn in the 3D view: check those in game.</li>
 <li>Save Changes, then Apply Changes. Only this costume changes; <b>Back to the Original</b> takes it all off.</li>
 </ol>

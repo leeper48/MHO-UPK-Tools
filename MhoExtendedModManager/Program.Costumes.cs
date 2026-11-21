@@ -1051,7 +1051,10 @@ static partial class Program
                     // MHO_SWAP_KEEP=<bone,...>: Keep Bone Lengths; MHO_SWAP_CURVES_OFF=<curve,...|*>: shape keys left out
                     swaps.Add(new AnimSwap.Swap(slot, da.From.File, da.From.Export, da.Export) { Heights = heightKeys,
                         KeepLengths = Environment.GetEnvironmentVariable("MHO_SWAP_KEEP") is { Length: > 0 } kv ? kv.Split(',') : null,
-                        CurvesOff = Environment.GetEnvironmentVariable("MHO_SWAP_CURVES_OFF") is { Length: > 0 } cv ? cv.Split(',') : null });
+                        CurvesOff = Environment.GetEnvironmentVariable("MHO_SWAP_CURVES_OFF") is { Length: > 0 } cv ? cv.Split(',') : null,
+                        // MHO_SWAP_STILL=<bone,...>[@<0..1>]: Keep Bones from Turning, at that much of the turn (default 0)
+                        StillBones = Environment.GetEnvironmentVariable("MHO_SWAP_STILL") is { Length: > 0 } sv ? sv.Split('@')[0].Split(',') : null,
+                        StillStrength = Environment.GetEnvironmentVariable("MHO_SWAP_STILL") is { } sv2 && sv2.Contains('@') && float.TryParse(sv2.Split('@')[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float sst) ? sst : 0 });
                     donorAnims[slot] = da;
                     Console.WriteLine($"{slot} ← {da.From.PackageName}.upk · {da.From.Path} · {da.Name}");
                 }
@@ -1097,6 +1100,15 @@ static partial class Program
                         Console.WriteLine($"  {slot}: the copy's set takes positions for {tb.Count} bone(s); kept: {string.Join(", ", swaps.First(w => w.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase)).KeepLengths?.Where(k => !tb.Contains(k, StringComparer.OrdinalIgnoreCase)) ?? [])}");
                         Console.WriteLine($"  {slot}: curves {dcv.Count} in the source ({string.Join(", ", dcv)}), {cvs.Count} in the copy ({string.Join(", ", cvs)})");
                         same = same || (x != null && y != null && x.Tracks.Count == y.Tracks.Count && x.Tracks.All(kv => y.Tracks.TryGetValue(kv.Key, out var t) && t.RotationKeys.SequenceEqual(kv.Value.RotationKeys)));
+                    }
+                    // Keep Bones from Turning: those bones are meant to differ; every other track must still be the donor's
+                    var stillHere = swaps.FirstOrDefault(w => w.Slot.Equals(slot, StringComparison.OrdinalIgnoreCase))?.StillBones;
+                    if (!same && stillHere is { Count: > 0 } && x != null && y != null && x.Tracks.Count == y.Tracks.Count)
+                    {
+                        var held = new HashSet<string>(stillHere, StringComparer.OrdinalIgnoreCase);
+                        var changed = x.Tracks.Where(kv => !y.Tracks.TryGetValue(kv.Key, out var t) || !t.RotationKeys.SequenceEqual(kv.Value.RotationKeys)).Select(kv => kv.Key).ToList();
+                        same = changed.All(held.Contains);
+                        Console.WriteLine($"  {slot}: turns changed on {string.Join(", ", changed)} (held: {string.Join(", ", held)})");
                     }
                     if (!same) bad++;
                     Console.WriteLine($"  {(same ? "ok  " : "FAIL")} {slot}: from {a.From.Path} (set {a.From.Order + 1} of {after!.Sets.Count}), {y?.Tracks.Count ?? 0} tracks {(same ? "identical to the donor's" : "differ from the donor's")}");

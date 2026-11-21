@@ -137,7 +137,9 @@ sealed partial class ModEditorView
         animCopy = Ui.FlatButton("Copy From a Character", CopyFromCharacter, "Use many of another character's animations at once: each one with the same name as one of this costume's (ticked; untick what to leave). The Target undoes the ticked ones.");
         animBody = Ui.FlatButton("Bone Lengths and Shape Keys", EditAnimBody, "For the selected animation: Keep Bone Lengths (bones it slides, such as Carnage's fingers stretching into claws in Vicious Lunge, keep the model's own length and only turn) and Shape Keys (the morph targets it drives, such as Carnage's blades and mace: untick to leave them out). Only this costume's copy changes; an animation not changed yet becomes a copy of itself.");
         animBody.Enabled = false;
-        tools.AddRange([animChange, animBack, animCopy, animBody, find, animFind, animCount, animStatus]);
+        // Keep Vehicle Level (Kurt, 2026-11-20: the four lean animations one by one was too much)
+        animLevel = Ui.FlatButton("Keep Vehicle Level", () => _ = KeepVehicleLevel(), "For a character that rides a vehicle (Ghost Rider's bike, or a car swapped onto it): his lean and pivot animations bank the bone the vehicle hangs on (g_mountattach) 45 degrees in turns. This holds that bone still in all of them at once, so the vehicle stays level while he still leans. Click again to let them bank as the game does. Only this costume's copies change (each one's Bone Lengths and Shape Keys shows it).");
+        tools.AddRange([animChange, animBack, animCopy, animBody, animLevel, find, animFind, animCount, animStatus]);
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8, 0, 0, 0), ColumnCount = 1, RowCount = 2 };
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); right.RowStyles.Add(new RowStyle(SizeType.AutoSize));

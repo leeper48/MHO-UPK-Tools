@@ -524,7 +524,7 @@ sealed partial class ModEditorView
         {
             int k = draft.AnimSwaps.IndexOf(entry);
             // a new entry (the draft's list shares its entries with the mod's loaded manifest until Save)
-            var fresh = new AnimSwapEntry { Package = entry.Package, Slot = entry.Slot, Alias = entry.Alias, Donor = entry.Donor, Animation = entry.Animation, Title = entry.Title, Heights = saved, KeepLengths = entry.KeepLengths, CurvesOff = entry.CurvesOff };
+            var fresh = new AnimSwapEntry { Package = entry.Package, Slot = entry.Slot, Alias = entry.Alias, Donor = entry.Donor, Animation = entry.Animation, Title = entry.Title, Heights = saved, KeepLengths = entry.KeepLengths, CurvesOff = entry.CurvesOff, StillBones = entry.StillBones, StillStrength = entry.StillStrength };
             if (k >= 0) draft.AnimSwaps[k] = fresh;
         }
         else if (target.Borrow is { } b)

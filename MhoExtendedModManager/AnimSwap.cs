@@ -28,6 +28,12 @@ sealed class AnimSwapEntry
     /// <summary>Shape Keys off: the animation's morph-target curves (CurveData, by curve name) left out of this costume's copy,
     /// so the game doesn't play them ("*" = all); null = none.</summary>
     public List<string>? CurvesOff { get; set; }
+    /// <summary>Keep Bones from Turning (Kurt, 2026-11-20: a car swapped onto Ghost Rider's bike banked 45 degrees in turns: his
+    /// add_leanleft / add_leanright / add_pivotleft / add_pivotright turn g_mountattach, the bone the vehicle hangs on): the
+    /// bones whose turns this costume's copy takes only <see cref="StillStrength"/> of; null = none.</summary>
+    public List<string>? StillBones { get; set; }
+    /// <summary>How much of those bones' turns stays: 0 = none (still), 1 = all (as the game). Null = 0.</summary>
+    public float? StillStrength { get; set; }
 
     [System.Text.Json.Serialization.JsonIgnore]
     public List<(float At, float Z)> HeightKeys => Heights?.Where(h => h.Length >= 2).Select(h => (h[0], h[1])).OrderBy(h => h.Item1).ToList() ?? [];
@@ -59,6 +65,9 @@ static class AnimSwap
         public IReadOnlyCollection<string>? KeepLengths { get; init; }
         /// <summary>Morph-target curves left out of the copy (AnimSwapEntry.CurvesOff; "*" = all).</summary>
         public IReadOnlyCollection<string>? CurvesOff { get; init; }
+        /// <summary>Bones whose turns the copy takes only <see cref="StillStrength"/> of (AnimSwapEntry.StillBones).</summary>
+        public IReadOnlyCollection<string>? StillBones { get; init; }
+        public float StillStrength { get; init; }
         /// <summary>The copy's own set: swaps keeping different bone lengths can't share one (the list is the set's).</summary>
         public string KeepKey => KeepLengths is { Count: > 0 } k ? string.Join("|", k.Select(x => x.ToLowerInvariant()).Order()) : "";
     }
@@ -672,6 +681,11 @@ static class AnimSwap
                     var fixedBones = Reparent(pkg, sd, d, sw, donorSkeleton, skeleton, retarget, turnedNow, out string pwhy);
                     if (fixedBones.Count > 0) log.Add($"  {slot}: turned as in the other hero's body (another parent here): {string.Join(", ", fixedBones)}");
                     if (pwhy.Length > 0) log.Add($"  {slot}: not re-parented: {pwhy}");
+                }
+                if (sw?.StillBones is { Count: > 0 } still)
+                {
+                    var held = Steady(pkg, sd, d, still, sw.StillStrength, out string swhy);
+                    log.Add(held.Count > 0 ? $"  {slot}: turns kept at {sw.StillStrength * 100:0} %: {string.Join(", ", held)}" : $"  {slot}: no turns held ({swhy})");
                 }
                 if (sw?.CurvesOff is { Count: > 0 } curvesOff)
                 {
@@ -1383,6 +1397,73 @@ static class AnimSwap
     /// key x turn. Only keys stored as three floats (Float96NoW, which every single-key track is; the engine stores the
     /// conjugate, W derived and positive). Returns the bones turned; <paramref name="why"/> names those left as they were.
     /// </summary>
+    /// <summary>
+    /// Keep Bones from Turning: each listed bone's rotation keys pulled toward "no turn" in place, keeping <paramref name="strength"/>
+    /// of the turn (0 = none). An additive animation (bIsAdditive: Ghost Rider's add_leanleft holds only the lean, every other
+    /// bone at identity) is pulled toward identity; a full animation toward its first key (the bone held where it starts).
+    /// Float96NoW keys (and single keys) only, as <see cref="Retarget"/>; the stored keys are the conjugate.
+    /// </summary>
+    public static List<string> Steady(Package pkg, byte[] set, byte[] d, IReadOnlyCollection<string> bones, float strength, out string why)
+    {
+        why = "";
+        var done = new List<string>();
+        var want = new HashSet<string>(bones, StringComparer.OrdinalIgnoreCase);
+        var stags = TagWalker.Walk(pkg, set, 4);
+        var tb = stags?.FirstOrDefault(x => x.Name.Equals("TrackBoneNames", StringComparison.OrdinalIgnoreCase));
+        var tags = TagWalker.Walk(pkg, d, 4);
+        if (tb == null || tags == null) { why = "the animation doesn't read"; return done; }
+        string Enum(string n) => tags.FirstOrDefault(x => x.Name.Equals(n, StringComparison.OrdinalIgnoreCase)) is { } t && t.Size == 8 ? pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt))] : "";
+        string rf = Enum("RotationCompressionFormat"), kf = Enum("KeyEncodingFormat");
+        if (kf.Equals("akf_pertrackcompression", StringComparison.OrdinalIgnoreCase)) { why = "per-track compression"; return done; }
+        bool float96 = rf.Length == 0 || rf.Equals("acf_float96now", StringComparison.OrdinalIgnoreCase);
+        bool additive = tags.FirstOrDefault(x => x.Name.Equals("bIsAdditive", StringComparison.OrdinalIgnoreCase)) is { } at && at.ValueAt > 0 && d[at.ValueAt - 1] != 0;   // (a bool's byte is just before ValueAt)
+        var ot = tags.FirstOrDefault(x => x.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase));
+        int nb = BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt));
+        if (ot == null || BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(ot.ValueAt)) != 4 * nb) { why = "the track offsets don't match the bones"; return done; }
+        int p = tags.NoneAt + 8;
+        int raw = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        if (raw < 0 || raw > 100000) { why = "the raw tracks don't read"; return done; }
+        for (int k = 0; k < raw; k++)
+        {
+            p += 4 + 12 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+            p += 4 + 16 * BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p));
+        }
+        int len = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(p)); p += 4;
+        float keep = Math.Clamp(strength, 0, 1);
+        var skipped = new List<string>();
+        for (int i = 0; i < nb; i++)
+        {
+            string bone = pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(set.AsSpan(tb.ValueAt + 4 + 8 * i))];
+            if (!want.Contains(bone)) continue;
+            int o = ot.ValueAt + 4 + 16 * i;
+            int rOff = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(o + 8)), rKeys = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(o + 12));
+            if (rOff < 0 || rKeys < 1) continue;
+            if (rKeys > 1 && !float96) { skipped.Add($"{bone} ({rf})"); continue; }
+            if (rOff + 12 * rKeys > len) { skipped.Add($"{bone} (past the data)"); continue; }
+            System.Numerics.Quaternion Read(int k)
+            {
+                int q = p + rOff + 12 * k;
+                float x = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q)), y = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q + 4)), z = BinaryPrimitives.ReadSingleLittleEndian(d.AsSpan(q + 8));
+                float ls = x * x + y * y + z * z;
+                return new System.Numerics.Quaternion(-x, -y, -z, ls < 1 ? MathF.Sqrt(1 - ls) : 0);   // stored: the conjugate
+            }
+            var target = additive ? System.Numerics.Quaternion.Identity : Read(0);
+            for (int k = 0; k < rKeys; k++)
+            {
+                var nq = System.Numerics.Quaternion.Normalize(System.Numerics.Quaternion.Slerp(target, Read(k), keep));
+                if (nq.W < 0) nq = -nq;
+                int q = p + rOff + 12 * k;
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q), -nq.X);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 4), -nq.Y);
+                BinaryPrimitives.WriteSingleLittleEndian(d.AsSpan(q + 8), -nq.Z);
+            }
+            done.Add(bone);
+        }
+        if (skipped.Count > 0) why = "not held: " + string.Join(", ", skipped);
+        else if (done.Count == 0) why = "the animation doesn't turn those bones";
+        return done;
+    }
+
     static List<string> Retarget(Package pkg, byte[] set, byte[] d, IReadOnlyDictionary<string, System.Numerics.Quaternion> turns, out string why)
     {
         why = "";

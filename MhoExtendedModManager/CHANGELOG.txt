@@ -1,6 +1,16 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.70.6
+- Release (with 0.70.4 and 0.70.5): What's New notice for 0.70.3–0.70.6.
+- Animations tab: Keep Vehicle Level holds the bone a ridden vehicle hangs on (g_mountattach) still in every lean and pivot animation of the costume at once, so the vehicle stays level in turns (confirmed in game with a car on Ghost Rider's bike). Click again to let it bank as the game does.
+
+0.70.5
+- Bone Lengths and Shape Keys: the Keep boxes can be ticked again (a click did nothing: every row of the read-only table counted as locked). Fingers, All and None work again too.
+
+0.70.4
+- Animations tab → Bone Lengths and Shape Keys: a new Keep Bones from Turning list with a Turn Kept strength (0 % = still). For Ghost Rider's lean and pivot animations (add_leanleft, add_leanright, add_pivotleft, add_pivotright), which bank his g_mountattach 45° in turns: held there, a car swapped onto his bike stays level while he still leans. Only this costume's copy changes.
+
 0.70.3
 - Release of 0.70.1–0.70.3 (What's New notice, the manual's prop-swap walkthrough).
 - 3D preview: fixed a crash ("Index was outside the bounds of the array") when moving the Frame slider with props shown after the target's props changed: a prop could take another prop's animation.

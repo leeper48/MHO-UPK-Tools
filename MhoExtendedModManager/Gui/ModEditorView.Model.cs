@@ -332,7 +332,7 @@ sealed partial class ModEditorView : IModelHost
                 {
                     var pick = dca.Anims.FirstOrDefault(a => a.Name.Equals(s.Animation, StringComparison.OrdinalIgnoreCase));
                     if (pick?.From.File == null) { log.Add($"{s.Slot}: {g.Key} has no {s.Animation}, left as the game's"); continue; }
-                    list.Add(LoweredBy(borrows ?? [], file, new AnimSwap.Swap(s.Slot, pick.From.File, pick.From.Export, pick.Export) { Heights = s.HeightKeys is { Count: > 0 } hk ? hk : null, KeepLengths = s.KeepLengths, CurvesOff = s.CurvesOff }));
+                    list.Add(LoweredBy(borrows ?? [], file, new AnimSwap.Swap(s.Slot, pick.From.File, pick.From.Export, pick.Export) { Heights = s.HeightKeys is { Count: > 0 } hk ? hk : null, KeepLengths = s.KeepLengths, CurvesOff = s.CurvesOff, StillBones = s.StillBones, StillStrength = s.StillStrength ?? 0 }));
                     from ??= pick.From.File;
                 }
                 if (list.Count == 0) continue;
