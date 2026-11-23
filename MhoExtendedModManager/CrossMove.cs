@@ -138,6 +138,7 @@ static class CrossMove
         var socketAdds = new List<NewExport>();
         byte[]? meshData = null;
         var socketData = new Dictionary<int, byte[]>();
+        bool rider = false;   // the target's model rides a mount (g_mountgroundaim): its own animation tree stays
         {
             string cp = $"marvelgamecontent.default__{targetClass}.initialskeletalmesh";
             int ci = Array.FindIndex(pkg.Exports, e => pkg.PathOf(e).Equals(cp, StringComparison.OrdinalIgnoreCase));
@@ -146,6 +147,13 @@ static class CrossMove
                 && ct.FirstOrDefault(t => t.Name.Equals("SkeletalMesh", StringComparison.OrdinalIgnoreCase) && t.Size == 4) is { } st)
                 stockMesh = BinaryPrimitives.ReadInt32LittleEndian(pkg.ReadExportBytes(pkg.Exports[ci]).AsSpan(st.ValueAt)) - 1;
             int moved = copy.RootRef - 1;
+            // the target's props on bones the moved model lacks (a user, 2026-11-23: Kate Bishop's Sky-Cycle hangs on
+            // g_mountattach, which her ride animations move; Doctor Strange's model has no such bone, so the cycle was gone)
+            if (stockMesh >= 0 && stockMesh != moved && AddPropBones(pkg, stockMesh, moved, log, out rider) is { } withBones)
+            {
+                byte[] wb = PackageRebuilder.Rebuild(pkg, new Dictionary<int, Func<long, byte[]>> { [moved] = _ => withBones }, [], out _);
+                pkg = Package.FromBytes(wb);
+            }
             if (stockMesh >= 0 && stockMesh != moved)
                 (meshData, socketAdds, socketData) = AddMissingSockets(pkg, stockMesh, moved, log);
         }
@@ -245,7 +253,8 @@ static class CrossMove
         // out. Doctor Strange's cape hangs from exactly those bones; Punisher's coat from g_coat* / g_*coatback*. So the moved
         // model gets the source's tree when that's a shared one (an import); a hero's own tree (Silver Surfer, Deadpool) stays.
         var addImports = new List<NewImport>();
-        if (!modelOnly && SourceTree(src, sourceClass, baseHero) is { } tree)
+        if (rider && !modelOnly) log.Add("component: AnimTreeTemplate left as the target's (it rides a mount: its tree aims the mount bones)");
+        if (!modelOnly && !rider && SourceTree(src, sourceClass, baseHero) is { } tree)
         {
             int NameIdx4(string n)
             {
@@ -417,6 +426,137 @@ static class CrossMove
             return (outer.ObjectName, im.ObjectName);
         }
         return null;
+    }
+
+    /// <summary>
+    /// The bones the target's props hang on (AttachmentBones of the attachment class defaults in the target's package, and its
+    /// stock model's mount bones g_mount*) that
+    /// the moved model lacks, with any missing parents, copied from the target's stock mesh: same name, same place under the
+    /// same parent, no vertex weighted to them. The target's animations key them by name, so a prop on them follows as it
+    /// does on the stock costume (Kate Bishop's Sky-Cycle on g_mountattach under g_mountgroundaim). The moved mesh's new
+    /// export data, or null when nothing is missing or the mesh doesn't read and write back exactly.
+    /// </summary>
+    static byte[]? AddPropBones(Package pkg, int stockMesh, int moved, List<string> log, out bool rider)
+    {
+        rider = false;
+        var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            string path = pkg.PathOf(pkg.Exports[i]);
+            if (!path.StartsWith("marvelgamecontent.default__marvelattachment", StringComparison.OrdinalIgnoreCase) || path.IndexOf('.', "marvelgamecontent.".Length) >= 0) continue;
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[i]).ToArray();
+            if (TagWalker.Walk(pkg, d, 4)?.FirstOrDefault(t => t.Name.Equals("AttachmentBones", StringComparison.OrdinalIgnoreCase)) is not { } t) continue;
+            int n = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(t.ValueAt));
+            for (int k = 0; k < n && t.ValueAt + 4 + 8 * k + 8 <= d.Length; k++)
+            {
+                string b = TagWalker.NameAt(pkg, d, t.ValueAt + 4 + 8 * k);
+                if (!b.Equals("none", StringComparison.OrdinalIgnoreCase)) wanted.Add(b);
+            }
+        }
+        (byte[] Data, int Payload, Model.SkelNative Mesh)? Read(int e)
+        {
+            byte[] d = pkg.ReadExportBytes(pkg.Exports[e]).ToArray();
+            if (TagWalker.Walk(pkg, d, 4) is not { } tags) return null;
+            int at = tags.NoneAt + 8;
+            bool vc = tags.FirstOrDefault(t => t.Name.Equals("bHasVertexColors", StringComparison.OrdinalIgnoreCase)) is { } v && v.ValueAt > 0 && d[v.ValueAt - 1] != 0;
+            try { return (d, at, Model.SkelNative.Read(d, at, vc)); }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException) { return null; }
+        }
+        string NameOf(byte[] bone) => pkg.Names[BinaryPrimitives.ReadInt32LittleEndian(bone)];
+        if (Read(stockMesh) is not { } st || Read(moved) is not { } mv) { log.Add("prop bones: a mesh doesn't read; none added"); return null; }
+        rider = st.Mesh.Bones.Any(b => NameOf(b).Equals("g_mountgroundaim", StringComparison.OrdinalIgnoreCase));
+        // the mount bones too: a vehicle's attachment class can live in the hero's main package (Hawkeye Classic's Sky-Cycle,
+        // Ghost Rider's bike), not the costume's, and hangs on them
+        foreach (var b in st.Mesh.Bones) if (NameOf(b).StartsWith("g_mount", StringComparison.OrdinalIgnoreCase)) wanted.Add(NameOf(b));
+        if (wanted.Count == 0) return null;
+        var have = mv.Mesh.Bones.Select((b, i) => (NameOf(b), i)).GroupBy(x => x.Item1, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().i, StringComparer.OrdinalIgnoreCase);
+        var stockIdx = st.Mesh.Bones.Select((b, i) => (NameOf(b), i)).GroupBy(x => x.Item1, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().i, StringComparer.OrdinalIgnoreCase);
+        var missing = wanted.Where(b => !have.ContainsKey(b) && stockIdx.ContainsKey(b)).OrderBy(b => stockIdx[b]).ToList();
+        if (missing.Count == 0) return null;
+        if (!mv.Mesh.Write().AsSpan().SequenceEqual(mv.Data.AsSpan(mv.Payload))) { log.Add($"prop bones: the moved model doesn't write back exactly; {string.Join(", ", missing)} not added"); return null; }
+        var added = new List<string>();
+        void Add(string name)
+        {
+            if (have.ContainsKey(name)) return;
+            int si = stockIdx[name];
+            byte[] rec = (byte[])st.Mesh.Bones[si].Clone();
+            int sp = BinaryPrimitives.ReadInt32LittleEndian(rec.AsSpan(44));
+            string parent = sp == si ? "root" : NameOf(st.Mesh.Bones[sp]);
+            if (!have.ContainsKey(parent)) { if (sp == si || !stockIdx.ContainsKey(parent)) return; Add(parent); if (!have.ContainsKey(parent)) return; }
+            int pi = have[parent], idx = mv.Mesh.Bones.Count;
+            BinaryPrimitives.WriteInt32LittleEndian(rec.AsSpan(40), 0);       // no children yet
+            BinaryPrimitives.WriteInt32LittleEndian(rec.AsSpan(44), pi);
+            var pb = mv.Mesh.Bones[pi];
+            BinaryPrimitives.WriteInt32LittleEndian(pb.AsSpan(40), BinaryPrimitives.ReadInt32LittleEndian(pb.AsSpan(40)) + 1);
+            mv.Mesh.Bones.Add(rec);
+            mv.Mesh.NameIndexMap.Add((BinaryPrimitives.ReadInt64LittleEndian(rec), idx));
+            foreach (var l in mv.Mesh.Lods) l.RequiredBones.Add((byte)idx);
+            have[name] = idx;
+            added.Add($"{name} (under {parent})");
+        }
+        if (mv.Mesh.Bones.Count + missing.Count * 2 > 255) { log.Add($"prop bones: the moved model has {mv.Mesh.Bones.Count} bones; {string.Join(", ", missing)} not added"); return null; }
+        foreach (string b in missing) Add(b);
+        if (added.Count == 0) return null;
+        log.Add($"prop bones: the target's {string.Join(", ", added)} added to the moved model (its props hang on them)");
+        // A rider's body hangs from the mount (Kate Bishop, Hawkeye, Ghost Rider: hips, spine and IK roots under g_mountattach,
+        // which the ride animations lift 16.6 with the vehicle; Kurt 2026-11-23: on the moved model the body hung from root,
+        // so she sat low in the Sky-Cycle). The same bones go under it on the moved model.
+        if (rider) Rehang(mv.Mesh, st.Mesh, NameOf, log);
+        mv.Mesh.SkeletalDepth = Model.SkelEncoder.Depth(mv.Mesh.Bones);
+        return [.. mv.Data.AsSpan(0, mv.Payload), .. mv.Mesh.Write()];
+    }
+
+    /// <summary>
+    /// The moved model's bones that hang from g_mountattach in the target's stock skeleton and from root in the moved one are
+    /// hung from g_mountattach. The engine wants every parent before its children, so the mount chain (root → g_mountgroundaim
+    /// → g_mountattach, appended by <see cref="AddPropBones"/>) moves to just after root and every bone index is renumbered:
+    /// parents, child counts, the name map, the chunks' bone maps, active and required bones. Only done when the chain rests at
+    /// its parent (no turn, no offset: the children keep their local place, so the model's shape and skin are unchanged).
+    /// </summary>
+    static void Rehang(Model.SkelNative m, Model.SkelNative stock, Func<byte[], string> nameOf, List<string> log)
+    {
+        int Find(Model.SkelNative x, string n) => x.Bones.FindIndex(b => nameOf(b).Equals(n, StringComparison.OrdinalIgnoreCase));
+        int ga = Find(m, "g_mountgroundaim"), at = Find(m, "g_mountattach"), sAt = Find(stock, "g_mountattach");
+        if (ga < 0 || at < 0 || sAt < 0 || BinaryPrimitives.ReadInt32LittleEndian(m.Bones[ga].AsSpan(44)) != 0 || BinaryPrimitives.ReadInt32LittleEndian(m.Bones[at].AsSpan(44)) != ga) return;
+        bool AtRest(byte[] b)
+        {
+            float F(int o) => BinaryPrimitives.ReadSingleLittleEndian(b.AsSpan(o));
+            return MathF.Abs(F(12)) < 1e-4f && MathF.Abs(F(16)) < 1e-4f && MathF.Abs(F(20)) < 1e-4f && MathF.Abs(MathF.Abs(F(24)) - 1) < 1e-4f
+                && MathF.Abs(F(28)) < 1e-3f && MathF.Abs(F(32)) < 1e-3f && MathF.Abs(F(36)) < 1e-3f;
+        }
+        if (!AtRest(m.Bones[ga]) || !AtRest(m.Bones[at])) { log.Add("prop bones: the mount bones don't rest at the root; the body is left hanging from root"); return; }
+        // (the chunks' legacy vertex arrays name bones by their place in the chunk's bone map, as the vertex buffer does:
+        // remapping the bone maps keeps them right)
+        var under = stock.Bones.Select((b, i) => (b, i)).Where(x => x.i != sAt && BinaryPrimitives.ReadInt32LittleEndian(x.b.AsSpan(44)) == sAt).Select(x => nameOf(x.b)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hang = Enumerable.Range(1, m.Bones.Count - 1).Where(i => i != ga && i != at && BinaryPrimitives.ReadInt32LittleEndian(m.Bones[i].AsSpan(44)) == 0 && under.Contains(nameOf(m.Bones[i]))).ToList();
+        if (hang.Count == 0) return;
+        // new order: root, the mount chain, then the rest in their old order
+        var order = new List<int> { 0, ga, at };
+        order.AddRange(Enumerable.Range(1, m.Bones.Count - 1).Where(i => i != ga && i != at));
+        var newIdx = new int[order.Count];
+        for (int k = 0; k < order.Count; k++) newIdx[order[k]] = k;
+        var bones = order.Select(i => (byte[])m.Bones[i].Clone()).ToList();
+        for (int k = 0; k < bones.Count; k++)
+        {
+            int oldParent = BinaryPrimitives.ReadInt32LittleEndian(bones[k].AsSpan(44));
+            int np = k == 0 ? 0 : hang.Contains(order[k]) ? newIdx[at] : newIdx[oldParent];
+            BinaryPrimitives.WriteInt32LittleEndian(bones[k].AsSpan(44), np);
+        }
+        for (int k = 0; k < bones.Count; k++) BinaryPrimitives.WriteInt32LittleEndian(bones[k].AsSpan(40), 0);
+        for (int k = 1; k < bones.Count; k++)
+        {
+            int pp = BinaryPrimitives.ReadInt32LittleEndian(bones[k].AsSpan(44));
+            BinaryPrimitives.WriteInt32LittleEndian(bones[pp].AsSpan(40), BinaryPrimitives.ReadInt32LittleEndian(bones[pp].AsSpan(40)) + 1);
+        }
+        m.Bones = bones;
+        m.NameIndexMap = m.NameIndexMap.Select(x => (x.Name, x.Index >= 0 && x.Index < newIdx.Length ? newIdx[x.Index] : x.Index)).ToList();
+        foreach (var l in m.Lods)
+        {
+            foreach (var c in l.Chunks) c.BoneMap = c.BoneMap.Select(b => (ushort)newIdx[b]).ToList();
+            l.ActiveBones = l.ActiveBones.Select(b => (ushort)newIdx[b]).ToList();
+            l.RequiredBones = l.RequiredBones.Select(b => (byte)newIdx[b]).OrderBy(b => b).ToList();
+        }
+        log.Add($"prop bones: {string.Join(", ", hang.Select(i => nameOf(m.Bones[newIdx[i]])))} hung from g_mountattach, as on the target (the ride lifts the body with the vehicle)");
     }
 
     /// <summary>A float property of the source's mesh component: its costume component, else its hero's base component.</summary>

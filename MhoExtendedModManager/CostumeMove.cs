@@ -74,12 +74,22 @@ static class CostumeMove
     /// <summary>
     /// A costume that renders from the hero's base package (class MarvelPlayer_&lt;Hero&gt;, e.g. Vision Classic, Black Panther
     /// Classic, Punisher Original: 22 of 536 costumes, checked 2026-09-29). That package also holds the hero's animations,
-    /// so it is never moved or replaced; test prototypes (zTesting) aren't offered either.
+    /// so it is never moved or replaced; test prototypes (zTesting) and the game's old test heroes (zzzBrevikOLD …) aren't
+    /// offered either. Only the hero's own class counts (a user, 2026-11-23: Kate Bishop was missing): Hawkeye's Kate Bishop
+    /// (MarvelPlayer_KateBishop) and Loki's Lady Loki (MarvelPlayer_LadyLoki) are costumes with a package and class of their
+    /// own extending MarvelPlayer, like Captain America's American Dream: they take the copy route (<see cref="CopyTargets"/>).
     /// </summary>
-    public static bool IsBase(Costume c) => !c.IsTeamUp && c.Class.Count(ch => ch == '_') < 2 || c.Prototype.Replace('\\', '/').Contains("/zTesting/", StringComparison.OrdinalIgnoreCase);
+    public static bool IsBase(Costume c) =>
+        !c.IsTeamUp && c.Class.Count(ch => ch == '_') < 2 && (HeroName(c) is not { } h || h.StartsWith("zzz", StringComparison.OrdinalIgnoreCase)
+                                                              || c.Class.Equals("MarvelPlayer_" + h, StringComparison.OrdinalIgnoreCase))
+        || c.Prototype.Replace('\\', '/').Contains("/zTesting/", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>"MarvelPlayer_Thor_" for MarvelPlayer_Thor_AgeOfUltron: costumes can only move within one hero's classes.</summary>
-    static string HeroPrefix(Costume c) => c.Class[..(c.Class.IndexOf('_', c.Class.IndexOf('_') + 1) + 1)];
+    /// <summary>"Hawkeye" for a costume of Entity/…/Hawkeye.prototype (its UsableBy), or null.</summary>
+    static string? HeroName(Costume c) => c.Hero == null ? null : Path.GetFileNameWithoutExtension(c.Hero.Replace('\\', '/').Split('/')[^1]);
+
+    /// <summary>"MarvelPlayer_Thor_" for MarvelPlayer_Thor_AgeOfUltron: costumes can only move within one hero's classes.
+    /// A class with one underscore (MarvelPlayer_KateBishop) is a family of its own: "MarvelPlayer_KateBishop_".</summary>
+    static string HeroPrefix(Costume c) => c.Class.IndexOf('_', c.Class.IndexOf('_') + 1) is int at and >= 0 ? c.Class[..(at + 1)] : c.Class + "_";
 
     /// <summary>The other costumes of the same hero whose package exists in the game.</summary>
     public static List<Costume> Targets(Costume source, List<Costume> all, string cooked) =>

@@ -527,7 +527,11 @@ static class HairAnims
             if (perTrack)
             {
                 int tAt = (int)stream.Length;
-                w.Write((0u << 28) | (7u << 24) | (uint)pos.Length);
+                // format 1 (Float96NoW: three floats a key, as None), never 0: the game's per-track decoder has no case for
+                // ACF_None and stops with "0: unknown or unsupported animation compression format" (Kurt, 2026-11-23, a
+                // costume moved onto Kate Bishop with Make Still Parts Move: her idle's new cape tracks). Stock per-track
+                // translations are Float96NoW / IntervalFixed32NoW / Fixed48NoW (Punisher), never None.
+                w.Write((1u << 28) | (7u << 24) | (uint)pos.Length);
                 foreach (var v in pos) { w.Write(v.X); w.Write(v.Y); w.Write(v.Z); }
                 int rAt = (int)stream.Length;
                 w.Write((1u << 28) | (7u << 24) | (uint)keys.Length);

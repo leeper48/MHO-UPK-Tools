@@ -3915,6 +3915,9 @@ static partial class Program
                     {
                         var ld = ModMeshes.Load(mr, null, out string why);
                         Console.WriteLine(ld == null ? $"{mr.Package} | {mr.Name}: {why}" : $"{mr.Package} | {mr.Name} | {ld.Bones.Count} | " + string.Join(",", ld.Bones.Select(b => b.Name)));
+                        if (ld != null && Environment.GetEnvironmentVariable("MHO_MESH_PARENTS") == "1")
+                            for (int k = 0; k < ld.Bones.Count; k++)
+                                Console.WriteLine($"   {k,3} {ld.Bones[k].Name,-28} parent {(ld.Bones[k].ParentIndex >= 0 ? ld.Bones[ld.Bones[k].ParentIndex].Name : "-"),-24} at {ld.Bones[k].Position.X:0.##},{ld.Bones[k].Position.Y:0.##},{ld.Bones[k].Position.Z:0.##}");
                         if (ld != null && Environment.GetEnvironmentVariable("MHO_MESH_WEIGHTS") == "1")
                         {
                             // per bone: total weight and vertex count (which bones the skin follows)

@@ -50,7 +50,7 @@ static class WhatsNew
     const string Discord1 = "https://discord.com/channels/1130836076332863580/1553841408471867442";
     const string Discord2 = "https://discord.com/channels/1142968916205903942/1553842238969352263";
 
-    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [VehicleSwap706(), MovesAndFeet600(), ModelFixes566(), ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
+    public static IReadOnlyList<Notice> Notices => ModelTabReleased ? [MoveList710(), VehicleSwap706(), MovesAndFeet600(), ModelFixes566(), ImageEditor(), GearPage(), VisualUpdateImage(), PowerIcons(), SnapOnAttack(), BorrowDonors(), WholeSummons(), BorrowEffects(), BorrowParts(), FreeCamModes(), SpecMakers(), NoAnimBorrow(), FormAnimations(), PowerAnimFix(), BorrowCrashFix(), FreeCamOptions(), DecalsAndFixes(), PetMoves(), TeamUpMoves(), BorrowPower(), HeightAndFixes(), AudioSettings(), AudioTools(), VoiceCrashFix(), CopyCrashFix(), ListsAndSpec(), MaterialCopy(), PropsAndGizmo(), SnapshotsAndEffects(), PaintAndShortcuts(), PropsAndViews(), GameSourceFeet(), RemoveCleans(), SoundsAndForms(), FormsAndSummons(), PartsAndGhosts(), VoiceEffects(), DarkPowers(), SafeUnique(), UnibeamAndShared(), CrashChecks(), AddRigs(), PropTargets(), AdjustColors(), TidyData(), NexusSignIn(), PhoenixEffects(), AnyTarget(), TextureManager(), HistorySmall(), PowersPlaced(), ScreenFit(), FormatsAndEditors(), SizeAndNpcs(), ModelNotice(), SingleColors(), Editor(PowersAndAnimations)] : [SingleColors(), Editor(PowersAndAnimations)];
 
     /// <summary>0.60.462 (Kurt, 2026-11-10): summons as a whole character; added props movable again after reopening.</summary>
     /// <summary>0.60.480 (Kurt, 2026-11-10): team-up and enemy donors in Borrow Power, missile parts and animation trails in
@@ -60,6 +60,14 @@ static class WhatsNew
     /// <summary>0.60.537 (Kurt, 2026-11-17): the Visual Update image, Swap Model on telescoping staffs, the folded Prop Fit heading.</summary>
     /// <summary>0.60.556 (Kurt, 2026-11-17): the Gear page, the icon eraser, Vision's Intangible Density material swaps, Snap on Attack keys.</summary>
     /// <summary>0.60.566 (Kurt, 2026-11-18): weight painting moves the model, a saved source reloads, the mod's own model as the source.</summary>
+    /// <summary>0.70.10 (Kurt, 2026-11-23): Kate Bishop and Lady Loki in the Move lists.</summary>
+    static Notice MoveList710() => new(
+        "0.70.10-move-list", "0.70.10",
+        "[!]Two more costumes to move onto" + nl +
+        "  • Hawkeye's Kate Bishop and Loki's Lady Loki are now in the Move to Another Costume and Another Hero lists." + nl + nl +
+        "If something doesn't work, please report it on Discord: [MHServerEmu Development](" + Discord1 + ") or [TAHITI](" + Discord2 + ").",
+        "w-move");
+
     static Notice VehicleSwap706() => new(
         "0.70.6-vehicle-swap", "0.70.6",
         "[!]Swap a vehicle's model" + nl +

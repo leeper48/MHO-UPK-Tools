@@ -1,6 +1,19 @@
 MHO Extended Mod Manager: what's new
 ====================================
 
+0.70.10
+- Release (with 0.70.7–0.70.9): What's New notice for Kate Bishop and Lady Loki in the Move lists.
+- Move to Another Hero onto a costume that rides (Kate Bishop's or Hawkeye's Sky-Cycle, Ghost Rider's bike): the rider sits on the vehicle again. On these heroes the body (hips, spine, IK) hangs from the mount bone the ride animations lift with the vehicle; on the moved model it now hangs there too (it hung from the root, so she sat about 16 units too low). The model's shape and skin don't change.
+
+0.70.9
+- Fixed a game crash ("0: unknown or unsupported animation compression format"): tracks added to a hero's animations (Make Still Parts Move on a move, cape and hair rigs on the Model tab) stored their positions in a form the game can't read in per-track animations (Kate Bishop's idle and run, most of Punisher's, Iron Man's, Black Widow's). They're stored as the game's own animations do now (the same numbers). A mod built before this crashes only when such a part plays on such a hero; build it again (move it again → Rebuild It, or Build into Mod).
+
+0.70.8
+- Move to Another Hero: a costume that rides a vehicle keeps it. Kate Bishop's and Hawkeye's Sky-Cycle and Ghost Rider's bike hang on mount bones (g_mountgroundaim, g_mountattach) that the ride animations move; a model from another hero has none, so the vehicle was gone. The move now copies those bones from the costume's own model into the moved one (no part of the model is weighted to them), and keeps the costume's own animation tree.
+
+0.70.7
+- Move to Another Costume / Another Hero: Hawkeye's Kate Bishop and Loki's Lady Loki are listed again (a user: Kate Bishop was missing). Their costumes have a class of their own, which was taken for the hero's main package; they now move like Captain America's American Dream (the costume's own package with the model put in). No other costume changes: the rest the move leaves out are test or unreleased costumes with no package in the game, and Punisher Original, which is Punisher's main package.
+
 0.70.6
 - Release (with 0.70.4 and 0.70.5): What's New notice for 0.70.3–0.70.6.
 - Animations tab: Keep Vehicle Level holds the bone a ridden vehicle hangs on (g_mountattach) still in every lean and pivot animation of the costume at once, so the vehicle stays level in turns (confirmed in game with a car on Ghost Rider's bike). Click again to let it bank as the game does.

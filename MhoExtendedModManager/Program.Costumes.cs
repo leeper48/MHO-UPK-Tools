@@ -556,6 +556,49 @@ static partial class Program
                     return 1;
                 }
             }
+            case "--pertrack-check":
+            {
+                // --pertrack-check <package | folder> [--fix <out folder>]: per-track animation tracks stored as format 0 (ACF_None),
+                // which the game's per-track decoder refuses ("0: unknown or unsupported animation compression format"; written by
+                // HairAnims before 0.70.9). --fix writes a copy with those translation tracks relabelled Float96NoW (same bytes).
+                if (rest.Count < 2) { Console.WriteLine("--pertrack-check <package | folder> [--fix <out folder>]"); return 1; }
+                string? fixDir = rest.FindIndex(a => a.Equals("--fix", StringComparison.OrdinalIgnoreCase)) is int fi and >= 0 && fi + 1 < rest.Count ? rest[fi + 1] : null;
+                var files = Directory.Exists(rest[1]) ? Directory.EnumerateFiles(rest[1], "*.upk", SearchOption.AllDirectories).ToList() : [rest[1]];
+                int bad = 0;
+                foreach (string f in files)
+                {
+                    string fn = Path.GetFileName(f);
+                    if (fn.Contains("bak", StringComparison.OrdinalIgnoreCase) || fn.Contains("copy", StringComparison.OrdinalIgnoreCase)) continue;
+                    var found = PerTrackNone(f, out byte[]? fixedBytes);
+                    if (found.Count == 0) continue;
+                    bad++;
+                    Console.WriteLine($"{f}: {found.Count} track(s) in format 0, e.g. {string.Join(", ", found.Take(4))}");
+                    if (fixDir != null && fixedBytes != null)
+                    {
+                        Directory.CreateDirectory(fixDir);
+                        string outFile = Path.Combine(fixDir, fn);
+                        File.WriteAllBytes(outFile, fixedBytes);
+                        Console.WriteLine($"  fixed copy: {outFile} ({(PerTrackNone(outFile, out _).Count == 0 ? "checked: none left" : "STILL BAD")})");
+                    }
+                }
+                Console.WriteLine($"{files.Count} package(s) read, {bad} with format-0 per-track tracks");
+                return 0;
+            }
+            case "--move-targets-census":
+            {
+                // Read-only: every costume prototype grouped by hero (UsableBy), with why the Move pickers leave it out.
+                string? mgr = settings.ResolvedGameRoot(data);
+                if (mgr == null || !Settings.IsGameRoot(mgr) || Costume.All(mgr) is not { } mall) { Console.WriteLine("--move-targets-census  (needs the game folder)"); return 1; }
+                string mcooked = Settings.Cooked(mgr);
+                foreach (var c in mall.OrderBy(c => c.Hero ?? "~", StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Prototype, StringComparer.OrdinalIgnoreCase))
+                {
+                    string why = c.Hero == null ? "NO HERO (UsableBy)" : !File.Exists(Path.Combine(mcooked, c.Package)) ? "NO PACKAGE" : CostumeMove.IsBase(c) ? (c.IsDefault ? "base default" : "BASE CLASS") : "ok";
+                    if (why != "NO PACKAGE" && c.Hero != null && Environment.GetEnvironmentVariable("MHO_CENSUS_SUPER") == "1")
+                        try { why += " extends " + MaterialVariations.SuperOf(MhoPackageModifier.Package.Open(Path.Combine(mcooked, c.Package)), c.Class); } catch (Exception ex) { why += " (" + ex.Message + ")"; }
+                    Console.WriteLine($"{(c.Hero?.Replace('\\', '/').Split('/')[^1] ?? "-"),-40} {c.Short,-55} {c.Class,-45} {(c.IsDefault ? "D" : " ")} {why}");
+                }
+                return 0;
+            }
             case "--base-defaults":
             {
                 // Read-only: the heroes whose default costume is in their main package (its class is the hero's base class), so
@@ -2147,5 +2190,54 @@ static partial class Program
             }
         }
         return null;
+    }
+
+    /// <summary>Per-track animation tracks whose header says format 0 (ACF_None): "set.sequence:track" each, and a copy of the
+    /// file with every such translation track relabelled 1 (Float96NoW: the same three floats a key). Rotation tracks in
+    /// format 0 (four floats a key) can't be relabelled: listed, left as they are. Only uncompressed packages (ours) are fixed.</summary>
+    static List<string> PerTrackNone(string file, out byte[]? fixedBytes)
+    {
+        fixedBytes = null;
+        var list = new List<string>();
+        MhoPackageModifier.Package pkg;
+        try { pkg = MhoPackageModifier.Package.Open(file); } catch (Exception) { return list; }
+        byte[]? copy = null;
+        bool raw = pkg.RawFile.Length == pkg.Body.Length;
+        for (int i = 0; i < pkg.Exports.Length; i++)
+        {
+            var e = pkg.Exports[i];
+            if (!pkg.ClassOf(e).Equals("AnimSequence", StringComparison.OrdinalIgnoreCase)) continue;
+            byte[] d;
+            try { d = pkg.ReadExportBytes(e).ToArray(); } catch (Exception) { continue; }
+            var tags = MhoPackageModifier.TagWalker.Walk(pkg, d, 4);
+            if (tags?.FirstOrDefault(t => t.Name.Equals("KeyEncodingFormat", StringComparison.OrdinalIgnoreCase)) is not { } kf
+                || !MhoPackageModifier.TagWalker.NameAt(pkg, d, kf.ValueAt).Equals("AKF_PerTrackCompression", StringComparison.OrdinalIgnoreCase)) continue;
+            if (tags.FirstOrDefault(t => t.Name.Equals("CompressedTrackOffsets", StringComparison.OrdinalIgnoreCase)) is not { } ot) continue;
+            try
+            {
+                int p = tags.NoneAt + 8;
+                int rawCount = BitConverter.ToInt32(d, p); p += 4;
+                for (int k = 0; k < rawCount; k++) { int pc = BitConverter.ToInt32(d, p); p += 4 + pc * 12; int rc = BitConverter.ToInt32(d, p); p += 4 + rc * 16; }
+                int len = BitConverter.ToInt32(d, p); int stream = p + 4;
+                int n = BitConverter.ToInt32(d, ot.ValueAt);
+                for (int k = 0; k < n; k++)
+                {
+                    int off = BitConverter.ToInt32(d, ot.ValueAt + 4 + 4 * k);
+                    if (off < 0 || off + 4 > len) continue;
+                    uint h = BitConverter.ToUInt32(d, stream + off);
+                    if (h >> 28 != 0) continue;
+                    list.Add($"{pkg.PathOf(e)}:{(k % 2 == 0 ? "trans" : "rot")} {k / 2}");
+                    if (k % 2 == 0 && raw)
+                    {
+                        copy ??= (byte[])pkg.RawFile.Clone();
+                        int at = (int)e.SerialOffset + stream + off;
+                        BitConverter.GetBytes((h & 0x0FFFFFFFu) | (1u << 28)).CopyTo(copy, at);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException) { }
+        }
+        fixedBytes = copy;
+        return list;
     }
 }
